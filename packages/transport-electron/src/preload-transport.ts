@@ -59,6 +59,9 @@ export class ElectronPreloadTransport extends MessageTransportBase {
   }
 
   close(): void {
+    if (!this.isOpen) return;
+    this.port.onmessage = null;
+    this.port.onmessageerror = null;
     this.port.close();
     super.close();
   }

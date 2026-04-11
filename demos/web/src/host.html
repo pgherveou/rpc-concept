@@ -39,7 +39,13 @@
       They communicate via MessagePort.
     </p>
   </div>
-  <iframe id="client-frame" sandbox="allow-scripts allow-same-origin"></iframe>
+  <!--
+    SECURITY: Do NOT add allow-same-origin to this sandbox.
+    allow-same-origin would let the iframe access the host page's DOM
+    and storage, defeating the purpose of sandboxing. The iframe
+    communicates exclusively via the MessagePort passed through postMessage.
+  -->
+  <iframe id="client-frame" sandbox="allow-scripts"></iframe>
   <script type="module" src="host.js"></script>
 </body>
 </html>

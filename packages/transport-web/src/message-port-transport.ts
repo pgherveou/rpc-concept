@@ -50,11 +50,12 @@ export class MessagePortTransport extends MessageTransportBase {
 
   protected sendRaw(data: Uint8Array | string): void {
     if (data instanceof Uint8Array) {
-      // Transfer the underlying ArrayBuffer for zero-copy.
-      // Only slice if the Uint8Array is a view into a larger buffer.
-      const buffer = (data.byteOffset === 0 && data.byteLength === data.buffer.byteLength)
-        ? data.buffer
-        : data.buffer.slice(data.byteOffset, data.byteOffset + data.byteLength);
+      // Always slice to get an owned copy before transferring.
+      // Transferring neuters the underlying ArrayBuffer, which would
+      // corrupt the caller's data if the Uint8Array shares a buffer
+      // with other views (e.g., a pooled allocator or the encoder's
+      // internal buffer).
+      const buffer = data.buffer.slice(data.byteOffset, data.byteOffset + data.byteLength);
       this.port.postMessage(buffer, [buffer]);
     } else {
       this.port.postMessage(data);
@@ -62,6 +63,10 @@ export class MessagePortTransport extends MessageTransportBase {
   }
 
   close(): void {
+    // Null out handlers before closing so no further events fire
+    // after the port is closed and resources are cleaned up.
+    this.port.onmessage = null;
+    this.port.onmessageerror = null;
     this.port.close();
     super.close();
   }

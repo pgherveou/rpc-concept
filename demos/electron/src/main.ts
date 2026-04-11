@@ -8,17 +8,18 @@
  * Architecture:
  *   Main Process (this file)            Renderer Process
  *   ┌──────────────────────────┐       ┌──────────────────────────┐
- *   │ RpcServer                │       │ RpcClient                │
- *   │ HelloBridgeService impl  │◄─────►│ DemoServiceClient        │
+ *   │ RpcServer                │       │ (preload) RpcClient      │
+ *   │ HelloBridgeService impl  │◄─────►│ contextBridge proxies    │
  *   │ ElectronMainTransport    │  MP   │ ElectronPreloadTransport │
  *   └──────────────────────────┘       └──────────────────────────┘
  *
  * The main process creates a MessageChannelMain pair, keeps one port for itself
- * (wrapped in ElectronMainTransport), and sends the other to the renderer via
- * ipcMain. The preload script receives the port and exposes it to the renderer.
+ * (wrapped in ElectronMainTransport), and sends the other to the preload script.
+ * The preload creates the RPC client internally and exposes only serializable
+ * method proxies to the renderer via contextBridge.
  */
 
-import { app, BrowserWindow, MessageChannelMain, ipcMain } from 'electron';
+import { app, BrowserWindow, MessageChannelMain } from 'electron';
 import * as path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -144,8 +145,8 @@ async function* handleChat(
     };
     yield encodeMessage(response);
 
-    // Add a follow-up after a short delay
-    await delay(500);
+    // Add a follow-up after a short delay (pass signal for cleanup)
+    await delay(500, context.signal);
     responseSeq++;
     const followUp = {
       from: 'bot',
@@ -237,10 +238,26 @@ function setupBridge(win: BrowserWindow): void {
     logger.error('Server handshake failed:', err);
   });
 
-  // Send port2 to the renderer when it requests it
-  ipcMain.once('rpc-bridge-request-port', (event) => {
+  // Send port2 to the renderer/preload when it requests it (scoped to this window)
+  win.webContents.ipc.once('rpc-bridge-request-port', (event) => {
     logger.info('Renderer requested MessagePort, transferring...');
     event.sender.postMessage('rpc-bridge-port', null, [port2]);
+  });
+
+  // Clean up server and transport when the window is closed
+  win.on('closed', () => {
+    logger.info('Window closed, cleaning up server and transport...');
+    server.close();
+    mainTransport.close();
+  });
+
+  // Navigation guards: prevent navigating away from the app
+  win.webContents.on('will-navigate', (event) => {
+    event.preventDefault();
+  });
+
+  win.webContents.setWindowOpenHandler(() => {
+    return { action: 'deny' };
   });
 }
 

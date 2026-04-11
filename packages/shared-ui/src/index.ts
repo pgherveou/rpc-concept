@@ -238,10 +238,21 @@ export class DemoUIController {
   }
 }
 
+/** Escape a string for safe interpolation into HTML. */
+function escapeHtml(unsafe: string): string {
+  return unsafe
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#039;');
+}
+
 function buildHTML(platform: string): string {
+  const safePlatform = escapeHtml(platform);
   return `
 <div class="rpc-demo">
-  <h1>RPC Bridge Demo - ${platform}</h1>
+  <h1>RPC Bridge Demo - ${safePlatform}</h1>
 
   <section class="section">
     <h2>Unary RPC: SayHello</h2>

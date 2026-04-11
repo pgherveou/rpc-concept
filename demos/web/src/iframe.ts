@@ -24,8 +24,13 @@ window.addEventListener('message', async (event) => {
   if (event.data?.type !== 'rpc-bridge-init') return;
 
   // Validate the origin of the message to prevent rogue parents injecting ports.
-  // In production, set this to the exact expected host origin.
-  if (event.origin !== location.origin && event.origin !== 'null') {
+  // Note: We do NOT accept origin === 'null'. Sandboxed iframes without
+  // allow-same-origin have a null origin, but so do many other contexts.
+  // Accepting 'null' would allow any sandboxed or data:-URL frame to
+  // inject a port. Instead, compare against the actual expected host origin.
+  // When both sides are sandboxed (origin 'null'), rely on the MessagePort
+  // itself as the trust boundary -- only the real host can transfer it.
+  if (event.origin !== location.origin && location.origin !== 'null') {
     logger.warn(`Ignoring rpc-bridge-init from unexpected origin: ${event.origin}`);
     return;
   }

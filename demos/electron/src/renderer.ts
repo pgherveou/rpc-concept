@@ -1,175 +1,181 @@
 /**
  * Electron Demo - Renderer Process
  *
- * Runs in the BrowserWindow's renderer context. Obtains the MessagePort
- * exposed by the preload script, creates an RPC client transport, and
- * mounts the shared demo UI.
+ * Runs in the BrowserWindow's renderer context. Consumes the RPC API
+ * exposed by the preload script via contextBridge and adapts it into
+ * the DemoServiceClient interface expected by the shared demo UI.
  *
  * The renderer has no access to Node.js APIs (contextIsolation + sandbox).
- * All communication with the main process happens via the MessagePort-based
- * RPC bridge.
+ * All RPC work happens inside the preload; this file only deals with
+ * serializable proxies.
  */
 
-import { RpcClient, createConsoleLogger } from '@rpc-bridge/core';
-import { ElectronPreloadTransport } from '@rpc-bridge/transport-electron';
 import { createDemoUI, getDemoStyles, type DemoServiceClient } from '@rpc-bridge/shared-ui';
 
-/** Type declaration for the bridge API exposed by the preload script. */
+// ---------------------------------------------------------------------------
+// Type declaration for the bridge API exposed by the preload script
+// ---------------------------------------------------------------------------
+
 declare global {
   interface Window {
     rpcBridge: {
-      getPort(): Promise<MessagePort>;
+      sayHello(name: string): Promise<{ message: string; timestamp?: number }>;
+      watchGreeting(
+        name: string,
+        maxCount: number,
+        intervalMs: number,
+        callback: (event: { message: string; seq: number }) => void,
+      ): () => void;
+      startChat(
+        onMessage: (msg: { from: string; text: string; seq: number }) => void,
+      ): { send: (text: string) => void; stop: () => void };
     };
   }
 }
 
-const logger = createConsoleLogger('Renderer');
-
 // ---------------------------------------------------------------------------
-// Message encoding helpers (simple JSON as Uint8Array for the demo)
+// DemoServiceClient adapter wrapping the preload's exposed API
 // ---------------------------------------------------------------------------
 
-function encodeMessage(obj: Record<string, unknown>): Uint8Array {
-  return new TextEncoder().encode(JSON.stringify(obj));
-}
+const client: DemoServiceClient = {
+  async sayHello(request) {
+    return window.rpcBridge.sayHello(request.name);
+  },
 
-function decodeMessage(bytes: Uint8Array): Record<string, unknown> {
-  return JSON.parse(new TextDecoder().decode(bytes));
-}
+  /**
+   * Convert the callback-based watchGreeting API into an AsyncIterable.
+   */
+  async *watchGreeting(request) {
+    // Create a buffer + resolver pattern to bridge callback -> async iteration
+    const buffer: Array<{ message: string; seq: number }> = [];
+    let resolve: ((value: IteratorResult<{ message: string; seq: number }>) => void) | undefined;
+    let done = false;
 
-// ---------------------------------------------------------------------------
-// Client Setup
-// ---------------------------------------------------------------------------
+    const cancel = window.rpcBridge.watchGreeting(
+      request.name,
+      request.maxCount ?? 10,
+      request.intervalMs ?? 1000,
+      (event) => {
+        if (done) return;
+        if (resolve) {
+          const r = resolve;
+          resolve = undefined;
+          r({ done: false, value: event });
+        } else {
+          buffer.push(event);
+        }
+      },
+    );
 
-async function init(): Promise<void> {
-  logger.info('Waiting for MessagePort from preload...');
+    try {
+      while (!done) {
+        const result: IteratorResult<{ message: string; seq: number }> = buffer.length > 0
+          ? { done: false, value: buffer.shift()! }
+          : await new Promise<IteratorResult<{ message: string; seq: number }>>((r) => {
+              resolve = r;
+            });
 
-  // Obtain the MessagePort exposed by the preload script
-  const port = await window.rpcBridge.getPort();
-  logger.info('Received MessagePort, setting up RPC client...');
-
-  // Create the transport wrapping the MessagePort
-  const transport = new ElectronPreloadTransport({
-    port,
-    logger: createConsoleLogger('Renderer-Transport'),
-  });
-
-  // Create the RPC client and wait for the handshake
-  const rpcClient = new RpcClient({
-    transport,
-    logger: createConsoleLogger('Renderer-Client'),
-    skipHandshake: false,
-  });
-
-  await rpcClient.waitReady();
-  logger.info('Client handshake complete, ready for RPCs');
-
-  // ---------------------------------------------------------------------------
-  // Typed Client Wrapper
-  // ---------------------------------------------------------------------------
-
-  const client: DemoServiceClient = {
-    async sayHello(request) {
-      const result = await rpcClient.unary(
-        'demo.hello.v1.HelloBridgeService/SayHello',
-        encodeMessage(request),
-      );
-      return decodeMessage(result.data) as { message: string; timestamp?: number };
-    },
-
-    async *watchGreeting(request) {
-      const stream = rpcClient.serverStream(
-        'demo.hello.v1.HelloBridgeService/WatchGreeting',
-        encodeMessage(request),
-      );
-      for await (const bytes of stream) {
-        yield decodeMessage(bytes) as { message: string; seq: number };
+        if (result.done) break;
+        yield result.value;
       }
-    },
+    } finally {
+      done = true;
+      cancel();
+      // Unblock any pending promise
+      if (resolve) {
+        resolve({ done: true, value: undefined as unknown as { message: string; seq: number } });
+      }
+    }
+  },
 
-    chat(requests) {
-      // Transform typed request messages to raw bytes for the bidi stream
-      const byteRequests: AsyncIterable<Uint8Array> = {
-        [Symbol.asyncIterator]() {
-          const iter = requests[Symbol.asyncIterator]();
-          return {
-            async next() {
-              const result = await iter.next();
-              if (result.done) {
-                return { done: true, value: undefined as unknown as Uint8Array };
-              }
-              return {
-                done: false,
-                value: encodeMessage(result.value as Record<string, unknown>),
-              };
-            },
-            async return(value?: unknown) {
-              await iter.return?.(value);
-              return { done: true, value: undefined as unknown as Uint8Array };
-            },
-          };
-        },
-      };
+  /**
+   * Convert the send/stop/onMessage API into AsyncIterable in/out for bidi streaming.
+   */
+  chat(requests) {
+    // Buffer + resolver for incoming server messages
+    const inBuffer: Array<{ from: string; text: string; seq: number }> = [];
+    let inResolve: ((value: IteratorResult<{ from: string; text: string; seq: number }>) => void) | undefined;
+    let streamDone = false;
 
-      const rawStream = rpcClient.bidiStream(
-        'demo.hello.v1.HelloBridgeService/Chat',
-        byteRequests,
-      );
+    const controls = window.rpcBridge.startChat((msg) => {
+      if (streamDone) return;
+      if (inResolve) {
+        const r = inResolve;
+        inResolve = undefined;
+        r({ done: false, value: msg });
+      } else {
+        inBuffer.push(msg);
+      }
+    });
 
-      // Transform raw bytes back to typed response messages
-      return {
-        [Symbol.asyncIterator]() {
-          const iter = rawStream[Symbol.asyncIterator]();
-          return {
-            async next() {
-              const result = await iter.next();
-              if (result.done) {
-                return {
-                  done: true,
-                  value: undefined as unknown as { from: string; text: string; seq: number },
-                };
-              }
-              return {
-                done: false,
-                value: decodeMessage(result.value) as { from: string; text: string; seq: number },
-              };
-            },
-            async return(value?: unknown) {
-              await iter.return?.(value);
-              return {
-                done: true,
-                value: undefined as unknown as { from: string; text: string; seq: number },
-              };
-            },
-          };
-        },
-      };
-    },
-  };
+    // Forward outgoing messages from the requests iterable to the chat controls
+    (async () => {
+      try {
+        for await (const msg of requests) {
+          if (streamDone) break;
+          controls.send(msg.text);
+        }
+        // Input iterable exhausted -- signal stop
+        if (!streamDone) {
+          streamDone = true;
+          controls.stop();
+          if (inResolve) {
+            const r = inResolve;
+            inResolve = undefined;
+            r({ done: true, value: undefined as unknown as { from: string; text: string; seq: number } });
+          }
+        }
+      } catch {
+        // Input stream errored
+        if (!streamDone) {
+          streamDone = true;
+          controls.stop();
+        }
+      }
+    })();
 
-  // ---------------------------------------------------------------------------
-  // Mount the Shared Demo UI
-  // ---------------------------------------------------------------------------
-
-  const style = document.createElement('style');
-  style.textContent = getDemoStyles();
-  document.head.appendChild(style);
-
-  createDemoUI({
-    root: document.getElementById('app')!,
-    client,
-    platform: 'Electron',
-  });
-}
+    // Return an AsyncIterable that yields incoming server messages
+    type ChatMsg = { from: string; text: string; seq: number };
+    return {
+      [Symbol.asyncIterator]() {
+        return {
+          async next(): Promise<IteratorResult<ChatMsg>> {
+            if (streamDone && inBuffer.length === 0) {
+              return { done: true, value: undefined as unknown as ChatMsg };
+            }
+            if (inBuffer.length > 0) {
+              return { done: false, value: inBuffer.shift()! };
+            }
+            return new Promise<IteratorResult<ChatMsg>>((r) => {
+              inResolve = r;
+            });
+          },
+          async return(): Promise<IteratorResult<ChatMsg>> {
+            streamDone = true;
+            controls.stop();
+            if (inResolve) {
+              const r = inResolve;
+              inResolve = undefined;
+              r({ done: true, value: undefined as unknown as ChatMsg });
+            }
+            return { done: true, value: undefined as unknown as ChatMsg };
+          },
+        };
+      },
+    };
+  },
+};
 
 // ---------------------------------------------------------------------------
-// Boot
+// Mount the Shared Demo UI
 // ---------------------------------------------------------------------------
 
-init().catch((err) => {
-  logger.error('Failed to initialize renderer:', err);
-  const app = document.getElementById('app');
-  if (app) {
-    app.textContent = `Failed to initialize: ${err}`;
-  }
+const style = document.createElement('style');
+style.textContent = getDemoStyles();
+document.head.appendChild(style);
+
+createDemoUI({
+  root: document.getElementById('app')!,
+  client,
+  platform: 'Electron',
 });

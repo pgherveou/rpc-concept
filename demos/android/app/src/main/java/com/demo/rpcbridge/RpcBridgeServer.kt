@@ -133,7 +133,8 @@ class RpcBridgeServer(
     private val sendFrame: (RpcFrame) -> Unit,
 ) {
     private val services = mutableMapOf<String, ServiceRegistration>()
-    private val streams = mutableMapOf<Int, StreamInfo>()
+    private val streams = java.util.concurrent.ConcurrentHashMap<Int, StreamInfo>()
+    @Volatile
     private var handshakeComplete = false
 
     // --- Public API ---
@@ -148,6 +149,7 @@ class RpcBridgeServer(
      * Handle an incoming frame from the transport layer.
      * This is the main entry point called by [NativeBridgeTransport].
      */
+    @Synchronized
     fun handleFrame(frame: RpcFrame) {
         when (frame.type) {
             FrameType.HANDSHAKE -> handleHandshake(frame)

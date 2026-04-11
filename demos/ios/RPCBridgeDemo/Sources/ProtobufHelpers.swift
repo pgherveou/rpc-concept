@@ -183,10 +183,35 @@ struct ProtoWriter {
     }
 }
 
+// MARK: - Proto Decoding Errors
+
+/// Errors thrown when decoding malformed protobuf data.
+/// Using throwing errors instead of fatalError prevents malformed web
+/// content from crashing the host application.
+enum ProtoDecodingError: Error, CustomStringConvertible {
+    case varintTooLong
+    case unexpectedEndOfData(String)
+    case unknownWireType(UInt64)
+
+    var description: String {
+        switch self {
+        case .varintTooLong:
+            return "Varint exceeds maximum length (> 10 bytes)"
+        case .unexpectedEndOfData(let context):
+            return "Unexpected end of data \(context)"
+        case .unknownWireType(let wt):
+            return "Unknown wire type: \(wt)"
+        }
+    }
+}
+
 // MARK: - ProtoReader
 
 /// Low-level protobuf reader that parses wire-format-compatible binary data.
 /// Wire-compatible with the TypeScript ProtoReader in @rpc-bridge/core.
+/// All reading methods throw ProtoDecodingError on malformed input instead
+/// of calling fatalError, so that malformed data from web content cannot
+/// crash the app.
 struct ProtoReader {
     private let data: Data
     private var offset: Int = 0
@@ -201,13 +226,13 @@ struct ProtoReader {
     }
 
     /// Read a field tag (varint encoding of field number + wire type).
-    mutating func readTag() -> UInt64 {
-        return readVarint()
+    mutating func readTag() throws -> UInt64 {
+        return try readVarint()
     }
 
     /// Read a varint using LEB128 decoding.
     /// Handles values up to 64 bits, matching the TypeScript implementation.
-    mutating func readVarint() -> UInt64 {
+    mutating func readVarint() throws -> UInt64 {
         var result: UInt64 = 0
         var shift: UInt64 = 0
         while offset < data.count {
@@ -219,17 +244,17 @@ struct ProtoReader {
             }
             shift += 7
             if shift > 63 {
-                fatalError("Varint too long")
+                throw ProtoDecodingError.varintTooLong
             }
         }
-        fatalError("Unexpected end of data reading varint")
+        throw ProtoDecodingError.unexpectedEndOfData("reading varint")
     }
 
     /// Read a length-delimited byte sequence.
-    mutating func readBytes() -> Data {
-        let length = Int(readVarint())
+    mutating func readBytes() throws -> Data {
+        let length = Int(try readVarint())
         guard offset + length <= data.count else {
-            fatalError("Unexpected end of data reading bytes")
+            throw ProtoDecodingError.unexpectedEndOfData("reading bytes (need \(length), have \(data.count - offset))")
         }
         let start = data.startIndex.advanced(by: offset)
         let end = start.advanced(by: length)
@@ -239,31 +264,37 @@ struct ProtoReader {
     }
 
     /// Read a length-delimited UTF-8 string.
-    mutating func readString() -> String {
-        let bytes = readBytes()
+    mutating func readString() throws -> String {
+        let bytes = try readBytes()
         return String(data: bytes, encoding: .utf8) ?? ""
     }
 
     /// Skip an unknown field based on its wire type.
     /// This enables forward compatibility: unknown fields are silently ignored.
-    mutating func skipField(wireType: UInt64) {
+    mutating func skipField(wireType: UInt64) throws {
         switch wireType {
         case WireType.varint:
-            _ = readVarint()
+            _ = try readVarint()
         case WireType.fixed64:
+            guard offset + 8 <= data.count else {
+                throw ProtoDecodingError.unexpectedEndOfData("skipping fixed64")
+            }
             offset += 8
         case WireType.lengthDelimited:
-            _ = readBytes()
+            _ = try readBytes()
         case WireType.fixed32:
+            guard offset + 4 <= data.count else {
+                throw ProtoDecodingError.unexpectedEndOfData("skipping fixed32")
+            }
             offset += 4
         default:
-            fatalError("Unknown wire type: \(wireType)")
+            throw ProtoDecodingError.unknownWireType(wireType)
         }
     }
 
     /// Create a sub-reader for a length-delimited sub-message.
-    mutating func subReader() -> ProtoReader {
-        let bytes = readBytes()
+    mutating func subReader() throws -> ProtoReader {
+        let bytes = try readBytes()
         return ProtoReader(data: bytes)
     }
 }
@@ -361,84 +392,95 @@ extension RpcFrame {
 
     /// Decode an RpcFrame from protobuf wire format.
     /// Handles unknown fields gracefully for forward compatibility.
+    /// Returns a default frame if the data is malformed.
     static func decode(from data: Data) -> RpcFrame {
+        do {
+            return try decodeThrowing(from: data)
+        } catch {
+            // Return a default frame for malformed data rather than crashing
+            return RpcFrame()
+        }
+    }
+
+    /// Throwing variant of decode for callers that want to handle errors.
+    static func decodeThrowing(from data: Data) throws -> RpcFrame {
         var reader = ProtoReader(data: data)
         var frame = RpcFrame()
 
         while reader.hasMore() {
-            let tag = reader.readTag()
+            let tag = try reader.readTag()
             let fieldNumber = Int(tag >> 3)
             let wireType = tag & 0x7
 
             switch fieldNumber {
             case FieldNumber.type:
-                let rawValue = UInt32(reader.readVarint())
+                let rawValue = UInt32(try reader.readVarint())
                 frame.type = FrameType(rawValue: rawValue) ?? .unspecified
 
             case FieldNumber.streamId:
-                frame.streamId = UInt32(reader.readVarint())
+                frame.streamId = UInt32(try reader.readVarint())
 
             case FieldNumber.sequence:
-                frame.sequence = UInt32(reader.readVarint())
+                frame.sequence = UInt32(try reader.readVarint())
 
             case FieldNumber.payload:
-                frame.payload = reader.readBytes()
+                frame.payload = try reader.readBytes()
 
             case FieldNumber.metadata:
                 if frame.metadata == nil { frame.metadata = [:] }
-                let (k, v) = readStringMapEntry(reader: &reader)
+                let (k, v) = try readStringMapEntry(reader: &reader)
                 frame.metadata?[k] = v
 
             case FieldNumber.flags:
-                frame.flags = UInt32(reader.readVarint())
+                frame.flags = UInt32(try reader.readVarint())
 
             case FieldNumber.protocolVersion:
-                frame.protocolVersion = UInt32(reader.readVarint())
+                frame.protocolVersion = UInt32(try reader.readVarint())
 
             case FieldNumber.capabilities:
                 if frame.capabilities == nil { frame.capabilities = [] }
-                frame.capabilities?.append(reader.readString())
+                frame.capabilities?.append(try reader.readString())
 
             case FieldNumber.implementationId:
-                frame.implementationId = reader.readString()
+                frame.implementationId = try reader.readString()
 
             case FieldNumber.method:
-                frame.method = reader.readString()
+                frame.method = try reader.readString()
 
             case FieldNumber.deadlineMs:
-                frame.deadlineMs = reader.readVarint()
+                frame.deadlineMs = try reader.readVarint()
 
             case FieldNumber.methodType:
-                let rawValue = UInt32(reader.readVarint())
+                let rawValue = UInt32(try reader.readVarint())
                 frame.methodType = MethodType(rawValue: rawValue) ?? .unspecified
 
             case FieldNumber.errorCode:
-                frame.errorCode = UInt32(reader.readVarint())
+                frame.errorCode = UInt32(try reader.readVarint())
 
             case FieldNumber.errorMessage:
-                frame.errorMessage = reader.readString()
+                frame.errorMessage = try reader.readString()
 
             case FieldNumber.errorDetails:
-                frame.errorDetails = reader.readBytes()
+                frame.errorDetails = try reader.readBytes()
 
             case FieldNumber.requestN:
-                frame.requestN = UInt32(reader.readVarint())
+                frame.requestN = UInt32(try reader.readVarint())
 
             case FieldNumber.trailers:
                 if frame.trailers == nil { frame.trailers = [:] }
-                let (k, v) = readStringMapEntry(reader: &reader)
+                let (k, v) = try readStringMapEntry(reader: &reader)
                 frame.trailers?[k] = v
 
             case FieldNumber.extensions:
                 if frame.extensions == nil { frame.extensions = [:] }
-                let (k, v) = readBytesMapEntry(reader: &reader)
+                let (k, v) = try readBytesMapEntry(reader: &reader)
                 frame.extensions?[k] = v
 
             default:
                 // Unknown field: skip for forward compatibility.
                 // This allows newer protocol versions to add fields
                 // without breaking older implementations.
-                reader.skipField(wireType: wireType)
+                try reader.skipField(wireType: wireType)
             }
         }
 
@@ -461,19 +503,19 @@ private func writeStringMap(writer: inout ProtoWriter, fieldNumber: Int, map: [S
 }
 
 /// Decode a single string-string map entry from a length-delimited sub-message.
-private func readStringMapEntry(reader: inout ProtoReader) -> (String, String) {
-    var sub = reader.subReader()
+private func readStringMapEntry(reader: inout ProtoReader) throws -> (String, String) {
+    var sub = try reader.subReader()
     var key = ""
     var value = ""
     while sub.hasMore() {
-        let tag = sub.readTag()
+        let tag = try sub.readTag()
         let field = Int(tag >> 3)
         if field == 1 {
-            key = sub.readString()
+            key = try sub.readString()
         } else if field == 2 {
-            value = sub.readString()
+            value = try sub.readString()
         } else {
-            sub.skipField(wireType: tag & 0x7)
+            try sub.skipField(wireType: tag & 0x7)
         }
     }
     return (key, value)
@@ -488,19 +530,19 @@ private func writeBytesMapEntry(writer: inout ProtoWriter, fieldNumber: Int, key
 }
 
 /// Decode a single string-bytes map entry from a length-delimited sub-message.
-private func readBytesMapEntry(reader: inout ProtoReader) -> (String, Data) {
-    var sub = reader.subReader()
+private func readBytesMapEntry(reader: inout ProtoReader) throws -> (String, Data) {
+    var sub = try reader.subReader()
     var key = ""
     var value = Data()
     while sub.hasMore() {
-        let tag = sub.readTag()
+        let tag = try sub.readTag()
         let field = Int(tag >> 3)
         if field == 1 {
-            key = sub.readString()
+            key = try sub.readString()
         } else if field == 2 {
-            value = sub.readBytes()
+            value = try sub.readBytes()
         } else {
-            sub.skipField(wireType: tag & 0x7)
+            try sub.skipField(wireType: tag & 0x7)
         }
     }
     return (key, value)
@@ -633,16 +675,18 @@ struct HelloRequest: Sendable {
     static func decode(from data: Data) -> HelloRequest {
         var reader = ProtoReader(data: data)
         var msg = HelloRequest()
-        while reader.hasMore() {
-            let tag = reader.readTag()
-            let fieldNumber = Int(tag >> 3)
-            let wireType = tag & 0x7
-            switch fieldNumber {
-            case 1: msg.name = reader.readString()
-            case 2: msg.language = reader.readString()
-            default: reader.skipField(wireType: wireType)
+        do {
+            while reader.hasMore() {
+                let tag = try reader.readTag()
+                let fieldNumber = Int(tag >> 3)
+                let wireType = tag & 0x7
+                switch fieldNumber {
+                case 1: msg.name = try reader.readString()
+                case 2: msg.language = try reader.readString()
+                default: try reader.skipField(wireType: wireType)
+                }
             }
-        }
+        } catch { /* return partially decoded message */ }
         return msg
     }
 }
@@ -670,17 +714,19 @@ struct HelloResponse: Sendable {
     static func decode(from data: Data) -> HelloResponse {
         var reader = ProtoReader(data: data)
         var msg = HelloResponse()
-        while reader.hasMore() {
-            let tag = reader.readTag()
-            let fieldNumber = Int(tag >> 3)
-            let wireType = tag & 0x7
-            switch fieldNumber {
-            case 1: msg.message = reader.readString()
-            case 2: msg.timestamp = reader.readVarint()
-            case 3: msg.serverVersion = reader.readString()
-            default: reader.skipField(wireType: wireType)
+        do {
+            while reader.hasMore() {
+                let tag = try reader.readTag()
+                let fieldNumber = Int(tag >> 3)
+                let wireType = tag & 0x7
+                switch fieldNumber {
+                case 1: msg.message = try reader.readString()
+                case 2: msg.timestamp = try reader.readVarint()
+                case 3: msg.serverVersion = try reader.readString()
+                default: try reader.skipField(wireType: wireType)
+                }
             }
-        }
+        } catch { /* return partially decoded message */ }
         return msg
     }
 }
@@ -708,17 +754,19 @@ struct GreetingStreamRequest: Sendable {
     static func decode(from data: Data) -> GreetingStreamRequest {
         var reader = ProtoReader(data: data)
         var msg = GreetingStreamRequest()
-        while reader.hasMore() {
-            let tag = reader.readTag()
-            let fieldNumber = Int(tag >> 3)
-            let wireType = tag & 0x7
-            switch fieldNumber {
-            case 1: msg.name = reader.readString()
-            case 2: msg.maxCount = UInt32(reader.readVarint())
-            case 3: msg.intervalMs = UInt32(reader.readVarint())
-            default: reader.skipField(wireType: wireType)
+        do {
+            while reader.hasMore() {
+                let tag = try reader.readTag()
+                let fieldNumber = Int(tag >> 3)
+                let wireType = tag & 0x7
+                switch fieldNumber {
+                case 1: msg.name = try reader.readString()
+                case 2: msg.maxCount = UInt32(try reader.readVarint())
+                case 3: msg.intervalMs = UInt32(try reader.readVarint())
+                default: try reader.skipField(wireType: wireType)
+                }
             }
-        }
+        } catch { /* return partially decoded message */ }
         return msg
     }
 }
@@ -746,17 +794,19 @@ struct GreetingEvent: Sendable {
     static func decode(from data: Data) -> GreetingEvent {
         var reader = ProtoReader(data: data)
         var msg = GreetingEvent()
-        while reader.hasMore() {
-            let tag = reader.readTag()
-            let fieldNumber = Int(tag >> 3)
-            let wireType = tag & 0x7
-            switch fieldNumber {
-            case 1: msg.message = reader.readString()
-            case 2: msg.seq = reader.readVarint()
-            case 3: msg.timestamp = reader.readVarint()
-            default: reader.skipField(wireType: wireType)
+        do {
+            while reader.hasMore() {
+                let tag = try reader.readTag()
+                let fieldNumber = Int(tag >> 3)
+                let wireType = tag & 0x7
+                switch fieldNumber {
+                case 1: msg.message = try reader.readString()
+                case 2: msg.seq = try reader.readVarint()
+                case 3: msg.timestamp = try reader.readVarint()
+                default: try reader.skipField(wireType: wireType)
+                }
             }
-        }
+        } catch { /* return partially decoded message */ }
         return msg
     }
 }
@@ -788,18 +838,20 @@ struct ChatMessage: Sendable {
     static func decode(from data: Data) -> ChatMessage {
         var reader = ProtoReader(data: data)
         var msg = ChatMessage()
-        while reader.hasMore() {
-            let tag = reader.readTag()
-            let fieldNumber = Int(tag >> 3)
-            let wireType = tag & 0x7
-            switch fieldNumber {
-            case 1: msg.from = reader.readString()
-            case 2: msg.text = reader.readString()
-            case 3: msg.seq = reader.readVarint()
-            case 4: msg.timestamp = reader.readVarint()
-            default: reader.skipField(wireType: wireType)
+        do {
+            while reader.hasMore() {
+                let tag = try reader.readTag()
+                let fieldNumber = Int(tag >> 3)
+                let wireType = tag & 0x7
+                switch fieldNumber {
+                case 1: msg.from = try reader.readString()
+                case 2: msg.text = try reader.readString()
+                case 3: msg.seq = try reader.readVarint()
+                case 4: msg.timestamp = try reader.readVarint()
+                default: try reader.skipField(wireType: wireType)
+                }
             }
-        }
+        } catch { /* return partially decoded message */ }
         return msg
     }
 }
@@ -819,15 +871,17 @@ struct CollectNamesRequest: Sendable {
     static func decode(from data: Data) -> CollectNamesRequest {
         var reader = ProtoReader(data: data)
         var msg = CollectNamesRequest()
-        while reader.hasMore() {
-            let tag = reader.readTag()
-            let fieldNumber = Int(tag >> 3)
-            let wireType = tag & 0x7
-            switch fieldNumber {
-            case 1: msg.name = reader.readString()
-            default: reader.skipField(wireType: wireType)
+        do {
+            while reader.hasMore() {
+                let tag = try reader.readTag()
+                let fieldNumber = Int(tag >> 3)
+                let wireType = tag & 0x7
+                switch fieldNumber {
+                case 1: msg.name = try reader.readString()
+                default: try reader.skipField(wireType: wireType)
+                }
             }
-        }
+        } catch { /* return partially decoded message */ }
         return msg
     }
 }
@@ -851,16 +905,18 @@ struct CollectNamesResponse: Sendable {
     static func decode(from data: Data) -> CollectNamesResponse {
         var reader = ProtoReader(data: data)
         var msg = CollectNamesResponse()
-        while reader.hasMore() {
-            let tag = reader.readTag()
-            let fieldNumber = Int(tag >> 3)
-            let wireType = tag & 0x7
-            switch fieldNumber {
-            case 1: msg.message = reader.readString()
-            case 2: msg.count = UInt32(reader.readVarint())
-            default: reader.skipField(wireType: wireType)
+        do {
+            while reader.hasMore() {
+                let tag = try reader.readTag()
+                let fieldNumber = Int(tag >> 3)
+                let wireType = tag & 0x7
+                switch fieldNumber {
+                case 1: msg.message = try reader.readString()
+                case 2: msg.count = UInt32(try reader.readVarint())
+                default: try reader.skipField(wireType: wireType)
+                }
             }
-        }
+        } catch { /* return partially decoded message */ }
         return msg
     }
 }

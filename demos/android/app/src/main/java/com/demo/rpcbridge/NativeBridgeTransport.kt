@@ -42,6 +42,10 @@ class NativeBridgeTransport(
 ) {
     private val mainHandler = Handler(Looper.getMainLooper())
 
+    /** Guard flag to prevent evaluateJavascript calls after WebView is destroyed. */
+    @Volatile
+    private var closed = false
+
     /**
      * Listener invoked when a decoded frame arrives from the WebView.
      * Set this before the WebView loads content so no frames are missed.
@@ -57,6 +61,7 @@ class NativeBridgeTransport(
      * Note: This runs on a WebView background thread (not the main thread).
      */
     fun onReceiveFromWebView(base64: String) {
+        if (closed) return
         try {
             val frame = decodeFrameFromBase64(base64)
             Log.d(TAG, "Received frame: type=${frame.type}, stream=${frame.streamId}")
@@ -76,6 +81,7 @@ class NativeBridgeTransport(
      * main thread internally since evaluateJavascript requires it.
      */
     fun sendToWebView(frame: RpcFrame) {
+        if (closed) return
         try {
             val base64 = encodeFrameToBase64(frame)
             val js = "window.$callbackName('$base64')"
@@ -83,14 +89,27 @@ class NativeBridgeTransport(
             Log.d(TAG, "Sending frame: type=${frame.type}, stream=${frame.streamId}")
 
             if (Looper.myLooper() == Looper.getMainLooper()) {
-                webView.evaluateJavascript(js, null)
+                if (!closed) webView.evaluateJavascript(js, null)
             } else {
                 mainHandler.post {
-                    webView.evaluateJavascript(js, null)
+                    if (!closed) webView.evaluateJavascript(js, null)
                 }
             }
         } catch (e: Exception) {
             Log.e(TAG, "Failed to send frame to WebView: ${e.message}", e)
         }
+    }
+
+    // --- Lifecycle ---
+
+    /**
+     * Mark this transport as closed. After this call, no further
+     * evaluateJavascript calls will be made, preventing crashes when
+     * the WebView is destroyed.
+     */
+    fun close() {
+        closed = true
+        onFrame = null
+        Log.d(TAG, "Transport closed")
     }
 }

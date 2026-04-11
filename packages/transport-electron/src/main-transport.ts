@@ -20,6 +20,8 @@ export interface ElectronMessagePortMain {
   postMessage(message: unknown, transfer?: unknown[]): void;
   on(event: 'message', handler: (event: { data: unknown }) => void): this;
   on(event: 'close', handler: () => void): this;
+  off(event: 'message', handler: (event: { data: unknown }) => void): this;
+  off(event: 'close', handler: () => void): this;
   start(): void;
   close(): void;
 }
@@ -60,15 +62,16 @@ export class ElectronMainTransport extends MessageTransportBase {
 
   protected sendRaw(data: Uint8Array | string): void {
     if (data instanceof Uint8Array) {
-      // Send as Buffer (Node.js native) for efficiency
-      const buffer = Buffer.from(data.buffer, data.byteOffset, data.byteLength);
-      this.port.postMessage(buffer);
+      // Copy into a standalone ArrayBuffer and transfer it for zero-copy send
+      const copy = data.buffer.slice(data.byteOffset, data.byteOffset + data.byteLength);
+      this.port.postMessage(copy, [copy]);
     } else {
       this.port.postMessage(data);
     }
   }
 
   close(): void {
+    if (!this.isOpen) return;
     this.port.close();
     super.close();
   }

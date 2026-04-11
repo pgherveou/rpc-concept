@@ -197,7 +197,7 @@ export function decodeFrame(data: Uint8Array): RpcFrame {
         frame.payload = reader.readBytes();
         break;
       case FIELD_METADATA: {
-        if (!frame.metadata) frame.metadata = {};
+        if (!frame.metadata) frame.metadata = Object.create(null) as Record<string, string>;
         const [k, v] = readStringMapEntry(reader);
         frame.metadata[k] = v;
         break;
@@ -238,7 +238,7 @@ export function decodeFrame(data: Uint8Array): RpcFrame {
         frame.requestN = reader.readVarint();
         break;
       case FIELD_TRAILERS: {
-        if (!frame.trailers) frame.trailers = {};
+        if (!frame.trailers) frame.trailers = Object.create(null) as Record<string, string>;
         const [k, v] = readStringMapEntry(reader);
         frame.trailers[k] = v;
         break;

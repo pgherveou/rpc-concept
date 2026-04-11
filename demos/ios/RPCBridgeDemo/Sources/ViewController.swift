@@ -4,10 +4,36 @@
 import UIKit
 import WebKit
 
-class ViewController: UIViewController, WKScriptMessageHandler {
+// MARK: - ScriptMessageDelegate
+
+/// Weak-reference wrapper that forwards WKScriptMessageHandler calls to
+/// the NativeBridgeTransport. Using a separate delegate object avoids a
+/// retain cycle: WKUserContentController strongly retains its message
+/// handlers, so if ViewController were the handler it would never be
+/// deallocated while the WebView configuration is alive.
+private class ScriptMessageDelegate: NSObject, WKScriptMessageHandler {
+    private weak var transport: NativeBridgeTransport?
+
+    init(transport: NativeBridgeTransport) {
+        self.transport = transport
+        super.init()
+    }
+
+    func userContentController(
+        _ userContentController: WKUserContentController,
+        didReceive message: WKScriptMessage
+    ) {
+        transport?.userContentController(userContentController, didReceive: message)
+    }
+}
+
+// MARK: - ViewController
+
+class ViewController: UIViewController, WKNavigationDelegate {
     private var webView: WKWebView!
     private var transport: NativeBridgeTransport!
     private var server: RpcBridgeServer!
+    private var scriptMessageDelegate: ScriptMessageDelegate?
 
     override func viewDidLoad() {
         super.viewDidLoad()
@@ -16,14 +42,30 @@ class ViewController: UIViewController, WKScriptMessageHandler {
         setupBridge()
     }
 
+    override func viewWillAppear(_ animated: Bool) {
+        super.viewWillAppear(animated)
+        // Re-add the message handler when the view appears.
+        // This pairs with removal in viewWillDisappear to avoid leaking
+        // the handler when the view controller is off-screen.
+        if let delegate = scriptMessageDelegate {
+            webView?.configuration.userContentController
+                .add(delegate, name: "rpcBridge")
+        }
+    }
+
+    override func viewWillDisappear(_ animated: Bool) {
+        super.viewWillDisappear(animated)
+        // Remove the message handler to break the retain cycle while
+        // the view controller is not visible.
+        webView?.configuration.userContentController
+            .removeScriptMessageHandler(forName: "rpcBridge")
+    }
+
     // MARK: - WebView Setup
 
     private func setupWebView() {
         let config = WKWebViewConfiguration()
         let contentController = WKUserContentController()
-
-        // Register the script message handler for receiving frames from JS
-        contentController.add(self, name: "rpcBridge")
         config.userContentController = contentController
 
         // Allow inline media and auto-play for demo purposes
@@ -31,6 +73,7 @@ class ViewController: UIViewController, WKScriptMessageHandler {
 
         webView = WKWebView(frame: view.bounds, configuration: config)
         webView.autoresizingMask = [.flexibleWidth, .flexibleHeight]
+        webView.navigationDelegate = self
         view.addSubview(webView)
 
         // Load the embedded web UI
@@ -58,45 +101,46 @@ class ViewController: UIViewController, WKScriptMessageHandler {
         // Create the native transport that bridges WKWebView messages
         transport = NativeBridgeTransport(webView: webView)
 
-        // Create the RPC server
-        server = RpcBridgeServer(transport: transport)
+        // Create a weak-reference delegate for WKScriptMessageHandler
+        // to avoid retain cycles with WKUserContentController
+        scriptMessageDelegate = ScriptMessageDelegate(transport: transport)
+        webView.configuration.userContentController
+            .add(scriptMessageDelegate!, name: "rpcBridge")
 
-        // Register the hello service
+        // Create the hello service implementation
         let helloService = HelloServiceImpl()
-        server.registerService(
-            name: "demo.hello.v1.HelloBridgeService",
-            provider: helloService
-        )
 
-        // Start accepting connections (handshake)
-        Task {
-            do {
-                try await server.start()
-                print("[iOS] RPC server started, ready for connections")
-            } catch {
-                print("[iOS] Server start failed: \(error)")
-            }
-        }
+        // Create the RPC server using the actual API:
+        // init(service:sendFrame:)
+        server = RpcBridgeServer(service: helloService, sendFrame: { [weak self] frame in
+            self?.transport.sendFrameToJS(frame)
+        })
+
+        // Attach the server to the transport so incoming frames are routed
+        transport.attachServer(server)
+
+        print("[iOS] RPC bridge initialized, ready for connections")
     }
 
-    // MARK: - WKScriptMessageHandler
+    // MARK: - WKNavigationDelegate
 
-    func userContentController(
-        _ userContentController: WKUserContentController,
-        didReceive message: WKScriptMessage
+    /// Called when the webview finishes a navigation. Can be used to
+    /// re-initialize bridge state if the page reloads.
+    func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
+        print("[iOS] WebView finished navigation")
+    }
+
+    func webView(
+        _ webView: WKWebView,
+        didFail navigation: WKNavigation!,
+        withError error: Error
     ) {
-        // Receive base64-encoded frames from JavaScript
-        guard message.name == "rpcBridge",
-              let base64String = message.body as? String else {
-            return
-        }
-
-        transport.receiveFromWebView(base64String)
+        print("[iOS] WebView navigation failed: \(error.localizedDescription)")
     }
 
     deinit {
         webView?.configuration.userContentController
             .removeScriptMessageHandler(forName: "rpcBridge")
-        server?.stop()
+        transport?.tearDown()
     }
 }

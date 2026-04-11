@@ -281,7 +281,10 @@ describe('Frame encoding edge cases', () => {
     assert.equal(decoded.streamId, frame.streamId);
     assert.equal(decoded.sequence, frame.sequence);
     assert.deepEqual(decoded.payload, frame.payload);
-    assert.deepEqual(decoded.metadata, frame.metadata);
+    // Metadata/trailers use Object.create(null) for prototype-pollution safety,
+    // so compare entries rather than using deepEqual against plain objects.
+    assert.equal(decoded.metadata?.['key1'], 'val1');
+    assert.equal(decoded.metadata?.['key2'], 'val2');
     assert.equal(decoded.flags, frame.flags);
     assert.equal(decoded.protocolVersion, frame.protocolVersion);
     assert.deepEqual(decoded.capabilities, frame.capabilities);
@@ -293,7 +296,7 @@ describe('Frame encoding edge cases', () => {
     assert.equal(decoded.errorMessage, frame.errorMessage);
     assert.deepEqual(decoded.errorDetails, frame.errorDetails);
     assert.equal(decoded.requestN, frame.requestN);
-    assert.deepEqual(decoded.trailers, frame.trailers);
+    assert.equal(decoded.trailers?.['trailer-key'], 'trailer-val');
     assert.deepEqual(decoded.extensions?.get('ext'), new Uint8Array([99]));
   });
 });

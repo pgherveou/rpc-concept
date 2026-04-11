@@ -54,8 +54,10 @@ class MainActivity : AppCompatActivity() {
         webView.settings.javaScriptEnabled = true
         webView.settings.domStorageEnabled = true
 
-        // Debug: allow inspecting the WebView from Chrome DevTools
-        WebView.setWebContentsDebuggingEnabled(true)
+        // Debug: allow inspecting the WebView from Chrome DevTools (only in debug builds)
+        if (BuildConfig.DEBUG) {
+            WebView.setWebContentsDebuggingEnabled(true)
+        }
 
         // Forward console.log from the WebView to logcat
         webView.webChromeClient = object : WebChromeClient() {
@@ -89,18 +91,42 @@ class MainActivity : AppCompatActivity() {
         // 5. Add the @JavascriptInterface so JS can call into native code
         webView.addJavascriptInterface(RpcJavascriptInterface(transport), "RpcBridge")
 
-        // 6. Load the web content
-        webView.webViewClient = WebViewClient()
+        // 6. Load the web content with URL navigation restrictions
+        webView.webViewClient = object : WebViewClient() {
+            override fun shouldOverrideUrlLoading(
+                view: WebView,
+                request: android.webkit.WebResourceRequest,
+            ): Boolean {
+                val url = request.url.toString()
+                // Only allow loading from the local asset directory
+                if (url.startsWith("file:///android_asset/")) {
+                    return false // allow
+                }
+                Log.w(TAG, "Blocked navigation to: $url")
+                return true // block all other URLs
+            }
+        }
         webView.loadUrl("file:///android_asset/index.html")
 
         Log.i(TAG, "RPC bridge initialized, loading web content")
     }
 
     override fun onDestroy() {
-        super.onDestroy()
+        // Proper WebView teardown order:
+        // 1. Close transport to stop sending JS to a destroyed WebView
+        transport.close()
+        // 2. Close the RPC server (cancels all streams)
         server.close()
+        // 3. Cancel the coroutine scope
         rpcScope.cancel()
+        // 4. Remove from view hierarchy before destroying
+        webView.parent?.let { (it as? android.view.ViewGroup)?.removeView(webView) }
+        // 5. Remove the JavascriptInterface
+        webView.removeJavascriptInterface("RpcBridge")
+        // 6. Destroy the WebView
         webView.destroy()
+        // 7. Call super last
+        super.onDestroy()
     }
 
     // --- Service registration ---

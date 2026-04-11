@@ -706,66 +706,68 @@ function protobufHelpers(): string {
 
 /// Low-level protobuf writer that produces wire-format-compatible binary data.
 /// Compatible with the TypeScript ProtoWriter in @rpc-bridge/core.
-public struct ProtoWriter {
+/// Private to the namespace enum to avoid conflicts with module-level
+/// ProtoWriter/ProtoReader defined in ProtobufHelpers.swift.
+private struct ProtoWriter {
     private var data = Data()
 
-    public init() {}
+    init() {}
 
     // MARK: - Field writers
 
-    public mutating func writeVarintField(fieldNumber: Int, value: UInt64) {
+    mutating func writeVarintField(fieldNumber: Int, value: UInt64) {
         writeTag(fieldNumber: fieldNumber, wireType: 0)
         writeVarint(value)
     }
 
-    public mutating func writeBytesField(fieldNumber: Int, value: Data) {
+    mutating func writeBytesField(fieldNumber: Int, value: Data) {
         writeTag(fieldNumber: fieldNumber, wireType: 2)
         writeVarint(UInt64(value.count))
         data.append(value)
     }
 
-    public mutating func writeStringField(fieldNumber: Int, value: String) {
+    mutating func writeStringField(fieldNumber: Int, value: String) {
         let encoded = Data(value.utf8)
         writeBytesField(fieldNumber: fieldNumber, value: encoded)
     }
 
-    public mutating func writeFixed32Field(fieldNumber: Int, value: UInt32) {
+    mutating func writeFixed32Field(fieldNumber: Int, value: UInt32) {
         writeTag(fieldNumber: fieldNumber, wireType: 5)
         var v = value
         withUnsafeBytes(of: &v) { data.append(contentsOf: $0) }
     }
 
-    public mutating func writeFixed64Field(fieldNumber: Int, value: UInt64) {
+    mutating func writeFixed64Field(fieldNumber: Int, value: UInt64) {
         writeTag(fieldNumber: fieldNumber, wireType: 1)
         var v = value
         withUnsafeBytes(of: &v) { data.append(contentsOf: $0) }
     }
 
-    public mutating func writeFloatField(fieldNumber: Int, value: Float) {
+    mutating func writeFloatField(fieldNumber: Int, value: Float) {
         writeFixed32Field(fieldNumber: fieldNumber, value: value.bitPattern)
     }
 
-    public mutating func writeDoubleField(fieldNumber: Int, value: Double) {
+    mutating func writeDoubleField(fieldNumber: Int, value: Double) {
         writeFixed64Field(fieldNumber: fieldNumber, value: value.bitPattern)
     }
 
-    public mutating func writeSint32Field(fieldNumber: Int, value: Int32) {
+    mutating func writeSint32Field(fieldNumber: Int, value: Int32) {
         let encoded = UInt64((value << 1) ^ (value >> 31))
         writeVarintField(fieldNumber: fieldNumber, value: encoded)
     }
 
-    public mutating func writeSint64Field(fieldNumber: Int, value: Int64) {
+    mutating func writeSint64Field(fieldNumber: Int, value: Int64) {
         let encoded = UInt64(bitPattern: (value << 1) ^ (value >> 63))
         writeVarintField(fieldNumber: fieldNumber, value: encoded)
     }
 
     // MARK: - Primitives
 
-    public mutating func writeTag(fieldNumber: Int, wireType: Int) {
+    mutating func writeTag(fieldNumber: Int, wireType: Int) {
         writeVarint(UInt64((fieldNumber << 3) | wireType))
     }
 
-    public mutating func writeVarint(_ value: UInt64) {
+    mutating func writeVarint(_ value: UInt64) {
         var v = value
         while v > 0x7F {
             data.append(UInt8((v & 0x7F) | 0x80))
@@ -774,30 +776,32 @@ public struct ProtoWriter {
         data.append(UInt8(v & 0x7F))
     }
 
-    public func finish() -> Data {
+    func finish() -> Data {
         return data
     }
 }
 
 /// Low-level protobuf reader that parses wire-format-compatible binary data.
 /// Compatible with the TypeScript ProtoReader in @rpc-bridge/core.
-public struct ProtoReader {
+/// Private to the namespace enum to avoid conflicts with module-level
+/// ProtoWriter/ProtoReader defined in ProtobufHelpers.swift.
+private struct ProtoReader {
     private let data: Data
     private var offset: Int = 0
 
-    public init(data: Data) {
+    init(data: Data) {
         self.data = data
     }
 
-    public func hasMore() -> Bool {
+    func hasMore() -> Bool {
         return offset < data.count
     }
 
-    public mutating func readTag() -> UInt64 {
+    mutating func readTag() -> UInt64 {
         return readVarint()
     }
 
-    public mutating func readVarint() -> UInt64 {
+    mutating func readVarint() -> UInt64 {
         var result: UInt64 = 0
         var shift: UInt64 = 0
         while offset < data.count {
@@ -815,7 +819,7 @@ public struct ProtoReader {
         fatalError("Unexpected end of data reading varint")
     }
 
-    public mutating func readBytes() -> Data {
+    mutating func readBytes() -> Data {
         let length = Int(readVarint())
         guard offset + length <= data.count else {
             fatalError("Unexpected end of data reading bytes")
@@ -827,12 +831,12 @@ public struct ProtoReader {
         return Data(result)
     }
 
-    public mutating func readString() -> String {
+    mutating func readString() -> String {
         let bytes = readBytes()
         return String(data: bytes, encoding: .utf8) ?? ""
     }
 
-    public mutating func readFixed32() -> UInt32 {
+    mutating func readFixed32() -> UInt32 {
         guard offset + 4 <= data.count else { fatalError("Unexpected end of data reading fixed32") }
         var result: UInt32 = 0
         let start = data.startIndex.advanced(by: offset)
@@ -843,7 +847,7 @@ public struct ProtoReader {
         return UInt32(littleEndian: result)
     }
 
-    public mutating func readFixed64() -> UInt64 {
+    mutating func readFixed64() -> UInt64 {
         guard offset + 8 <= data.count else { fatalError("Unexpected end of data reading fixed64") }
         var result: UInt64 = 0
         let start = data.startIndex.advanced(by: offset)
@@ -854,25 +858,25 @@ public struct ProtoReader {
         return UInt64(littleEndian: result)
     }
 
-    public mutating func readFloat() -> Float {
+    mutating func readFloat() -> Float {
         return Float(bitPattern: readFixed32())
     }
 
-    public mutating func readDouble() -> Double {
+    mutating func readDouble() -> Double {
         return Double(bitPattern: readFixed64())
     }
 
-    public mutating func readSint32() -> Int32 {
+    mutating func readSint32() -> Int32 {
         let n = UInt32(readVarint())
         return Int32(bitPattern: (n >> 1) ^ (0 &- (n & 1)))
     }
 
-    public mutating func readSint64() -> Int64 {
+    mutating func readSint64() -> Int64 {
         let n = readVarint()
         return Int64(bitPattern: (n >> 1) ^ (0 &- (n & 1)))
     }
 
-    public mutating func skipField(wireType: UInt64) {
+    mutating func skipField(wireType: UInt64) {
         switch wireType {
         case 0: // varint
             _ = readVarint()
