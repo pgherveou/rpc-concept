@@ -1,0 +1,20 @@
+{
+  "name": "@rpc-bridge/codegen",
+  "version": "0.1.0",
+  "description": "Code generator for RPC bridge service stubs",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "type": "module",
+  "bin": {
+    "rpc-bridge-codegen": "dist/cli.js"
+  },
+  "files": ["dist"],
+  "scripts": {
+    "build": "tsc",
+    "generate": "node dist/cli.js --proto ../../proto/demo/hello/v1/hello.proto --ts-out ../../generated/ts/demo/hello/v1 --swift-out ../../generated/swift --kotlin-out ../../generated/kotlin",
+    "clean": "rm -rf dist"
+  },
+  "devDependencies": {
+    "typescript": "^5.4.0"
+  }
+}

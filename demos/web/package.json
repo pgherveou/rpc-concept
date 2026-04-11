@@ -1,0 +1,21 @@
+{
+  "name": "@rpc-bridge/demo-web",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Web demo: host page + sandboxed iframe",
+  "type": "module",
+  "scripts": {
+    "build": "tsc && node build.js",
+    "serve": "npx serve dist -p 3000",
+    "clean": "rm -rf dist"
+  },
+  "dependencies": {
+    "@rpc-bridge/core": "0.1.0",
+    "@rpc-bridge/transport-web": "0.1.0",
+    "@rpc-bridge/shared-ui": "0.1.0",
+    "@rpc-bridge/generated": "0.1.0"
+  },
+  "devDependencies": {
+    "typescript": "^5.4.0"
+  }
+}

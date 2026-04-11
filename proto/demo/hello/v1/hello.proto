@@ -1,0 +1,119 @@
+// Demo Hello Bridge Service
+// Demonstrates unary, server-streaming, client-streaming, and bidi-streaming RPCs.
+//
+// EVOLUTION GUIDELINES:
+// - New fields must use new field numbers (never reuse)
+// - Deprecated fields should be marked with [deprecated = true]
+// - New methods can be added to the service without breaking existing clients
+// - Removed methods should return UNIMPLEMENTED to old clients
+
+syntax = "proto3";
+
+package demo.hello.v1;
+
+// --- Unary RPC messages ---
+
+message HelloRequest {
+  // Name to greet.
+  string name = 1;
+
+  // Optional language preference (e.g., "en", "es", "fr").
+  string language = 2;
+
+  // Reserved for future extensions.
+  reserved 10 to 20;
+}
+
+message HelloResponse {
+  // The greeting message.
+  string message = 1;
+
+  // Server timestamp (millis since epoch).
+  uint64 timestamp = 2;
+
+  // Server version for debugging.
+  string server_version = 3;
+
+  reserved 10 to 20;
+}
+
+// --- Server-streaming RPC messages ---
+
+message GreetingStreamRequest {
+  // Name to include in greeting updates.
+  string name = 1;
+
+  // How many greeting events to produce (0 = unlimited until cancel).
+  uint32 max_count = 2;
+
+  // Interval between events in milliseconds (server may adjust).
+  uint32 interval_ms = 3;
+
+  reserved 10 to 20;
+}
+
+message GreetingEvent {
+  // The greeting message for this event.
+  string message = 1;
+
+  // Monotonically increasing sequence number.
+  uint64 seq = 2;
+
+  // Server timestamp.
+  uint64 timestamp = 3;
+
+  reserved 10 to 20;
+}
+
+// --- Client-streaming RPC messages ---
+
+message CollectNamesRequest {
+  // A name to add to the collection.
+  string name = 1;
+
+  reserved 10 to 20;
+}
+
+message CollectNamesResponse {
+  // Combined greeting for all collected names.
+  string message = 1;
+
+  // How many names were collected.
+  uint32 count = 2;
+
+  reserved 10 to 20;
+}
+
+// --- Bidi-streaming RPC messages ---
+
+message ChatMessage {
+  // Sender identifier.
+  string from = 1;
+
+  // Message text content.
+  string text = 2;
+
+  // Monotonically increasing sequence number.
+  uint64 seq = 3;
+
+  // Timestamp.
+  uint64 timestamp = 4;
+
+  reserved 10 to 20;
+}
+
+// HelloBridgeService demonstrates all four RPC patterns.
+// The web client calls these methods; the native host implements them.
+service HelloBridgeService {
+  // Unary: Simple request-response greeting.
+  rpc SayHello(HelloRequest) returns (HelloResponse);
+
+  // Server streaming: Continuous greeting events.
+  rpc WatchGreeting(GreetingStreamRequest) returns (stream GreetingEvent);
+
+  // Client streaming: Collect names, then return combined greeting.
+  rpc CollectNames(stream CollectNamesRequest) returns (CollectNamesResponse);
+
+  // Bidirectional streaming: Real-time chat.
+  rpc Chat(stream ChatMessage) returns (stream ChatMessage);
+}

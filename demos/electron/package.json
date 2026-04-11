@@ -1,0 +1,22 @@
+{
+  "name": "@rpc-bridge/demo-electron",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Electron demo: main process server + renderer client over MessagePort",
+  "type": "module",
+  "main": "dist/main.js",
+  "scripts": {
+    "build": "tsc",
+    "start": "npm run build && electron dist/main.js",
+    "clean": "rm -rf dist"
+  },
+  "dependencies": {
+    "@rpc-bridge/core": "0.1.0",
+    "@rpc-bridge/transport-electron": "0.1.0",
+    "@rpc-bridge/shared-ui": "0.1.0"
+  },
+  "devDependencies": {
+    "electron": "^30.0.0",
+    "typescript": "^5.4.0"
+  }
+}

@@ -1,0 +1,18 @@
+{
+  "name": "@rpc-bridge/generated",
+  "version": "0.1.0",
+  "description": "Generated code from proto definitions",
+  "main": "ts/demo/hello/v1/index.js",
+  "types": "ts/demo/hello/v1/index.d.ts",
+  "type": "module",
+  "scripts": {
+    "build": "tsc",
+    "clean": "rm -rf ts/**/*.js ts/**/*.d.ts ts/**/*.map"
+  },
+  "dependencies": {
+    "@rpc-bridge/core": "0.1.0"
+  },
+  "devDependencies": {
+    "typescript": "^5.4.0"
+  }
+}
