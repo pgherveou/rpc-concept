@@ -94,6 +94,8 @@ function writeFile(path: string, content: string): void {
   console.log(`  Wrote: ${path}`);
 }
 
+const KNOWN_FLAGS = new Set(['--proto', '--ts-out', '--swift-out', '--kotlin-out']);
+
 function parseArgs(args: string[]): {
   proto?: string;
   tsOut?: string;
@@ -102,17 +104,38 @@ function parseArgs(args: string[]): {
 } {
   const result: Record<string, string> = {};
   for (let i = 0; i < args.length; i++) {
-    switch (args[i]) {
+    const arg = args[i];
+    if (arg.startsWith('--') && !KNOWN_FLAGS.has(arg)) {
+      console.warn(`Warning: unknown argument '${arg}'`);
+      continue;
+    }
+    switch (arg) {
       case '--proto':
+        if (i + 1 >= args.length || args[i + 1].startsWith('--')) {
+          console.error(`Error: --proto requires a value`);
+          process.exit(1);
+        }
         result.proto = args[++i];
         break;
       case '--ts-out':
+        if (i + 1 >= args.length || args[i + 1].startsWith('--')) {
+          console.error(`Error: --ts-out requires a value`);
+          process.exit(1);
+        }
         result.tsOut = args[++i];
         break;
       case '--swift-out':
+        if (i + 1 >= args.length || args[i + 1].startsWith('--')) {
+          console.error(`Error: --swift-out requires a value`);
+          process.exit(1);
+        }
         result.swiftOut = args[++i];
         break;
       case '--kotlin-out':
+        if (i + 1 >= args.length || args[i + 1].startsWith('--')) {
+          console.error(`Error: --kotlin-out requires a value`);
+          process.exit(1);
+        }
         result.kotlinOut = args[++i];
         break;
     }

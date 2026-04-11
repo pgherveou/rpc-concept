@@ -36,28 +36,23 @@ function snakeToCamel(name: string): string {
   return name.replace(/_([a-z])/g, (_, ch) => ch.toUpperCase());
 }
 
-/** Indent every line in `text` by `n` spaces. */
-function indent(text: string, n: number): string {
-  const pad = ' '.repeat(n);
-  return text
-    .split('\n')
-    .map((line) => (line.length > 0 ? pad + line : line))
-    .join('\n');
-}
-
 // ---------------------------------------------------------------------------
 // Proto-type -> TypeScript-type mapping
 // ---------------------------------------------------------------------------
 
 /**
  * Protobuf wire types used for encoding.
- *   0 = varint (uint32, uint64, int32, int64, bool, enum)
+ *   0 = varint (uint32, uint64, int32, int64, sint32, sint64, bool, enum)
+ *   1 = 64-bit fixed (double, fixed64, sfixed64)
  *   2 = length-delimited (string, bytes, embedded messages)
+ *   5 = 32-bit fixed (float, fixed32, sfixed32)
  */
 
 interface TypeMapping {
   tsType: string;
   wireType: number;
+  /** The original protobuf type name (needed for correct encode/decode method selection). */
+  protoType: string;
   /** true when the type is a user-defined message (needs recursive encode/decode) */
   isMessage: boolean;
   /** true when the type is an enum (encoded as varint, represented as number) */
@@ -71,33 +66,37 @@ function resolveType(
 ): TypeMapping {
   switch (protoType) {
     case 'string':
-      return { tsType: 'string', wireType: 2, isMessage: false, isEnum: false };
+      return { tsType: 'string', wireType: 2, protoType, isMessage: false, isEnum: false };
     case 'bytes':
-      return { tsType: 'Uint8Array', wireType: 2, isMessage: false, isEnum: false };
+      return { tsType: 'Uint8Array', wireType: 2, protoType, isMessage: false, isEnum: false };
     case 'bool':
-      return { tsType: 'boolean', wireType: 0, isMessage: false, isEnum: false };
+      return { tsType: 'boolean', wireType: 0, protoType, isMessage: false, isEnum: false };
     case 'uint32':
     case 'int32':
+      return { tsType: 'number', wireType: 0, protoType, isMessage: false, isEnum: false };
     case 'sint32':
-    case 'fixed32':
-    case 'sfixed32':
-      return { tsType: 'number', wireType: 0, isMessage: false, isEnum: false };
+    case 'sint64':
+      return { tsType: 'number', wireType: 0, protoType, isMessage: false, isEnum: false };
     case 'uint64':
     case 'int64':
-    case 'sint64':
+      return { tsType: 'number', wireType: 0, protoType, isMessage: false, isEnum: false };
+    case 'fixed32':
+    case 'sfixed32':
+      return { tsType: 'number', wireType: 5, protoType, isMessage: false, isEnum: false };
     case 'fixed64':
     case 'sfixed64':
-      return { tsType: 'number', wireType: 0, isMessage: false, isEnum: false };
+      return { tsType: 'number', wireType: 1, protoType, isMessage: false, isEnum: false };
     case 'float':
+      return { tsType: 'number', wireType: 5, protoType, isMessage: false, isEnum: false };
     case 'double':
-      return { tsType: 'number', wireType: 0, isMessage: false, isEnum: false };
+      return { tsType: 'number', wireType: 1, protoType, isMessage: false, isEnum: false };
     default:
       // User-defined enum or message
       if (knownEnums.has(protoType)) {
-        return { tsType: protoType, wireType: 0, isMessage: false, isEnum: true };
+        return { tsType: protoType, wireType: 0, protoType, isMessage: false, isEnum: true };
       }
       // Assume it is a message type (length-delimited)
-      return { tsType: protoType, wireType: 2, isMessage: true, isEnum: false };
+      return { tsType: protoType, wireType: 2, protoType, isMessage: true, isEnum: false };
   }
 }
 
@@ -224,7 +223,15 @@ function generateMessageClass(
       lines.push('  ' + generateSingleEncodeStatement(f, tm, camel));
       lines.push('    }');
     } else {
-      lines.push(generateSingleEncodeStatement(f, tm, camel));
+      // Proto3 zero-value elision: skip encoding when value equals the default
+      const guard = proto3ZeroGuard(f, tm, camel);
+      if (guard) {
+        lines.push(`    if (${guard}) {`);
+        lines.push('  ' + generateSingleEncodeStatement(f, tm, camel));
+        lines.push('    }');
+      } else {
+        lines.push(generateSingleEncodeStatement(f, tm, camel));
+      }
     }
   }
   lines.push('    return w.finish();');
@@ -275,15 +282,30 @@ function generateSingleEncodeStatement(
   if (tm.isEnum) {
     return `    w.writeVarintField(${f.number}, msg.${camel} as number);`;
   }
-  switch (tm.tsType) {
+  switch (tm.protoType) {
     case 'string':
       return `    w.writeStringField(${f.number}, msg.${camel});`;
-    case 'number':
-      return `    w.writeVarintField(${f.number}, msg.${camel});`;
-    case 'boolean':
-      return `    w.writeVarintField(${f.number}, msg.${camel} ? 1 : 0);`;
-    case 'Uint8Array':
+    case 'bytes':
       return `    w.writeBytesField(${f.number}, msg.${camel});`;
+    case 'bool':
+      return `    w.writeVarintField(${f.number}, msg.${camel} ? 1 : 0);`;
+    case 'float':
+    case 'fixed32':
+    case 'sfixed32':
+      return `    w.writeFixed32Field(${f.number}, msg.${camel});`;
+    case 'double':
+    case 'fixed64':
+    case 'sfixed64':
+      return `    w.writeFixed64Field(${f.number}, msg.${camel});`;
+    case 'sint32':
+      return `    w.writeSint32Field(${f.number}, msg.${camel});`;
+    case 'sint64':
+      return `    w.writeSint64Field(${f.number}, msg.${camel});`;
+    case 'uint32':
+    case 'int32':
+    case 'uint64':
+    case 'int64':
+      return `    w.writeVarintField(${f.number}, msg.${camel});`;
     default:
       return `    w.writeBytesField(${f.number}, ${tm.tsType}.encode(msg.${camel}));`;
   }
@@ -301,18 +323,37 @@ function generateRepeatedEncodeBlock(
   } else if (tm.isEnum) {
     lines.push(`      w.writeVarintField(${f.number}, item as number);`);
   } else {
-    switch (tm.tsType) {
+    switch (tm.protoType) {
       case 'string':
         lines.push(`      w.writeStringField(${f.number}, item);`);
         break;
-      case 'number':
-        lines.push(`      w.writeVarintField(${f.number}, item);`);
+      case 'bytes':
+        lines.push(`      w.writeBytesField(${f.number}, item);`);
         break;
-      case 'boolean':
+      case 'bool':
         lines.push(`      w.writeVarintField(${f.number}, item ? 1 : 0);`);
         break;
-      case 'Uint8Array':
-        lines.push(`      w.writeBytesField(${f.number}, item);`);
+      case 'float':
+      case 'fixed32':
+      case 'sfixed32':
+        lines.push(`      w.writeFixed32Field(${f.number}, item);`);
+        break;
+      case 'double':
+      case 'fixed64':
+      case 'sfixed64':
+        lines.push(`      w.writeFixed64Field(${f.number}, item);`);
+        break;
+      case 'sint32':
+        lines.push(`      w.writeSint32Field(${f.number}, item);`);
+        break;
+      case 'sint64':
+        lines.push(`      w.writeSint64Field(${f.number}, item);`);
+        break;
+      case 'uint32':
+      case 'int32':
+      case 'uint64':
+      case 'int64':
+        lines.push(`      w.writeVarintField(${f.number}, item);`);
         break;
       default:
         lines.push(`      w.writeBytesField(${f.number}, ${tm.tsType}.encode(item));`);
@@ -344,15 +385,34 @@ function generateReadExpression(tm: TypeMapping): string {
   if (tm.isEnum) {
     return `r.readVarint() as ${tm.tsType}`;
   }
-  switch (tm.tsType) {
+  switch (tm.protoType) {
     case 'string':
       return 'r.readString()';
-    case 'number':
-      return 'r.readVarint()';
-    case 'boolean':
-      return 'r.readVarint() !== 0';
-    case 'Uint8Array':
+    case 'bytes':
       return 'r.readBytes()';
+    case 'bool':
+      return 'r.readVarint() !== 0';
+    case 'float':
+      return 'r.readFloat()';
+    case 'double':
+      return 'r.readDouble()';
+    case 'fixed32':
+      return 'r.readFixed32()';
+    case 'sfixed32':
+      return 'r.readSfixed32()';
+    case 'fixed64':
+      return 'r.readFixed64()';
+    case 'sfixed64':
+      return 'r.readSfixed64()';
+    case 'sint32':
+      return 'r.readSint32()';
+    case 'sint64':
+      return 'r.readSint64()';
+    case 'uint32':
+    case 'int32':
+    case 'uint64':
+    case 'int64':
+      return 'r.readVarint()';
     default:
       return `${tm.tsType}.decode(r.readBytes())`;
   }
@@ -373,6 +433,38 @@ function fieldDefault(f: FieldDef, tm: TypeMapping): string {
       return 'new Uint8Array(0)';
     default:
       return `new ${tm.tsType}()`;
+  }
+}
+
+/**
+ * Return a JS condition expression that is truthy when the field is NOT the
+ * proto3 default value, or `null` for message types that are always encoded.
+ */
+function proto3ZeroGuard(f: FieldDef, tm: TypeMapping, camel: string): string | null {
+  if (tm.isMessage) return null; // messages are always encoded
+  if (tm.isEnum) return `msg.${camel} !== 0`;
+  switch (tm.protoType) {
+    case 'string':
+      return `msg.${camel} !== ''`;
+    case 'bytes':
+      return `msg.${camel}.length !== 0`;
+    case 'bool':
+      return `msg.${camel}`;
+    case 'uint32':
+    case 'int32':
+    case 'sint32':
+    case 'fixed32':
+    case 'sfixed32':
+    case 'uint64':
+    case 'int64':
+    case 'sint64':
+    case 'fixed64':
+    case 'sfixed64':
+    case 'float':
+    case 'double':
+      return `msg.${camel} !== 0`;
+    default:
+      return null;
   }
 }
 

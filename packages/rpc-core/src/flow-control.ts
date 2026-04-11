@@ -10,6 +10,8 @@
  * This prevents fast producers from overwhelming slow consumers.
  */
 
+import { CancelledError } from './errors.js';
+
 /** Default initial credits granted to a new stream. */
 export const DEFAULT_INITIAL_CREDITS = 16;
 
@@ -19,12 +21,18 @@ export const DEFAULT_REPLENISH_CREDITS = 16;
 /** When outstanding credits drop to this fraction, request more. */
 export const LOW_WATERMARK_RATIO = 0.25;
 
+/** Waiter entry storing both resolve and reject callbacks. */
+interface Waiter {
+  resolve: () => void;
+  reject: (err: Error) => void;
+}
+
 /**
  * Tracks send-side credits. The sender uses this to know when it can send.
  */
 export class SendFlowController {
   private credits = 0;
-  private waiters: Array<() => void> = [];
+  private waiters: Waiter[] = [];
 
   /** Current available credits */
   get available(): number {
@@ -37,7 +45,8 @@ export class SendFlowController {
     // Wake up any waiters
     while (this.waiters.length > 0 && this.credits > 0) {
       const waiter = this.waiters.shift()!;
-      waiter();
+      this.credits--;
+      waiter.resolve();
     }
   }
 
@@ -54,19 +63,30 @@ export class SendFlowController {
 
     // Wait for credits
     return new Promise<void>((resolve, reject) => {
+      const waiter: Waiter = { resolve, reject };
+
       const onAbort = () => {
         const idx = this.waiters.indexOf(waiter);
         if (idx >= 0) this.waiters.splice(idx, 1);
         reject(signal!.reason ?? new Error('Aborted'));
       };
 
-      const waiter = () => {
-        this.credits--;
+      signal?.addEventListener('abort', onAbort, { once: true });
+
+      // Wrap resolve to also remove abort listener
+      const originalResolve = waiter.resolve;
+      waiter.resolve = () => {
         signal?.removeEventListener('abort', onAbort);
-        resolve();
+        originalResolve();
       };
 
-      signal?.addEventListener('abort', onAbort, { once: true });
+      // Wrap reject to also remove abort listener
+      const originalReject = waiter.reject;
+      waiter.reject = (err: Error) => {
+        signal?.removeEventListener('abort', onAbort);
+        originalReject(err);
+      };
+
       this.waiters.push(waiter);
     });
   }
@@ -80,12 +100,13 @@ export class SendFlowController {
     return false;
   }
 
-  /** Cancel all pending waiters. */
+  /** Cancel all pending waiters, rejecting them with CancelledError. */
   cancel(): void {
     const waiters = this.waiters.splice(0);
-    // Don't call waiters - they'll be cleaned up by abort signals
-    // Just clear the array so no new resolutions happen
-    void waiters;
+    const err = new CancelledError('Flow controller cancelled');
+    for (const waiter of waiters) {
+      waiter.reject(err);
+    }
   }
 }
 
@@ -95,6 +116,7 @@ export class SendFlowController {
 export class ReceiveFlowController {
   private granted: number;
   private consumed = 0;
+  private readonly initialCredits: number;
   private readonly lowWatermark: number;
   private readonly replenishAmount: number;
 
@@ -102,14 +124,15 @@ export class ReceiveFlowController {
     initialCredits: number = DEFAULT_INITIAL_CREDITS,
     replenishAmount: number = DEFAULT_REPLENISH_CREDITS,
   ) {
+    this.initialCredits = initialCredits;
     this.granted = initialCredits;
     this.replenishAmount = replenishAmount;
     this.lowWatermark = Math.max(1, Math.floor(initialCredits * LOW_WATERMARK_RATIO));
   }
 
   /** Initial credits to advertise to the sender. */
-  get initialCredits(): number {
-    return this.granted;
+  get initialCreditCount(): number {
+    return this.initialCredits;
   }
 
   /**
@@ -127,9 +150,9 @@ export class ReceiveFlowController {
     return 0;
   }
 
-  /** Reset the controller. */
+  /** Reset the controller, restoring to initial credits. */
   reset(): void {
     this.consumed = 0;
-    this.granted = DEFAULT_INITIAL_CREDITS;
+    this.granted = this.initialCredits;
   }
 }

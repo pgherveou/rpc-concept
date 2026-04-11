@@ -39,14 +39,15 @@ const DEFAULT_CALLBACK_NAME = '__rpcBridgeReceive';
 
 export class AndroidWebViewTransport extends MessageTransportBase {
   private readonly interfaceName: string;
+  private readonly callbackName: string;
 
   constructor(options: AndroidWebViewTransportOptions = {}) {
     super(FrameEncoding.BASE64, options.logger);
     this.interfaceName = options.interfaceName ?? DEFAULT_INTERFACE_NAME;
-    const callbackName = options.callbackName ?? DEFAULT_CALLBACK_NAME;
+    this.callbackName = options.callbackName ?? DEFAULT_CALLBACK_NAME;
 
     // Register global callback for receiving messages from native
-    (window as Record<string, unknown>)[callbackName] = (base64Frame: string) => {
+    (window as Record<string, unknown>)[this.callbackName] = (base64Frame: string) => {
       this.handleRawMessage(base64Frame);
     };
 
@@ -61,15 +62,19 @@ export class AndroidWebViewTransport extends MessageTransportBase {
   }
 
   protected sendRaw(data: Uint8Array | string): void {
-    const base64 = typeof data === 'string' ? data : '';
+    if (typeof data !== 'string') {
+      throw new Error('Expected base64 string but received binary data');
+    }
     const bridge = window[this.interfaceName] as Record<string, unknown> | undefined;
     if (!bridge || typeof bridge.sendFrame !== 'function') {
       throw new Error(`Android bridge interface '${this.interfaceName}' not available`);
     }
-    (bridge.sendFrame as (s: string) => void)(base64);
+    (bridge.sendFrame as (s: string) => void)(data);
   }
 
   close(): void {
+    // Remove the global callback to prevent memory leaks
+    delete (window as Record<string, unknown>)[this.callbackName];
     super.close();
   }
 }

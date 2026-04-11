@@ -28,19 +28,19 @@ export enum RpcStatusCode {
 export class RpcError extends Error {
   public readonly code: RpcStatusCode;
   public readonly details?: Uint8Array;
-  public readonly metadata: Map<string, string>;
+  public readonly metadata: Record<string, string>;
 
   constructor(
     code: RpcStatusCode,
     message: string,
     details?: Uint8Array,
-    metadata?: Map<string, string>,
+    metadata?: Record<string, string>,
   ) {
     super(message);
     this.name = 'RpcError';
     this.code = code;
     this.details = details;
-    this.metadata = metadata ?? new Map();
+    this.metadata = metadata ?? {};
     // Restore prototype chain for instanceof checks
     Object.setPrototypeOf(this, RpcError.prototype);
   }

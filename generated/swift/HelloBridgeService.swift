@@ -31,6 +31,36 @@ public struct ProtoWriter {
         writeBytesField(fieldNumber: fieldNumber, value: encoded)
     }
 
+    public mutating func writeFixed32Field(fieldNumber: Int, value: UInt32) {
+        writeTag(fieldNumber: fieldNumber, wireType: 5)
+        var v = value
+        withUnsafeBytes(of: &v) { data.append(contentsOf: $0) }
+    }
+
+    public mutating func writeFixed64Field(fieldNumber: Int, value: UInt64) {
+        writeTag(fieldNumber: fieldNumber, wireType: 1)
+        var v = value
+        withUnsafeBytes(of: &v) { data.append(contentsOf: $0) }
+    }
+
+    public mutating func writeFloatField(fieldNumber: Int, value: Float) {
+        writeFixed32Field(fieldNumber: fieldNumber, value: value.bitPattern)
+    }
+
+    public mutating func writeDoubleField(fieldNumber: Int, value: Double) {
+        writeFixed64Field(fieldNumber: fieldNumber, value: value.bitPattern)
+    }
+
+    public mutating func writeSint32Field(fieldNumber: Int, value: Int32) {
+        let encoded = UInt64((value << 1) ^ (value >> 31))
+        writeVarintField(fieldNumber: fieldNumber, value: encoded)
+    }
+
+    public mutating func writeSint64Field(fieldNumber: Int, value: Int64) {
+        let encoded = UInt64(bitPattern: (value << 1) ^ (value >> 63))
+        writeVarintField(fieldNumber: fieldNumber, value: encoded)
+    }
+
     // MARK: - Primitives
 
     public mutating func writeTag(fieldNumber: Int, wireType: Int) {
@@ -102,6 +132,46 @@ public struct ProtoReader {
     public mutating func readString() -> String {
         let bytes = readBytes()
         return String(data: bytes, encoding: .utf8) ?? ""
+    }
+
+    public mutating func readFixed32() -> UInt32 {
+        guard offset + 4 <= data.count else { fatalError("Unexpected end of data reading fixed32") }
+        var result: UInt32 = 0
+        let start = data.startIndex.advanced(by: offset)
+        _ = withUnsafeMutableBytes(of: &result) { buf in
+            data.copyBytes(to: buf, from: start..<start.advanced(by: 4))
+        }
+        offset += 4
+        return UInt32(littleEndian: result)
+    }
+
+    public mutating func readFixed64() -> UInt64 {
+        guard offset + 8 <= data.count else { fatalError("Unexpected end of data reading fixed64") }
+        var result: UInt64 = 0
+        let start = data.startIndex.advanced(by: offset)
+        _ = withUnsafeMutableBytes(of: &result) { buf in
+            data.copyBytes(to: buf, from: start..<start.advanced(by: 8))
+        }
+        offset += 8
+        return UInt64(littleEndian: result)
+    }
+
+    public mutating func readFloat() -> Float {
+        return Float(bitPattern: readFixed32())
+    }
+
+    public mutating func readDouble() -> Double {
+        return Double(bitPattern: readFixed64())
+    }
+
+    public mutating func readSint32() -> Int32 {
+        let n = UInt32(readVarint())
+        return Int32(bitPattern: (n >> 1) ^ (0 &- (n & 1)))
+    }
+
+    public mutating func readSint64() -> Int64 {
+        let n = readVarint()
+        return Int64(bitPattern: (n >> 1) ^ (0 &- (n & 1)))
     }
 
     public mutating func skipField(wireType: UInt64) {
@@ -468,16 +538,22 @@ public enum DemoHelloV1 {
         }
     }
 
+    public enum DispatchResult: Sendable {
+        case unary(Data)
+        case stream(AsyncThrowingStream<Data, Error>)
+    }
+
+    public enum DispatchError: Error, Sendable {
+        case unknownMethod(String)
+        case missingRequestData
+        case missingRequestStream
+    }
+
     public protocol HelloBridgeServiceProvider: Sendable {
         func sayHello(_ request: HelloRequest) async throws -> HelloResponse
         func watchGreeting(_ request: GreetingStreamRequest) -> AsyncThrowingStream<GreetingEvent, Error>
         func collectNames(_ requests: AsyncStream<CollectNamesRequest>) async throws -> CollectNamesResponse
         func chat(_ requests: AsyncStream<ChatMessage>) -> AsyncThrowingStream<ChatMessage, Error>
-    }
-
-    public enum DispatchResult: Sendable {
-        case unary(Data)
-        case stream(AsyncThrowingStream<Data, Error>)
     }
 
     public final class HelloBridgeServiceDispatcher: @unchecked Sendable {
@@ -563,11 +639,5 @@ public enum DemoHelloV1 {
                 throw DispatchError.unknownMethod(method)
             }
         }
-    }
-
-    public enum DispatchError: Error, Sendable {
-        case unknownMethod(String)
-        case missingRequestData
-        case missingRequestStream
     }
 }

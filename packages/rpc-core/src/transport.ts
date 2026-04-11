@@ -29,8 +29,8 @@ export interface Transport {
   /** Send a frame to the peer. */
   send(frame: RpcFrame): void;
 
-  /** Register a handler for incoming frames. */
-  onFrame(handler: FrameHandler): void;
+  /** Register a handler for incoming frames. Returns an unsubscribe function. */
+  onFrame(handler: FrameHandler): () => void;
 
   /** Register a handler for transport-level errors. */
   onError(handler: TransportErrorHandler): void;
@@ -110,8 +110,14 @@ export abstract class MessageTransportBase implements Transport {
       const frame = decodeFrame(bytes);
       this.logger.debug(`RX frame type=${frame.type} stream=${frame.streamId} seq=${frame.sequence} (${bytes.length} bytes)`);
 
-      for (const handler of this.frameHandlers) {
-        handler(frame);
+      // Snapshot handlers to avoid issues if handlers modify the array
+      const handlers = [...this.frameHandlers];
+      for (const handler of handlers) {
+        try {
+          handler(frame);
+        } catch (err) {
+          this.logger.error('Frame handler error:', err);
+        }
       }
     } catch (err) {
       const error = err instanceof Error ? err : new Error(String(err));
@@ -120,8 +126,12 @@ export abstract class MessageTransportBase implements Transport {
     }
   }
 
-  onFrame(handler: FrameHandler): void {
+  onFrame(handler: FrameHandler): () => void {
     this.frameHandlers.push(handler);
+    return () => {
+      const idx = this.frameHandlers.indexOf(handler);
+      if (idx >= 0) this.frameHandlers.splice(idx, 1);
+    };
   }
 
   onError(handler: TransportErrorHandler): void {
@@ -137,7 +147,11 @@ export abstract class MessageTransportBase implements Transport {
     this._isOpen = false;
     this.logger.info('Transport closed');
     for (const handler of this.closeHandlers) {
-      handler();
+      try {
+        handler();
+      } catch (err) {
+        this.logger.error('Close handler error:', err);
+      }
     }
     this.frameHandlers = [];
     this.errorHandlers = [];
@@ -146,7 +160,11 @@ export abstract class MessageTransportBase implements Transport {
 
   protected emitError(error: Error): void {
     for (const handler of this.errorHandlers) {
-      handler(error);
+      try {
+        handler(error);
+      } catch (err) {
+        this.logger.error('Error handler threw:', err);
+      }
     }
   }
 }
@@ -154,7 +172,6 @@ export abstract class MessageTransportBase implements Transport {
 // --- Base64 utilities ---
 
 export function uint8ArrayToBase64(bytes: Uint8Array): string {
-  // Use built-in btoa if available (browser + modern Node)
   if (typeof btoa === 'function') {
     let binary = '';
     for (let i = 0; i < bytes.length; i++) {
@@ -162,7 +179,6 @@ export function uint8ArrayToBase64(bytes: Uint8Array): string {
     }
     return btoa(binary);
   }
-  // Node.js Buffer fallback
   return Buffer.from(bytes).toString('base64');
 }
 
@@ -175,7 +191,6 @@ export function base64ToUint8Array(base64: string): Uint8Array {
     }
     return bytes;
   }
-  // Node.js Buffer fallback
   return new Uint8Array(Buffer.from(base64, 'base64'));
 }
 
@@ -209,7 +224,6 @@ class LoopbackTransport extends MessageTransportBase {
     if (!this.peer || !this.peer.isOpen) {
       throw new Error(`Loopback peer (${this.side}) is not connected`);
     }
-    // Simulate async delivery (microtask)
     const rawData = data;
     queueMicrotask(() => {
       if (this.peer?.isOpen) {

@@ -23,8 +23,12 @@ export class HelloRequest implements IHelloRequest {
   /** Encode this message to protobuf binary format. */
   static encode(msg: IHelloRequest): Uint8Array {
     const w = new ProtoWriter();
-    w.writeStringField(1, msg.name);
-    w.writeStringField(2, msg.language);
+    if (msg.name !== '') {
+      w.writeStringField(1, msg.name);
+    }
+    if (msg.language !== '') {
+      w.writeStringField(2, msg.language);
+    }
     return w.finish();
   }
 
@@ -75,9 +79,15 @@ export class HelloResponse implements IHelloResponse {
   /** Encode this message to protobuf binary format. */
   static encode(msg: IHelloResponse): Uint8Array {
     const w = new ProtoWriter();
-    w.writeStringField(1, msg.message);
-    w.writeVarintField(2, msg.timestamp);
-    w.writeStringField(3, msg.serverVersion);
+    if (msg.message !== '') {
+      w.writeStringField(1, msg.message);
+    }
+    if (msg.timestamp !== 0) {
+      w.writeVarintField(2, msg.timestamp);
+    }
+    if (msg.serverVersion !== '') {
+      w.writeStringField(3, msg.serverVersion);
+    }
     return w.finish();
   }
 
@@ -132,9 +142,15 @@ export class GreetingStreamRequest implements IGreetingStreamRequest {
   /** Encode this message to protobuf binary format. */
   static encode(msg: IGreetingStreamRequest): Uint8Array {
     const w = new ProtoWriter();
-    w.writeStringField(1, msg.name);
-    w.writeVarintField(2, msg.maxCount);
-    w.writeVarintField(3, msg.intervalMs);
+    if (msg.name !== '') {
+      w.writeStringField(1, msg.name);
+    }
+    if (msg.maxCount !== 0) {
+      w.writeVarintField(2, msg.maxCount);
+    }
+    if (msg.intervalMs !== 0) {
+      w.writeVarintField(3, msg.intervalMs);
+    }
     return w.finish();
   }
 
@@ -189,9 +205,15 @@ export class GreetingEvent implements IGreetingEvent {
   /** Encode this message to protobuf binary format. */
   static encode(msg: IGreetingEvent): Uint8Array {
     const w = new ProtoWriter();
-    w.writeStringField(1, msg.message);
-    w.writeVarintField(2, msg.seq);
-    w.writeVarintField(3, msg.timestamp);
+    if (msg.message !== '') {
+      w.writeStringField(1, msg.message);
+    }
+    if (msg.seq !== 0) {
+      w.writeVarintField(2, msg.seq);
+    }
+    if (msg.timestamp !== 0) {
+      w.writeVarintField(3, msg.timestamp);
+    }
     return w.finish();
   }
 
@@ -242,7 +264,9 @@ export class CollectNamesRequest implements ICollectNamesRequest {
   /** Encode this message to protobuf binary format. */
   static encode(msg: ICollectNamesRequest): Uint8Array {
     const w = new ProtoWriter();
-    w.writeStringField(1, msg.name);
+    if (msg.name !== '') {
+      w.writeStringField(1, msg.name);
+    }
     return w.finish();
   }
 
@@ -287,8 +311,12 @@ export class CollectNamesResponse implements ICollectNamesResponse {
   /** Encode this message to protobuf binary format. */
   static encode(msg: ICollectNamesResponse): Uint8Array {
     const w = new ProtoWriter();
-    w.writeStringField(1, msg.message);
-    w.writeVarintField(2, msg.count);
+    if (msg.message !== '') {
+      w.writeStringField(1, msg.message);
+    }
+    if (msg.count !== 0) {
+      w.writeVarintField(2, msg.count);
+    }
     return w.finish();
   }
 
@@ -341,10 +369,18 @@ export class ChatMessage implements IChatMessage {
   /** Encode this message to protobuf binary format. */
   static encode(msg: IChatMessage): Uint8Array {
     const w = new ProtoWriter();
-    w.writeStringField(1, msg.from);
-    w.writeStringField(2, msg.text);
-    w.writeVarintField(3, msg.seq);
-    w.writeVarintField(4, msg.timestamp);
+    if (msg.from !== '') {
+      w.writeStringField(1, msg.from);
+    }
+    if (msg.text !== '') {
+      w.writeStringField(2, msg.text);
+    }
+    if (msg.seq !== 0) {
+      w.writeVarintField(3, msg.seq);
+    }
+    if (msg.timestamp !== 0) {
+      w.writeVarintField(4, msg.timestamp);
+    }
     return w.finish();
   }
 

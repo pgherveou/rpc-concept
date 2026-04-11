@@ -45,6 +45,7 @@ export class RpcClient {
   private readonly defaultInitialCredits: number;
   private handshakeResult?: HandshakeResult;
   private ready: Promise<void>;
+  private isReady = false;
   private closed = false;
 
   constructor(options: RpcClientOptions) {
@@ -62,10 +63,17 @@ export class RpcClient {
     // Perform handshake
     if (options.skipHandshake) {
       this.ready = Promise.resolve();
+      this.isReady = true;
     } else {
       this.ready = performHandshake(this.transport, { logger: this.logger })
         .then((result) => {
           this.handshakeResult = result;
+          this.isReady = true;
+        })
+        .catch((err) => {
+          this.logger.error('Handshake failed:', err);
+          this.closed = true;
+          throw err;
         });
     }
   }
@@ -104,11 +112,9 @@ export class RpcClient {
     const credits = options?.initialCredits ?? this.defaultInitialCredits;
     const stream = this.streams.createStream(credits);
     const deadlineMs = options?.deadlineMs ?? this.defaultDeadlineMs;
+    const cleanup = this.setupCancellation(stream, options?.signal, deadlineMs);
 
     try {
-      // Set up cancellation
-      this.setupCancellation(stream, options?.signal, deadlineMs);
-
       // Send OPEN
       const openFrame = createOpenFrame(
         stream.streamId,
@@ -134,7 +140,7 @@ export class RpcClient {
       // Wait for response
       const responseBytes = await stream.collectUnary();
       return {
-        data: responseBytes as Uint8Array,
+        data: responseBytes,
         metadata: stream.responseMetadata,
         trailers: stream.trailers,
       };
@@ -142,6 +148,7 @@ export class RpcClient {
       this.cancelStream(stream);
       throw err;
     } finally {
+      cleanup();
       this.streams.removeStream(stream.streamId);
     }
   }
@@ -160,10 +167,9 @@ export class RpcClient {
     const credits = options?.initialCredits ?? this.defaultInitialCredits;
     const stream = this.streams.createStream(credits);
     const deadlineMs = options?.deadlineMs ?? this.defaultDeadlineMs;
+    const cleanup = this.setupCancellation(stream, options?.signal, deadlineMs);
 
     try {
-      this.setupCancellation(stream, options?.signal, deadlineMs);
-
       // Send OPEN
       const openFrame = createOpenFrame(
         stream.streamId,
@@ -188,7 +194,7 @@ export class RpcClient {
 
       // Yield incoming messages with flow control
       for await (const msg of stream.messages()) {
-        yield msg as Uint8Array;
+        yield msg;
         // Replenish flow control credits
         const additionalCredits = stream.receiveFlow.onMessageReceived();
         if (additionalCredits > 0) {
@@ -199,6 +205,7 @@ export class RpcClient {
       this.cancelStream(stream);
       throw err;
     } finally {
+      cleanup();
       this.streams.removeStream(stream.streamId);
     }
   }
@@ -217,10 +224,9 @@ export class RpcClient {
     const credits = options?.initialCredits ?? this.defaultInitialCredits;
     const stream = this.streams.createStream(credits);
     const deadlineMs = options?.deadlineMs ?? this.defaultDeadlineMs;
+    const cleanup = this.setupCancellation(stream, options?.signal, deadlineMs);
 
     try {
-      this.setupCancellation(stream, options?.signal, deadlineMs);
-
       // Send OPEN
       const openFrame = createOpenFrame(
         stream.streamId,
@@ -252,7 +258,7 @@ export class RpcClient {
       // Wait for single response
       const responseBytes = await stream.collectUnary();
       return {
-        data: responseBytes as Uint8Array,
+        data: responseBytes,
         metadata: stream.responseMetadata,
         trailers: stream.trailers,
       };
@@ -260,6 +266,7 @@ export class RpcClient {
       this.cancelStream(stream);
       throw err;
     } finally {
+      cleanup();
       this.streams.removeStream(stream.streamId);
     }
   }
@@ -282,10 +289,9 @@ export class RpcClient {
 
       const stream = self.streams.createStream(credits);
       const deadlineMs = options?.deadlineMs ?? self.defaultDeadlineMs;
+      const cleanup = self.setupCancellation(stream, options?.signal, deadlineMs);
 
       try {
-        self.setupCancellation(stream, options?.signal, deadlineMs);
-
         // Send OPEN
         const openFrame = createOpenFrame(
           stream.streamId,
@@ -327,7 +333,7 @@ export class RpcClient {
         // Yield incoming messages with flow control
         try {
           for await (const msg of stream.messages()) {
-            yield msg as Uint8Array;
+            yield msg;
             const additionalCredits = stream.receiveFlow.onMessageReceived();
             if (additionalCredits > 0) {
               self.transport.send(createRequestNFrame(stream.streamId, additionalCredits));
@@ -340,6 +346,7 @@ export class RpcClient {
         self.cancelStream(stream);
         throw err;
       } finally {
+        cleanup();
         self.streams.removeStream(stream.streamId);
       }
     })();
@@ -351,6 +358,12 @@ export class RpcClient {
     // Ignore handshake frames (handled by handshake module)
     if (frame.type === FrameType.HANDSHAKE) return;
 
+    // Guard: skip non-handshake frames if not yet ready
+    if (!this.isReady) {
+      this.logger.warn(`Received frame type=${frame.type} before handshake complete, ignoring`);
+      return;
+    }
+
     const stream = this.streams.getStream(frame.streamId);
     if (!stream) {
       this.logger.warn(`Received frame for unknown stream ${frame.streamId}, type=${frame.type}`);
@@ -359,6 +372,13 @@ export class RpcClient {
 
     switch (frame.type) {
       case FrameType.MESSAGE:
+        // Validate sequence number
+        if (!stream.validateReceiveSequence(frame.sequence)) {
+          this.logger.warn(`Out-of-order message on stream ${frame.streamId}: expected next sequence, got ${frame.sequence}`);
+          stream.pushError(new RpcError(RpcStatusCode.INTERNAL, 'Out-of-order message received'));
+          this.cancelStream(stream);
+          return;
+        }
         if (frame.metadata) {
           stream.setResponseMetadata(frame.metadata);
         }
@@ -428,26 +448,34 @@ export class RpcClient {
     }
   }
 
+  /**
+   * Set up cancellation for a stream (abort signal + deadline).
+   * Returns a cleanup function that must be called in the finally block.
+   */
   private setupCancellation(
     stream: Stream,
     signal?: AbortSignal,
     deadlineMs?: number,
-  ): void {
+  ): () => void {
+    let deadlineTimer: ReturnType<typeof setTimeout> | undefined;
+    let abortHandler: (() => void) | undefined;
+
     // External abort signal
     if (signal) {
       if (signal.aborted) {
         stream.cancel('Aborted');
-        return;
+      } else {
+        abortHandler = () => {
+          stream.cancel('Aborted');
+          this.cancelStream(stream);
+        };
+        signal.addEventListener('abort', abortHandler, { once: true });
       }
-      signal.addEventListener('abort', () => {
-        stream.cancel('Aborted');
-        this.cancelStream(stream);
-      }, { once: true });
     }
 
     // Deadline
     if (deadlineMs && deadlineMs > 0) {
-      setTimeout(() => {
+      deadlineTimer = setTimeout(() => {
         if (stream.state === StreamState.OPEN ||
             stream.state === StreamState.HALF_CLOSED_LOCAL ||
             stream.state === StreamState.HALF_CLOSED_REMOTE) {
@@ -457,6 +485,16 @@ export class RpcClient {
         }
       }, deadlineMs);
     }
+
+    // Return cleanup function
+    return () => {
+      if (deadlineTimer !== undefined) {
+        clearTimeout(deadlineTimer);
+      }
+      if (abortHandler && signal) {
+        signal.removeEventListener('abort', abortHandler);
+      }
+    };
   }
 
   private cancelStream(stream: Stream): void {

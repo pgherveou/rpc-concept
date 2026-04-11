@@ -23,6 +23,13 @@ function decodeMessage(bytes: Uint8Array): Record<string, unknown> {
 window.addEventListener('message', async (event) => {
   if (event.data?.type !== 'rpc-bridge-init') return;
 
+  // Validate the origin of the message to prevent rogue parents injecting ports.
+  // In production, set this to the exact expected host origin.
+  if (event.origin !== location.origin && event.origin !== 'null') {
+    logger.warn(`Ignoring rpc-bridge-init from unexpected origin: ${event.origin}`);
+    return;
+  }
+
   const port = event.ports[0];
   if (!port) {
     logger.error('No MessagePort received!');

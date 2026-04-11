@@ -7,7 +7,7 @@ import assert from 'node:assert/strict';
 import {
   SendFlowController,
   ReceiveFlowController,
-  DEFAULT_INITIAL_CREDITS,
+  CancelledError,
 } from '@rpc-bridge/core';
 
 describe('SendFlowController', () => {
@@ -81,10 +81,23 @@ describe('SendFlowController', () => {
     await assert.rejects(promise, { message: 'test abort' });
   });
 
-  it('should cancel all waiters', async () => {
+  it('should reject pending waiters on cancel', async () => {
+    const fc = new SendFlowController();
+
+    // Start two pending acquires
+    const p1 = fc.acquire();
+    const p2 = fc.acquire();
+
+    // Cancel should reject both
+    fc.cancel();
+
+    await assert.rejects(p1, (err) => err instanceof CancelledError);
+    await assert.rejects(p2, (err) => err instanceof CancelledError);
+  });
+
+  it('should cancel empty controller without error', () => {
     const fc = new SendFlowController();
     fc.cancel();
-    // No error thrown - cancel just clears the queue
     assert.equal(fc.available, 0);
   });
 });
@@ -92,13 +105,12 @@ describe('SendFlowController', () => {
 describe('ReceiveFlowController', () => {
   it('should track initial credits', () => {
     const fc = new ReceiveFlowController(16, 16);
-    assert.equal(fc.initialCredits, 16);
+    assert.equal(fc.initialCreditCount, 16);
   });
 
   it('should not replenish when credits are plenty', () => {
     const fc = new ReceiveFlowController(16, 16);
 
-    // Consume a few - still above low watermark (25% of 16 = 4)
     const replenish1 = fc.onMessageReceived();
     assert.equal(replenish1, 0);
 
@@ -109,40 +121,36 @@ describe('ReceiveFlowController', () => {
   it('should replenish when hitting low watermark', () => {
     const fc = new ReceiveFlowController(16, 16);
 
-    // Low watermark is floor(16 * 0.25) = 4
-    // So after consuming 12 messages, remaining = 4 = watermark, should replenish
     let totalReplenished = 0;
     for (let i = 0; i < 20; i++) {
       totalReplenished += fc.onMessageReceived();
     }
 
-    // Should have replenished at least once
     assert.ok(totalReplenished > 0, `Expected some credits to be replenished, got ${totalReplenished}`);
   });
 
   it('should replenish the configured amount', () => {
     const fc = new ReceiveFlowController(4, 8);
 
-    // Low watermark = floor(4 * 0.25) = 1
-    // After 3 messages, remaining = 1 = watermark
-    let replenish = 0;
+    // Low watermark = max(1, floor(4 * 0.25)) = 1
+    // After consuming messages: granted=4, consumed increments
+    // consumed=1: remaining=3 > 1, no replenish
+    // consumed=2: remaining=2 > 1, no replenish
+    // consumed=3: remaining=1 <= 1, replenish -> granted=12, return 8
+    let lastReplenish = 0;
     for (let i = 0; i < 3; i++) {
-      replenish += fc.onMessageReceived();
+      lastReplenish = fc.onMessageReceived();
     }
-
-    // Should replenish with 8 credits
-    const r = fc.onMessageReceived();
-    if (replenish === 0) {
-      assert.equal(r, 8);
-    }
+    assert.equal(lastReplenish, 8);
   });
 
-  it('should reset correctly', () => {
-    const fc = new ReceiveFlowController(16, 16);
+  it('should reset to initial credits', () => {
+    const customCredits = 64;
+    const fc = new ReceiveFlowController(customCredits, 32);
     for (let i = 0; i < 10; i++) {
       fc.onMessageReceived();
     }
     fc.reset();
-    assert.equal(fc.initialCredits, DEFAULT_INITIAL_CREDITS);
+    assert.equal(fc.initialCreditCount, customCredits);
   });
 });

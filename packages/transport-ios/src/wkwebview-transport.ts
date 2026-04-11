@@ -40,14 +40,15 @@ const DEFAULT_CALLBACK_NAME = '__rpcBridgeReceive';
 
 export class WKWebViewTransport extends MessageTransportBase {
   private readonly handlerName: string;
+  private readonly callbackName: string;
 
   constructor(options: WKWebViewTransportOptions = {}) {
     super(FrameEncoding.BASE64, options.logger);
     this.handlerName = options.handlerName ?? DEFAULT_HANDLER_NAME;
-    const callbackName = options.callbackName ?? DEFAULT_CALLBACK_NAME;
+    this.callbackName = options.callbackName ?? DEFAULT_CALLBACK_NAME;
 
     // Register the global callback for receiving messages from native
-    (window as unknown as Record<string, unknown>)[callbackName] = (base64Frame: string) => {
+    (window as unknown as Record<string, unknown>)[this.callbackName] = (base64Frame: string) => {
       this.handleRawMessage(base64Frame);
     };
 
@@ -61,15 +62,19 @@ export class WKWebViewTransport extends MessageTransportBase {
   }
 
   protected sendRaw(data: Uint8Array | string): void {
-    const base64 = typeof data === 'string' ? data : '';
+    if (typeof data !== 'string') {
+      throw new Error('Expected base64 string but received binary data');
+    }
     const handler = window.webkit?.messageHandlers[this.handlerName];
     if (!handler) {
       throw new Error(`WKWebView message handler '${this.handlerName}' not available`);
     }
-    handler.postMessage(base64);
+    handler.postMessage(data);
   }
 
   close(): void {
+    // Remove the global callback to prevent memory leaks
+    delete (window as unknown as Record<string, unknown>)[this.callbackName];
     super.close();
   }
 }

@@ -73,6 +73,7 @@ export class RpcServer {
   private readonly services = new Map<string, ServiceRegistration>();
   private handshakeResult?: HandshakeResult;
   private ready: Promise<void>;
+  private isReady = false;
   private closed = false;
 
   constructor(options: RpcServerOptions) {
@@ -89,10 +90,17 @@ export class RpcServer {
     // Accept handshake
     if (options.skipHandshake) {
       this.ready = Promise.resolve();
+      this.isReady = true;
     } else {
       this.ready = acceptHandshake(this.transport, { logger: this.logger })
         .then((result) => {
           this.handshakeResult = result;
+          this.isReady = true;
+        })
+        .catch((err) => {
+          this.logger.error('Handshake failed:', err);
+          this.closed = true;
+          throw err;
         });
     }
   }
@@ -125,6 +133,12 @@ export class RpcServer {
 
   private handleFrame(frame: RpcFrame): void {
     if (frame.type === FrameType.HANDSHAKE) return;
+
+    // Guard: skip non-handshake frames if not yet ready
+    if (!this.isReady) {
+      this.logger.warn(`Received frame type=${frame.type} before handshake complete, ignoring`);
+      return;
+    }
 
     if (frame.type === FrameType.OPEN) {
       this.handleOpen(frame);
@@ -212,9 +226,8 @@ export class RpcServer {
     stream.open();
     this.streams.registerStream(stream);
 
-    // Grant initial send credits to the server side (for sending responses)
-    // The client sends REQUEST_N separately
-    stream.sendFlow.addCredits(this.defaultInitialCredits);
+    // Do NOT self-grant send credits here.
+    // The client's REQUEST_N frame will provide the send credits.
 
     // Build call context
     const context: CallContext = {
@@ -276,7 +289,7 @@ export class RpcServer {
     const requestBytes = await stream.collectUnary();
 
     // Call handler
-    const responseBytes = await handler(requestBytes as Uint8Array, context);
+    const responseBytes = await handler(requestBytes, context);
 
     // Send response
     await stream.sendFlow.acquire(stream.signal);
@@ -297,15 +310,13 @@ export class RpcServer {
     const requestBytes = await stream.collectUnary();
 
     // Call handler to get response stream
-    const responses = handler(requestBytes as Uint8Array, context);
+    const responses = handler(requestBytes, context);
 
     // Send response messages with flow control
-    let seq = 0;
     for await (const responseBytes of responses) {
       if (stream.state === StreamState.CANCELLED) return;
       await stream.sendFlow.acquire(stream.signal);
-      seq++;
-      const msgFrame = createMessageFrame(stream.streamId, seq, responseBytes);
+      const msgFrame = createMessageFrame(stream.streamId, stream.nextSendSequence(), responseBytes);
       this.transport.send(msgFrame);
     }
 
@@ -353,12 +364,10 @@ export class RpcServer {
     const responses = handler(requests, context);
 
     // Send response messages with flow control
-    let seq = 0;
     for await (const responseBytes of responses) {
       if (stream.state === StreamState.CANCELLED) return;
       await stream.sendFlow.acquire(stream.signal);
-      seq++;
-      const msgFrame = createMessageFrame(stream.streamId, seq, responseBytes);
+      const msgFrame = createMessageFrame(stream.streamId, stream.nextSendSequence(), responseBytes);
       this.transport.send(msgFrame);
     }
 
@@ -387,11 +396,11 @@ export class RpcServer {
                 transport.send(createRequestNFrame(stream.streamId, additionalCredits));
               }
             }
-            return result as IteratorResult<Uint8Array>;
+            return result;
           },
           async return(value?: unknown) {
             await gen.return(undefined);
-            return { done: true, value: value as Uint8Array };
+            return { done: true as const, value: value as Uint8Array };
           },
           async throw(err?: unknown) {
             return gen.throw(err);

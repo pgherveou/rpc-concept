@@ -31,8 +31,8 @@ export enum StreamState {
 }
 
 /** Queued item for the message buffer. */
-type QueueItem<T> =
-  | { type: 'message'; value: T }
+type QueueItem =
+  | { type: 'message'; value: Uint8Array }
   | { type: 'error'; error: Error }
   | { type: 'end'; trailers?: Metadata };
 
@@ -40,14 +40,14 @@ type QueueItem<T> =
  * Manages a single logical stream's lifecycle and message buffering.
  * Used by both client and server sides.
  */
-export class Stream<TIncoming = Uint8Array> {
+export class Stream {
   readonly streamId: number;
   private _state: StreamState = StreamState.IDLE;
   private readonly abortController = new AbortController();
 
   // Incoming message queue
-  private readonly queue: QueueItem<TIncoming>[] = [];
-  private waiter: ((item: QueueItem<TIncoming>) => void) | null = null;
+  private readonly queue: QueueItem[] = [];
+  private waiter: ((item: QueueItem) => void) | null = null;
 
   // Flow control
   readonly sendFlow: SendFlowController;
@@ -112,8 +112,8 @@ export class Stream<TIncoming = Uint8Array> {
   }
 
   /** Push an incoming message to the queue. */
-  pushMessage(message: TIncoming): void {
-    const item: QueueItem<TIncoming> = { type: 'message', value: message };
+  pushMessage(message: Uint8Array): void {
+    const item: QueueItem = { type: 'message', value: message };
     if (this.waiter) {
       const w = this.waiter;
       this.waiter = null;
@@ -126,7 +126,7 @@ export class Stream<TIncoming = Uint8Array> {
   /** Signal that no more incoming messages will arrive. */
   pushEnd(trailers?: Metadata): void {
     this._trailers = trailers;
-    const item: QueueItem<TIncoming> = { type: 'end', trailers };
+    const item: QueueItem = { type: 'end', trailers };
     if (this.waiter) {
       const w = this.waiter;
       this.waiter = null;
@@ -138,8 +138,8 @@ export class Stream<TIncoming = Uint8Array> {
 
   /** Signal an error on the incoming side. */
   pushError(error: Error): void {
-    const item: QueueItem<TIncoming> = { type: 'error', error };
-    this.abortController.abort(error);
+    const item: QueueItem = { type: 'error', error };
+    // Note: do NOT abort the controller here - only cancel() should do that
     if (this.waiter) {
       const w = this.waiter;
       this.waiter = null;
@@ -172,7 +172,7 @@ export class Stream<TIncoming = Uint8Array> {
    * Async iterator for consuming incoming messages.
    * Yields messages until the stream ends or errors.
    */
-  async *messages(): AsyncGenerator<TIncoming, void, undefined> {
+  async *messages(): AsyncGenerator<Uint8Array, void, undefined> {
     while (true) {
       const item = await this.nextItem();
       if (item.type === 'message') {
@@ -187,14 +187,14 @@ export class Stream<TIncoming = Uint8Array> {
   }
 
   /** Wait for the next item from the queue. */
-  private nextItem(): Promise<QueueItem<TIncoming>> {
+  private nextItem(): Promise<QueueItem> {
     // Check queue first
     if (this.queue.length > 0) {
       return Promise.resolve(this.queue.shift()!);
     }
 
     // Wait for next item
-    return new Promise<QueueItem<TIncoming>>((resolve) => {
+    return new Promise<QueueItem>((resolve) => {
       this.waiter = resolve;
     });
   }
@@ -203,7 +203,7 @@ export class Stream<TIncoming = Uint8Array> {
    * Collect a single response (for unary calls).
    * Expects exactly one message followed by end.
    */
-  async collectUnary(): Promise<TIncoming> {
+  async collectUnary(): Promise<Uint8Array> {
     const item = await this.nextItem();
     if (item.type === 'error') throw item.error;
     if (item.type === 'end') {
@@ -213,6 +213,9 @@ export class Stream<TIncoming = Uint8Array> {
     // Wait for end
     const endItem = await this.nextItem();
     if (endItem.type === 'error') throw endItem.error;
+    if (endItem.type === 'message') {
+      throw new RpcError(RpcStatusCode.INTERNAL, 'Expected end of stream but received another message');
+    }
 
     return item.value;
   }

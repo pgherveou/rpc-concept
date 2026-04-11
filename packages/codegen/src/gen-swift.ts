@@ -62,6 +62,12 @@ export function generateSwift(proto: ProtoFile): string {
     emitBlock(indent(generateMessage(msg, proto), 1));
   }
 
+  // Dispatch result and error types (emitted once for all services)
+  if (proto.services.length > 0) {
+    emit('');
+    emitBlock(indent(generateDispatchTypes(), 1));
+  }
+
   // Services
   for (const svc of proto.services) {
     emit('');
@@ -120,7 +126,9 @@ interface SwiftTypeInfo {
 }
 
 const WIRE_VARINT = 0;
+const WIRE_64BIT = 1;
 const WIRE_LENGTH_DELIMITED = 2;
+const WIRE_32BIT = 5;
 
 function swiftTypeInfo(protoType: string): SwiftTypeInfo {
   switch (protoType) {
@@ -129,23 +137,29 @@ function swiftTypeInfo(protoType: string): SwiftTypeInfo {
     case 'bool':
       return { swiftType: 'Bool', wireType: WIRE_VARINT, isScalar: true, defaultExpr: 'false' };
     case 'uint32':
-    case 'fixed32':
       return { swiftType: 'UInt32', wireType: WIRE_VARINT, isScalar: true, defaultExpr: '0' };
     case 'uint64':
-    case 'fixed64':
       return { swiftType: 'UInt64', wireType: WIRE_VARINT, isScalar: true, defaultExpr: '0' };
     case 'int32':
-    case 'sint32':
-    case 'sfixed32':
       return { swiftType: 'Int32', wireType: WIRE_VARINT, isScalar: true, defaultExpr: '0' };
     case 'int64':
-    case 'sint64':
-    case 'sfixed64':
       return { swiftType: 'Int64', wireType: WIRE_VARINT, isScalar: true, defaultExpr: '0' };
+    case 'sint32':
+      return { swiftType: 'Int32', wireType: WIRE_VARINT, isScalar: true, defaultExpr: '0' };
+    case 'sint64':
+      return { swiftType: 'Int64', wireType: WIRE_VARINT, isScalar: true, defaultExpr: '0' };
+    case 'fixed32':
+      return { swiftType: 'UInt32', wireType: WIRE_32BIT, isScalar: true, defaultExpr: '0' };
+    case 'sfixed32':
+      return { swiftType: 'Int32', wireType: WIRE_32BIT, isScalar: true, defaultExpr: '0' };
+    case 'fixed64':
+      return { swiftType: 'UInt64', wireType: WIRE_64BIT, isScalar: true, defaultExpr: '0' };
+    case 'sfixed64':
+      return { swiftType: 'Int64', wireType: WIRE_64BIT, isScalar: true, defaultExpr: '0' };
     case 'float':
-      return { swiftType: 'Float', wireType: 5, isScalar: true, defaultExpr: '0' };
+      return { swiftType: 'Float', wireType: WIRE_32BIT, isScalar: true, defaultExpr: '0' };
     case 'double':
-      return { swiftType: 'Double', wireType: 1, isScalar: true, defaultExpr: '0' };
+      return { swiftType: 'Double', wireType: WIRE_64BIT, isScalar: true, defaultExpr: '0' };
     case 'bytes':
       return { swiftType: 'Data', wireType: WIRE_LENGTH_DELIMITED, isScalar: true, defaultExpr: 'Data()' };
     default:
@@ -310,16 +324,54 @@ function emitEncodeField(lines: string[], field: FieldDef, proto: ProtoFile): vo
       break;
     case 'uint32':
     case 'int32':
-    case 'sint32':
-    case 'fixed32':
-    case 'sfixed32':
-    case 'uint64':
-    case 'int64':
-    case 'sint64':
-    case 'fixed64':
-    case 'sfixed64':
       lines.push(`        if ${sn} != 0 {`);
       lines.push(`            writer.writeVarintField(fieldNumber: ${fn}, value: UInt64(${sn}))`);
+      lines.push('        }');
+      break;
+    case 'uint64':
+    case 'int64':
+      lines.push(`        if ${sn} != 0 {`);
+      lines.push(`            writer.writeVarintField(fieldNumber: ${fn}, value: UInt64(${sn}))`);
+      lines.push('        }');
+      break;
+    case 'sint32':
+      lines.push(`        if ${sn} != 0 {`);
+      lines.push(`            writer.writeSint32Field(fieldNumber: ${fn}, value: ${sn})`);
+      lines.push('        }');
+      break;
+    case 'sint64':
+      lines.push(`        if ${sn} != 0 {`);
+      lines.push(`            writer.writeSint64Field(fieldNumber: ${fn}, value: ${sn})`);
+      lines.push('        }');
+      break;
+    case 'fixed32':
+      lines.push(`        if ${sn} != 0 {`);
+      lines.push(`            writer.writeFixed32Field(fieldNumber: ${fn}, value: ${sn})`);
+      lines.push('        }');
+      break;
+    case 'sfixed32':
+      lines.push(`        if ${sn} != 0 {`);
+      lines.push(`            writer.writeFixed32Field(fieldNumber: ${fn}, value: UInt32(bitPattern: ${sn}))`);
+      lines.push('        }');
+      break;
+    case 'fixed64':
+      lines.push(`        if ${sn} != 0 {`);
+      lines.push(`            writer.writeFixed64Field(fieldNumber: ${fn}, value: ${sn})`);
+      lines.push('        }');
+      break;
+    case 'sfixed64':
+      lines.push(`        if ${sn} != 0 {`);
+      lines.push(`            writer.writeFixed64Field(fieldNumber: ${fn}, value: UInt64(bitPattern: ${sn}))`);
+      lines.push('        }');
+      break;
+    case 'float':
+      lines.push(`        if ${sn} != 0 {`);
+      lines.push(`            writer.writeFloatField(fieldNumber: ${fn}, value: ${sn})`);
+      lines.push('        }');
+      break;
+    case 'double':
+      lines.push(`        if ${sn} != 0 {`);
+      lines.push(`            writer.writeDoubleField(fieldNumber: ${fn}, value: ${sn})`);
       lines.push('        }');
       break;
     default:
@@ -355,15 +407,35 @@ function emitEncodeSingle(
       break;
     case 'uint32':
     case 'int32':
-    case 'sint32':
-    case 'fixed32':
-    case 'sfixed32':
+      lines.push(`${indent}writer.writeVarintField(fieldNumber: ${fieldNumber}, value: UInt64(${varName}))`);
+      break;
     case 'uint64':
     case 'int64':
-    case 'sint64':
-    case 'fixed64':
-    case 'sfixed64':
       lines.push(`${indent}writer.writeVarintField(fieldNumber: ${fieldNumber}, value: UInt64(${varName}))`);
+      break;
+    case 'sint32':
+      lines.push(`${indent}writer.writeSint32Field(fieldNumber: ${fieldNumber}, value: ${varName})`);
+      break;
+    case 'sint64':
+      lines.push(`${indent}writer.writeSint64Field(fieldNumber: ${fieldNumber}, value: ${varName})`);
+      break;
+    case 'fixed32':
+      lines.push(`${indent}writer.writeFixed32Field(fieldNumber: ${fieldNumber}, value: ${varName})`);
+      break;
+    case 'sfixed32':
+      lines.push(`${indent}writer.writeFixed32Field(fieldNumber: ${fieldNumber}, value: UInt32(bitPattern: ${varName}))`);
+      break;
+    case 'fixed64':
+      lines.push(`${indent}writer.writeFixed64Field(fieldNumber: ${fieldNumber}, value: ${varName})`);
+      break;
+    case 'sfixed64':
+      lines.push(`${indent}writer.writeFixed64Field(fieldNumber: ${fieldNumber}, value: UInt64(bitPattern: ${varName}))`);
+      break;
+    case 'float':
+      lines.push(`${indent}writer.writeFloatField(fieldNumber: ${fieldNumber}, value: ${varName})`);
+      break;
+    case 'double':
+      lines.push(`${indent}writer.writeDoubleField(fieldNumber: ${fieldNumber}, value: ${varName})`);
       break;
     default:
       if (!info.isScalar) {
@@ -416,22 +488,40 @@ function emitDecodeValue(
       lines.push(`${ind}${assign}reader.readVarint() != 0`);
       break;
     case 'uint32':
-    case 'fixed32':
       lines.push(`${ind}${assign}UInt32(reader.readVarint())`);
       break;
     case 'uint64':
-    case 'fixed64':
       lines.push(`${ind}${assign}reader.readVarint()`);
       break;
     case 'int32':
-    case 'sint32':
-    case 'sfixed32':
       lines.push(`${ind}${assign}Int32(bitPattern: UInt32(reader.readVarint()))`);
       break;
     case 'int64':
-    case 'sint64':
-    case 'sfixed64':
       lines.push(`${ind}${assign}Int64(bitPattern: reader.readVarint())`);
+      break;
+    case 'sint32':
+      lines.push(`${ind}${assign}reader.readSint32()`);
+      break;
+    case 'sint64':
+      lines.push(`${ind}${assign}reader.readSint64()`);
+      break;
+    case 'fixed32':
+      lines.push(`${ind}${assign}reader.readFixed32()`);
+      break;
+    case 'sfixed32':
+      lines.push(`${ind}${assign}Int32(bitPattern: reader.readFixed32())`);
+      break;
+    case 'fixed64':
+      lines.push(`${ind}${assign}reader.readFixed64()`);
+      break;
+    case 'sfixed64':
+      lines.push(`${ind}${assign}Int64(bitPattern: reader.readFixed64())`);
+      break;
+    case 'float':
+      lines.push(`${ind}${assign}reader.readFloat()`);
+      break;
+    case 'double':
+      lines.push(`${ind}${assign}reader.readDouble()`);
       break;
     default:
       if (!info.isScalar) {
@@ -481,16 +571,24 @@ function generateServiceProtocol(svc: ServiceDef, proto: ProtoFile): string {
 // Dispatcher class generation
 // ---------------------------------------------------------------------------
 
-function generateDispatcher(svc: ServiceDef, proto: ProtoFile): string {
+function generateDispatchTypes(): string {
   const lines: string[] = [];
-  const fqServiceName = `${proto.package}.${svc.name}`;
-
-  // DispatchResult enum
   lines.push('public enum DispatchResult: Sendable {');
   lines.push('    case unary(Data)');
   lines.push('    case stream(AsyncThrowingStream<Data, Error>)');
   lines.push('}');
   lines.push('');
+  lines.push('public enum DispatchError: Error, Sendable {');
+  lines.push('    case unknownMethod(String)');
+  lines.push('    case missingRequestData');
+  lines.push('    case missingRequestStream');
+  lines.push('}');
+  return lines.join('\n');
+}
+
+function generateDispatcher(svc: ServiceDef, proto: ProtoFile): string {
+  const lines: string[] = [];
+  const fqServiceName = `${proto.package}.${svc.name}`;
 
   // Dispatcher class
   lines.push(`public final class ${svc.name}Dispatcher: @unchecked Sendable {`);
@@ -595,14 +693,6 @@ function generateDispatcher(svc: ServiceDef, proto: ProtoFile): string {
   lines.push('        }');
   lines.push('    }');
   lines.push('}');
-  lines.push('');
-
-  // DispatchError enum
-  lines.push('public enum DispatchError: Error, Sendable {');
-  lines.push('    case unknownMethod(String)');
-  lines.push('    case missingRequestData');
-  lines.push('    case missingRequestStream');
-  lines.push('}');
 
   return lines.join('\n');
 }
@@ -637,6 +727,36 @@ public struct ProtoWriter {
     public mutating func writeStringField(fieldNumber: Int, value: String) {
         let encoded = Data(value.utf8)
         writeBytesField(fieldNumber: fieldNumber, value: encoded)
+    }
+
+    public mutating func writeFixed32Field(fieldNumber: Int, value: UInt32) {
+        writeTag(fieldNumber: fieldNumber, wireType: 5)
+        var v = value
+        withUnsafeBytes(of: &v) { data.append(contentsOf: $0) }
+    }
+
+    public mutating func writeFixed64Field(fieldNumber: Int, value: UInt64) {
+        writeTag(fieldNumber: fieldNumber, wireType: 1)
+        var v = value
+        withUnsafeBytes(of: &v) { data.append(contentsOf: $0) }
+    }
+
+    public mutating func writeFloatField(fieldNumber: Int, value: Float) {
+        writeFixed32Field(fieldNumber: fieldNumber, value: value.bitPattern)
+    }
+
+    public mutating func writeDoubleField(fieldNumber: Int, value: Double) {
+        writeFixed64Field(fieldNumber: fieldNumber, value: value.bitPattern)
+    }
+
+    public mutating func writeSint32Field(fieldNumber: Int, value: Int32) {
+        let encoded = UInt64((value << 1) ^ (value >> 31))
+        writeVarintField(fieldNumber: fieldNumber, value: encoded)
+    }
+
+    public mutating func writeSint64Field(fieldNumber: Int, value: Int64) {
+        let encoded = UInt64(bitPattern: (value << 1) ^ (value >> 63))
+        writeVarintField(fieldNumber: fieldNumber, value: encoded)
     }
 
     // MARK: - Primitives
@@ -710,6 +830,46 @@ public struct ProtoReader {
     public mutating func readString() -> String {
         let bytes = readBytes()
         return String(data: bytes, encoding: .utf8) ?? ""
+    }
+
+    public mutating func readFixed32() -> UInt32 {
+        guard offset + 4 <= data.count else { fatalError("Unexpected end of data reading fixed32") }
+        var result: UInt32 = 0
+        let start = data.startIndex.advanced(by: offset)
+        _ = withUnsafeMutableBytes(of: &result) { buf in
+            data.copyBytes(to: buf, from: start..<start.advanced(by: 4))
+        }
+        offset += 4
+        return UInt32(littleEndian: result)
+    }
+
+    public mutating func readFixed64() -> UInt64 {
+        guard offset + 8 <= data.count else { fatalError("Unexpected end of data reading fixed64") }
+        var result: UInt64 = 0
+        let start = data.startIndex.advanced(by: offset)
+        _ = withUnsafeMutableBytes(of: &result) { buf in
+            data.copyBytes(to: buf, from: start..<start.advanced(by: 8))
+        }
+        offset += 8
+        return UInt64(littleEndian: result)
+    }
+
+    public mutating func readFloat() -> Float {
+        return Float(bitPattern: readFixed32())
+    }
+
+    public mutating func readDouble() -> Double {
+        return Double(bitPattern: readFixed64())
+    }
+
+    public mutating func readSint32() -> Int32 {
+        let n = UInt32(readVarint())
+        return Int32(bitPattern: (n >> 1) ^ (0 &- (n & 1)))
+    }
+
+    public mutating func readSint64() -> Int64 {
+        let n = readVarint()
+        return Int64(bitPattern: (n >> 1) ^ (0 &- (n & 1)))
     }
 
     public mutating func skipField(wireType: UInt64) {

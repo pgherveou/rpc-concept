@@ -144,7 +144,7 @@ export function encodeFrame(frame: RpcFrame): Uint8Array {
   if (frame.methodType !== undefined) {
     writer.writeVarintField(FIELD_METHOD_TYPE, frame.methodType);
   }
-  if (frame.errorCode !== undefined && frame.errorCode !== 0) {
+  if (frame.type === FrameType.ERROR && frame.errorCode !== undefined) {
     writer.writeVarintField(FIELD_ERROR_CODE, frame.errorCode);
   }
   if (frame.errorMessage) {
@@ -382,22 +382,48 @@ class ProtoWriter {
     this.writeBytesField(fieldNumber, encoded);
   }
 
-  writeLengthDelimitedField(fieldNumber: number, data: Uint8Array): void {
-    this.writeTag(fieldNumber, WIRE_LENGTH_DELIMITED);
-    this.writeVarint(data.length);
-    this.writeRaw(data);
+  writeFixed32Field(fieldNumber: number, value: number): void {
+    this.writeTag(fieldNumber, 5);
+    const buf = new Uint8Array(4);
+    const view = new DataView(buf.buffer);
+    view.setUint32(0, value >>> 0, true); // little-endian
+    this.writeRaw(buf);
   }
 
-  private writeTag(fieldNumber: number, wireType: number): void {
+  writeFixed64Field(fieldNumber: number, value: number): void {
+    this.writeTag(fieldNumber, 1);
+    const buf = new Uint8Array(8);
+    const view = new DataView(buf.buffer);
+    view.setUint32(0, value >>> 0, true);
+    view.setUint32(4, Math.floor(value / 0x100000000) >>> 0, true);
+    this.writeRaw(buf);
+  }
+
+  writeSint32Field(fieldNumber: number, value: number): void {
+    // ZigZag encode
+    this.writeVarintField(fieldNumber, (value << 1) ^ (value >> 31));
+  }
+
+  writeSint64Field(fieldNumber: number, value: number): void {
+    // ZigZag encode (using JS safe integer range)
+    const zigzag = value >= 0 ? value * 2 : (-value) * 2 - 1;
+    this.writeVarintField(fieldNumber, zigzag);
+  }
+
+  writeLengthDelimitedField(fieldNumber: number, value: Uint8Array): void {
+    this.writeBytesField(fieldNumber, value);
+  }
+
+  writeTag(fieldNumber: number, wireType: number): void {
     this.writeVarint((fieldNumber << 3) | wireType);
   }
 
   writeVarint(value: number): void {
     // Handle values up to 2^53 safely using JavaScript numbers
     if (value < 0) {
-      // Negative varints are 10 bytes in protobuf (sign-extended to 64 bits)
-      // For our use case, we don't need negative values, but handle gracefully
-      throw new Error('Negative varint values not supported');
+      // Sign-extend int32 to unsigned 64-bit representation (10 bytes)
+      this.writeSignedVarint(value);
+      return;
     }
     const buf: number[] = [];
     while (value > 0x7f) {
@@ -409,7 +435,32 @@ class ProtoWriter {
     this.writeRaw(bytes);
   }
 
-  private writeRaw(data: Uint8Array): void {
+  /** Write a signed int32 as a varint (sign-extended to 10 bytes, protobuf convention). */
+  writeSignedVarint(value: number): void {
+    // Protobuf encodes negative int32 as 10-byte sign-extended varint
+    const buf = new Uint8Array(10);
+    // Convert to two's complement unsigned representation
+    let lo = value >>> 0; // lower 32 bits as unsigned
+    let hi = value < 0 ? 0xFFFFFFFF : 0; // upper 32 bits (all 1s for negative)
+    for (let i = 0; i < 10; i++) {
+      if (i < 4) {
+        buf[i] = (lo & 0x7F) | 0x80;
+        lo = lo >>> 7;
+      } else if (i === 4) {
+        // Merge remaining lo bits (4 bits) with start of hi (3 bits)
+        buf[i] = ((lo & 0x0F) | ((hi & 0x07) << 4)) | 0x80;
+        hi = hi >>> 3;
+      } else {
+        buf[i] = (hi & 0x7F) | 0x80;
+        hi = hi >>> 7;
+      }
+    }
+    // Clear continuation bit on last byte
+    buf[9] = buf[9] & 0x7F;
+    this.writeRaw(buf);
+  }
+
+  writeRaw(data: Uint8Array): void {
     this.chunks.push(data);
     this.totalLength += data.length;
   }
@@ -460,10 +511,7 @@ class ProtoReader {
     if (this.offset + length > this.data.length) {
       throw new Error('Unexpected end of data reading bytes');
     }
-    const copy = new Uint8Array(length);
-    for (let i = 0; i < length; i++) {
-      copy[i] = this.data[this.offset + i];
-    }
+    const copy = this.data.slice(this.offset, this.offset + length);
     this.offset += length;
     return copy;
   }
@@ -472,18 +520,93 @@ class ProtoReader {
     return textDecoder.decode(this.readBytes());
   }
 
+  readFixed32(): number {
+    if (this.offset + 4 > this.data.length) {
+      throw new Error('Unexpected end of data reading fixed32');
+    }
+    const view = new DataView(this.data.buffer, this.data.byteOffset + this.offset, 4);
+    this.offset += 4;
+    return view.getUint32(0, true); // little-endian
+  }
+
+  readSfixed32(): number {
+    if (this.offset + 4 > this.data.length) {
+      throw new Error('Unexpected end of data reading sfixed32');
+    }
+    const view = new DataView(this.data.buffer, this.data.byteOffset + this.offset, 4);
+    this.offset += 4;
+    return view.getInt32(0, true); // little-endian, signed
+  }
+
+  readFixed64(): number {
+    if (this.offset + 8 > this.data.length) {
+      throw new Error('Unexpected end of data reading fixed64');
+    }
+    const view = new DataView(this.data.buffer, this.data.byteOffset + this.offset, 8);
+    this.offset += 8;
+    const lo = view.getUint32(0, true);
+    const hi = view.getUint32(4, true);
+    return hi * 0x100000000 + lo;
+  }
+
+  readSfixed64(): number {
+    if (this.offset + 8 > this.data.length) {
+      throw new Error('Unexpected end of data reading sfixed64');
+    }
+    const view = new DataView(this.data.buffer, this.data.byteOffset + this.offset, 8);
+    this.offset += 8;
+    const lo = view.getUint32(0, true);
+    const hi = view.getInt32(4, true);
+    return hi * 0x100000000 + lo;
+  }
+
+  readFloat(): number {
+    if (this.offset + 4 > this.data.length) {
+      throw new Error('Unexpected end of data reading float');
+    }
+    const view = new DataView(this.data.buffer, this.data.byteOffset + this.offset, 4);
+    this.offset += 4;
+    return view.getFloat32(0, true); // little-endian
+  }
+
+  readDouble(): number {
+    if (this.offset + 8 > this.data.length) {
+      throw new Error('Unexpected end of data reading double');
+    }
+    const view = new DataView(this.data.buffer, this.data.byteOffset + this.offset, 8);
+    this.offset += 8;
+    return view.getFloat64(0, true); // little-endian
+  }
+
+  readSint32(): number {
+    const n = this.readVarint();
+    return (n >>> 1) ^ -(n & 1);
+  }
+
+  readSint64(): number {
+    const n = this.readVarint();
+    // ZigZag decode for JS safe integers
+    return Math.floor(n / 2) * (n % 2 === 0 ? 1 : -1) - (n % 2 === 0 ? 0 : 1);
+  }
+
   skipField(wireType: number): void {
     switch (wireType) {
       case WIRE_VARINT:
         this.readVarint();
         break;
       case 1: // 64-bit
+        if (this.offset + 8 > this.data.length) {
+          throw new Error('Unexpected end of data skipping 64-bit field');
+        }
         this.offset += 8;
         break;
       case WIRE_LENGTH_DELIMITED:
         this.readBytes(); // reads and discards
         break;
       case 5: // 32-bit
+        if (this.offset + 4 > this.data.length) {
+          throw new Error('Unexpected end of data skipping 32-bit field');
+        }
         this.offset += 4;
         break;
       default:
@@ -505,7 +628,7 @@ function writeStringMap(writer: ProtoWriter, fieldNumber: number, map: Metadata)
     const entryWriter = new ProtoWriter();
     entryWriter.writeStringField(1, key);    // key field = 1
     entryWriter.writeStringField(2, value);  // value field = 2
-    writer.writeLengthDelimitedField(fieldNumber, entryWriter.finish());
+    writer.writeBytesField(fieldNumber, entryWriter.finish());
   }
 }
 
@@ -532,7 +655,7 @@ function writeBytesMapEntry(
   const entryWriter = new ProtoWriter();
   entryWriter.writeStringField(1, key);
   entryWriter.writeBytesField(2, value);
-  writer.writeLengthDelimitedField(fieldNumber, entryWriter.finish());
+  writer.writeBytesField(fieldNumber, entryWriter.finish());
 }
 
 function readBytesMapEntry(reader: ProtoReader): [string, Uint8Array] {

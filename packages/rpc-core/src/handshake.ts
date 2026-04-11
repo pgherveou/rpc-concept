@@ -52,25 +52,37 @@ export interface HandshakeResult {
   peerImplementationId: string;
 }
 
+/** Options shared by both performHandshake and acceptHandshake. */
+interface HandshakeOptions {
+  protocolVersion?: number;
+  capabilities?: string[];
+  implementationId?: string;
+  timeoutMs?: number;
+  logger?: Logger;
+}
+
 /**
- * Perform the handshake as the initiator (client side).
- * Sends our handshake frame and waits for the peer's response.
+ * Shared handshake logic. Waits for a peer HANDSHAKE frame, negotiates
+ * version and capabilities, and optionally sends a frame before or after
+ * receiving the peer's frame.
+ *
+ * @param transport - The transport to use.
+ * @param opts - Resolved handshake options.
+ * @param sendBefore - If provided, send this frame before waiting (client initiator).
+ * @param sendAfter - If true, send our handshake frame after receiving the peer's (server responder).
  */
-export function performHandshake(
+function doHandshake(
   transport: Transport,
-  options?: {
-    protocolVersion?: number;
-    capabilities?: string[];
-    implementationId?: string;
-    timeoutMs?: number;
-    logger?: Logger;
+  opts: {
+    version: number;
+    caps: string[];
+    implId: string;
+    timeoutMs: number;
+    logger: Logger;
   },
+  mode: 'initiator' | 'responder',
 ): Promise<HandshakeResult> {
-  const version = options?.protocolVersion ?? CURRENT_PROTOCOL_VERSION;
-  const caps = options?.capabilities ?? DEFAULT_CAPABILITIES;
-  const implId = options?.implementationId ?? TS_IMPLEMENTATION_ID;
-  const timeoutMs = options?.timeoutMs ?? 5000;
-  const logger = options?.logger ?? silentLogger;
+  const { version, caps, implId, timeoutMs, logger } = opts;
 
   return new Promise<HandshakeResult>((resolve, reject) => {
     let settled = false;
@@ -78,6 +90,7 @@ export function performHandshake(
     const timeout = setTimeout(() => {
       if (!settled) {
         settled = true;
+        unsubscribe();
         reject(new Error(`Handshake timed out after ${timeoutMs}ms`));
       }
     }, timeoutMs);
@@ -86,6 +99,7 @@ export function performHandshake(
       if (frame.type === FrameType.HANDSHAKE && !settled) {
         settled = true;
         clearTimeout(timeout);
+        unsubscribe();
 
         const peerVersion = frame.protocolVersion ?? 1;
         const peerCaps = new Set(frame.capabilities ?? []);
@@ -98,20 +112,50 @@ export function performHandshake(
           peerImplementationId: frame.implementationId ?? 'unknown',
         };
 
+        // Responder sends its handshake frame after receiving the peer's
+        if (mode === 'responder') {
+          const responseFrame = createHandshakeFrame(version, caps, implId);
+          logger.debug(`Sending handshake response: v${version}, caps=[${caps.join(',')}]`);
+          transport.send(responseFrame);
+        }
+
         logger.info(
-          `Handshake complete: v${negotiatedVersion}, caps=[${[...negotiatedCaps].join(',')}], peer=${result.peerImplementationId}`,
+          `Handshake ${mode === 'initiator' ? 'complete' : 'accepted'}: v${negotiatedVersion}, caps=[${[...negotiatedCaps].join(',')}], peer=${result.peerImplementationId}`,
         );
         resolve(result);
       }
     };
 
-    transport.onFrame(handler);
+    const unsubscribe = transport.onFrame(handler);
 
-    // Send our handshake
-    const handshakeFrame = createHandshakeFrame(version, caps, implId);
-    logger.debug(`Sending handshake: v${version}, caps=[${caps.join(',')}]`);
-    transport.send(handshakeFrame);
+    // Initiator sends its handshake frame immediately
+    if (mode === 'initiator') {
+      const handshakeFrame = createHandshakeFrame(version, caps, implId);
+      logger.debug(`Sending handshake: v${version}, caps=[${caps.join(',')}]`);
+      transport.send(handshakeFrame);
+    }
   });
+}
+
+/**
+ * Perform the handshake as the initiator (client side).
+ * Sends our handshake frame and waits for the peer's response.
+ */
+export function performHandshake(
+  transport: Transport,
+  options?: HandshakeOptions,
+): Promise<HandshakeResult> {
+  return doHandshake(
+    transport,
+    {
+      version: options?.protocolVersion ?? CURRENT_PROTOCOL_VERSION,
+      caps: options?.capabilities ?? DEFAULT_CAPABILITIES,
+      implId: options?.implementationId ?? TS_IMPLEMENTATION_ID,
+      timeoutMs: options?.timeoutMs ?? 5000,
+      logger: options?.logger ?? silentLogger,
+    },
+    'initiator',
+  );
 }
 
 /**
@@ -120,58 +164,17 @@ export function performHandshake(
  */
 export function acceptHandshake(
   transport: Transport,
-  options?: {
-    protocolVersion?: number;
-    capabilities?: string[];
-    implementationId?: string;
-    timeoutMs?: number;
-    logger?: Logger;
-  },
+  options?: HandshakeOptions,
 ): Promise<HandshakeResult> {
-  const version = options?.protocolVersion ?? CURRENT_PROTOCOL_VERSION;
-  const caps = options?.capabilities ?? DEFAULT_CAPABILITIES;
-  const implId = options?.implementationId ?? TS_IMPLEMENTATION_ID;
-  const timeoutMs = options?.timeoutMs ?? 5000;
-  const logger = options?.logger ?? silentLogger;
-
-  return new Promise<HandshakeResult>((resolve, reject) => {
-    let settled = false;
-
-    const timeout = setTimeout(() => {
-      if (!settled) {
-        settled = true;
-        reject(new Error(`Handshake timed out after ${timeoutMs}ms`));
-      }
-    }, timeoutMs);
-
-    const handler = (frame: RpcFrame) => {
-      if (frame.type === FrameType.HANDSHAKE && !settled) {
-        settled = true;
-        clearTimeout(timeout);
-
-        const peerVersion = frame.protocolVersion ?? 1;
-        const peerCaps = new Set(frame.capabilities ?? []);
-        const negotiatedVersion = Math.min(version, peerVersion);
-        const negotiatedCaps = new Set(caps.filter(c => peerCaps.has(c)));
-
-        const result: HandshakeResult = {
-          protocolVersion: negotiatedVersion,
-          capabilities: negotiatedCaps,
-          peerImplementationId: frame.implementationId ?? 'unknown',
-        };
-
-        // Send our handshake response
-        const responseFrame = createHandshakeFrame(version, caps, implId);
-        logger.debug(`Sending handshake response: v${version}, caps=[${caps.join(',')}]`);
-        transport.send(responseFrame);
-
-        logger.info(
-          `Handshake accepted: v${negotiatedVersion}, caps=[${[...negotiatedCaps].join(',')}], peer=${result.peerImplementationId}`,
-        );
-        resolve(result);
-      }
-    };
-
-    transport.onFrame(handler);
-  });
+  return doHandshake(
+    transport,
+    {
+      version: options?.protocolVersion ?? CURRENT_PROTOCOL_VERSION,
+      caps: options?.capabilities ?? DEFAULT_CAPABILITIES,
+      implId: options?.implementationId ?? TS_IMPLEMENTATION_ID,
+      timeoutMs: options?.timeoutMs ?? 5000,
+      logger: options?.logger ?? silentLogger,
+    },
+    'responder',
+  );
 }

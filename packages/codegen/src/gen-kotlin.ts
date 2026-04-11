@@ -124,7 +124,7 @@ export function generateKotlin(proto: ProtoFile): string {
   emit(0, 'import kotlinx.coroutines.flow.flow');
   emit(0, 'import kotlinx.coroutines.flow.map');
   emit(0, 'import kotlinx.coroutines.flow.toList');
-  emit(0, 'import java.nio.ByteBuffer');
+  emit(0, 'import java.io.ByteArrayOutputStream');
   emit(0, '');
 
   // Protobuf helpers
@@ -166,7 +166,7 @@ function emitProtoHelpers(emit: (depth: number, line: string) => void) {
 
   // ProtoWriter
   emit(0, 'private class ProtoWriter {');
-  emit(1, 'private val buffer = mutableListOf<Byte>()');
+  emit(1, 'private val buffer = ByteArrayOutputStream()');
   emit(0, '');
   emit(1, 'fun writeVarintField(fieldNumber: Int, value: Long) {');
   emit(2, 'writeTag(fieldNumber, 0)');
@@ -193,7 +193,7 @@ function emitProtoHelpers(emit: (depth: number, line: string) => void) {
   emit(1, 'fun writeBytesField(fieldNumber: Int, value: ByteArray) {');
   emit(2, 'writeTag(fieldNumber, 2)');
   emit(2, 'writeVarint(value.size.toLong())');
-  emit(2, 'buffer.addAll(value.toList())');
+  emit(2, 'buffer.write(value)');
   emit(1, '}');
   emit(0, '');
   emit(1, 'fun writeStringField(fieldNumber: Int, value: String) {');
@@ -203,34 +203,34 @@ function emitProtoHelpers(emit: (depth: number, line: string) => void) {
   emit(1, 'fun writeFloatField(fieldNumber: Int, value: Float) {');
   emit(2, 'writeTag(fieldNumber, 5)');
   emit(2, 'val bits = java.lang.Float.floatToIntBits(value)');
-  emit(2, 'buffer.add((bits and 0xFF).toByte())');
-  emit(2, 'buffer.add(((bits shr 8) and 0xFF).toByte())');
-  emit(2, 'buffer.add(((bits shr 16) and 0xFF).toByte())');
-  emit(2, 'buffer.add(((bits shr 24) and 0xFF).toByte())');
+  emit(2, 'buffer.write(bits and 0xFF)');
+  emit(2, 'buffer.write((bits shr 8) and 0xFF)');
+  emit(2, 'buffer.write((bits shr 16) and 0xFF)');
+  emit(2, 'buffer.write((bits shr 24) and 0xFF)');
   emit(1, '}');
   emit(0, '');
   emit(1, 'fun writeDoubleField(fieldNumber: Int, value: Double) {');
   emit(2, 'writeTag(fieldNumber, 1)');
   emit(2, 'val bits = java.lang.Double.doubleToLongBits(value)');
   emit(2, 'for (i in 0 until 8) {');
-  emit(3, 'buffer.add(((bits shr (i * 8)) and 0xFF).toByte())');
+  emit(3, 'buffer.write(((bits shr (i * 8)) and 0xFF).toInt())');
   emit(2, '}');
   emit(1, '}');
   emit(0, '');
   emit(1, 'fun writeFixed32Field(fieldNumber: Int, value: UInt) {');
   emit(2, 'writeTag(fieldNumber, 5)');
   emit(2, 'val v = value.toInt()');
-  emit(2, 'buffer.add((v and 0xFF).toByte())');
-  emit(2, 'buffer.add(((v shr 8) and 0xFF).toByte())');
-  emit(2, 'buffer.add(((v shr 16) and 0xFF).toByte())');
-  emit(2, 'buffer.add(((v shr 24) and 0xFF).toByte())');
+  emit(2, 'buffer.write(v and 0xFF)');
+  emit(2, 'buffer.write((v shr 8) and 0xFF)');
+  emit(2, 'buffer.write((v shr 16) and 0xFF)');
+  emit(2, 'buffer.write((v shr 24) and 0xFF)');
   emit(1, '}');
   emit(0, '');
   emit(1, 'fun writeFixed64Field(fieldNumber: Int, value: ULong) {');
   emit(2, 'writeTag(fieldNumber, 1)');
   emit(2, 'val v = value.toLong()');
   emit(2, 'for (i in 0 until 8) {');
-  emit(3, 'buffer.add(((v shr (i * 8)) and 0xFF).toByte())');
+  emit(3, 'buffer.write(((v shr (i * 8)) and 0xFF).toInt())');
   emit(2, '}');
   emit(1, '}');
   emit(0, '');
@@ -247,7 +247,7 @@ function emitProtoHelpers(emit: (depth: number, line: string) => void) {
   emit(1, 'fun writeLengthDelimited(fieldNumber: Int, data: ByteArray) {');
   emit(2, 'writeTag(fieldNumber, 2)');
   emit(2, 'writeVarint(data.size.toLong())');
-  emit(2, 'buffer.addAll(data.toList())');
+  emit(2, 'buffer.write(data)');
   emit(1, '}');
   emit(0, '');
   emit(1, 'private fun writeTag(fieldNumber: Int, wireType: Int) {');
@@ -257,19 +257,19 @@ function emitProtoHelpers(emit: (depth: number, line: string) => void) {
   emit(1, 'private fun writeVarint(value: Long) {');
   emit(2, 'var v = value');
   emit(2, 'while (v > 0x7F) {');
-  emit(3, 'buffer.add(((v and 0x7F) or 0x80).toByte())');
+  emit(3, 'buffer.write(((v and 0x7F) or 0x80).toInt())');
   emit(3, 'v = v ushr 7');
   emit(2, '}');
-  emit(2, 'buffer.add((v and 0x7F).toByte())');
+  emit(2, 'buffer.write((v and 0x7F).toInt())');
   emit(1, '}');
   emit(0, '');
   emit(1, 'private fun writeVarintUnsigned(value: ULong) {');
   emit(2, 'var v = value');
   emit(2, 'while (v > 0x7Fu) {');
-  emit(3, 'buffer.add(((v and 0x7Fu) or 0x80u).toByte())');
+  emit(3, 'buffer.write(((v and 0x7Fu) or 0x80u).toInt())');
   emit(3, 'v = v shr 7');
   emit(2, '}');
-  emit(2, 'buffer.add((v and 0x7Fu).toByte())');
+  emit(2, 'buffer.write((v and 0x7Fu).toInt())');
   emit(1, '}');
   emit(0, '');
   emit(1, 'fun finish(): ByteArray = buffer.toByteArray()');
@@ -560,9 +560,10 @@ function emitFieldEncode(
         emitSingleFieldWrite(emit, field, ktName, fn, allMessages, allEnums, depth);
       } else {
         // Numeric types
-        const zeroLiteral = field.type.includes('64') ? '0L' :
-          (field.type.startsWith('u') ?
-            (field.type === 'uint64' ? '0uL' : '0u') : '0');
+        const kt = kotlinType(field.type);
+        const zeroLiteral = kt === 'ULong' ? '0uL' :
+          kt === 'UInt' ? '0u' :
+          kt === 'Long' ? '0L' : '0';
         emit(depth, `if (${ktName} != ${zeroLiteral}) {`);
         emitSingleFieldWrite(emit, field, ktName, fn, allMessages, allEnums, depth + 1);
         emit(depth, '}');
@@ -608,12 +609,16 @@ function emitSingleFieldWrite(
       emit(depth, `writer.writeSint64Field(${fieldNumber}, ${valExpr})`);
       break;
     case 'fixed32':
-    case 'sfixed32':
       emit(depth, `writer.writeFixed32Field(${fieldNumber}, ${valExpr})`);
       break;
+    case 'sfixed32':
+      emit(depth, `writer.writeFixed32Field(${fieldNumber}, ${valExpr}.toUInt())`);
+      break;
     case 'fixed64':
-    case 'sfixed64':
       emit(depth, `writer.writeFixed64Field(${fieldNumber}, ${valExpr})`);
+      break;
+    case 'sfixed64':
+      emit(depth, `writer.writeFixed64Field(${fieldNumber}, ${valExpr}.toULong())`);
       break;
     case 'float':
       emit(depth, `writer.writeFloatField(${fieldNumber}, ${valExpr})`);
@@ -666,9 +671,9 @@ function readExpressionFor(field: FieldDef, allEnums: EnumDef[]): string {
     case 'sint32': return 'reader.readSint32()';
     case 'sint64': return 'reader.readSint64()';
     case 'fixed32': return 'reader.readFixed32()';
-    case 'sfixed32': return 'reader.readFixed32()';
+    case 'sfixed32': return 'reader.readFixed32().toInt()';
     case 'fixed64': return 'reader.readFixed64()';
-    case 'sfixed64': return 'reader.readFixed64()';
+    case 'sfixed64': return 'reader.readFixed64().toLong()';
     case 'float': return 'reader.readFloat()';
     case 'double': return 'reader.readDouble()';
     default:

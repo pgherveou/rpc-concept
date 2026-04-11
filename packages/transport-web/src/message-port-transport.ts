@@ -50,8 +50,11 @@ export class MessagePortTransport extends MessageTransportBase {
 
   protected sendRaw(data: Uint8Array | string): void {
     if (data instanceof Uint8Array) {
-      // Transfer the underlying ArrayBuffer for zero-copy
-      const buffer = data.buffer.slice(data.byteOffset, data.byteOffset + data.byteLength);
+      // Transfer the underlying ArrayBuffer for zero-copy.
+      // Only slice if the Uint8Array is a view into a larger buffer.
+      const buffer = (data.byteOffset === 0 && data.byteLength === data.buffer.byteLength)
+        ? data.buffer
+        : data.buffer.slice(data.byteOffset, data.byteOffset + data.byteLength);
       this.port.postMessage(buffer, [buffer]);
     } else {
       this.port.postMessage(data);

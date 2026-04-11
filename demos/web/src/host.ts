@@ -170,9 +170,12 @@ function setupBridge(): void {
   const iframe = document.getElementById('client-frame') as HTMLIFrameElement;
   iframe.addEventListener('load', () => {
     logger.info('Iframe loaded, transferring MessagePort...');
+    // Use location.origin for same-origin iframes. In production, set this
+    // to the exact origin of the sandboxed content. NEVER use '*' in production.
+    const targetOrigin = location.origin;
     iframe.contentWindow!.postMessage(
       { type: 'rpc-bridge-init', port: true },
-      '*',
+      targetOrigin,
       [channel.port2],
     );
   });

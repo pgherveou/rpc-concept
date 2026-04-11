@@ -4,6 +4,7 @@
 
 /** Method streaming pattern */
 export enum MethodType {
+  UNSPECIFIED = 0,
   UNARY = 1,
   SERVER_STREAMING = 2,
   CLIENT_STREAMING = 3,

@@ -11,14 +11,14 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.toList
-import java.nio.ByteBuffer
+import java.io.ByteArrayOutputStream
 
 // -----------------------------------------------------------------
 // Protobuf wire format helpers
 // -----------------------------------------------------------------
 
 private class ProtoWriter {
-    private val buffer = mutableListOf<Byte>()
+    private val buffer = ByteArrayOutputStream()
 
     fun writeVarintField(fieldNumber: Int, value: Long) {
         writeTag(fieldNumber, 0)
@@ -45,7 +45,7 @@ private class ProtoWriter {
     fun writeBytesField(fieldNumber: Int, value: ByteArray) {
         writeTag(fieldNumber, 2)
         writeVarint(value.size.toLong())
-        buffer.addAll(value.toList())
+        buffer.write(value)
     }
 
     fun writeStringField(fieldNumber: Int, value: String) {
@@ -55,34 +55,34 @@ private class ProtoWriter {
     fun writeFloatField(fieldNumber: Int, value: Float) {
         writeTag(fieldNumber, 5)
         val bits = java.lang.Float.floatToIntBits(value)
-        buffer.add((bits and 0xFF).toByte())
-        buffer.add(((bits shr 8) and 0xFF).toByte())
-        buffer.add(((bits shr 16) and 0xFF).toByte())
-        buffer.add(((bits shr 24) and 0xFF).toByte())
+        buffer.write(bits and 0xFF)
+        buffer.write((bits shr 8) and 0xFF)
+        buffer.write((bits shr 16) and 0xFF)
+        buffer.write((bits shr 24) and 0xFF)
     }
 
     fun writeDoubleField(fieldNumber: Int, value: Double) {
         writeTag(fieldNumber, 1)
         val bits = java.lang.Double.doubleToLongBits(value)
         for (i in 0 until 8) {
-            buffer.add(((bits shr (i * 8)) and 0xFF).toByte())
+            buffer.write(((bits shr (i * 8)) and 0xFF).toInt())
         }
     }
 
     fun writeFixed32Field(fieldNumber: Int, value: UInt) {
         writeTag(fieldNumber, 5)
         val v = value.toInt()
-        buffer.add((v and 0xFF).toByte())
-        buffer.add(((v shr 8) and 0xFF).toByte())
-        buffer.add(((v shr 16) and 0xFF).toByte())
-        buffer.add(((v shr 24) and 0xFF).toByte())
+        buffer.write(v and 0xFF)
+        buffer.write((v shr 8) and 0xFF)
+        buffer.write((v shr 16) and 0xFF)
+        buffer.write((v shr 24) and 0xFF)
     }
 
     fun writeFixed64Field(fieldNumber: Int, value: ULong) {
         writeTag(fieldNumber, 1)
         val v = value.toLong()
         for (i in 0 until 8) {
-            buffer.add(((v shr (i * 8)) and 0xFF).toByte())
+            buffer.write(((v shr (i * 8)) and 0xFF).toInt())
         }
     }
 
@@ -99,7 +99,7 @@ private class ProtoWriter {
     fun writeLengthDelimited(fieldNumber: Int, data: ByteArray) {
         writeTag(fieldNumber, 2)
         writeVarint(data.size.toLong())
-        buffer.addAll(data.toList())
+        buffer.write(data)
     }
 
     private fun writeTag(fieldNumber: Int, wireType: Int) {
@@ -109,19 +109,19 @@ private class ProtoWriter {
     private fun writeVarint(value: Long) {
         var v = value
         while (v > 0x7F) {
-            buffer.add(((v and 0x7F) or 0x80).toByte())
+            buffer.write(((v and 0x7F) or 0x80).toInt())
             v = v ushr 7
         }
-        buffer.add((v and 0x7F).toByte())
+        buffer.write((v and 0x7F).toInt())
     }
 
     private fun writeVarintUnsigned(value: ULong) {
         var v = value
         while (v > 0x7Fu) {
-            buffer.add(((v and 0x7Fu) or 0x80u).toByte())
+            buffer.write(((v and 0x7Fu) or 0x80u).toInt())
             v = v shr 7
         }
-        buffer.add((v and 0x7Fu).toByte())
+        buffer.write((v and 0x7Fu).toInt())
     }
 
     fun finish(): ByteArray = buffer.toByteArray()
@@ -291,7 +291,7 @@ data class HelloResponse(
         if (message.isNotEmpty()) {
             writer.writeStringField(1, message)
         }
-        if (timestamp != 0L) {
+        if (timestamp != 0uL) {
             writer.writeVarintField(2, timestamp)
         }
         if (serverVersion.isNotEmpty()) {
@@ -395,10 +395,10 @@ data class GreetingEvent(
         if (message.isNotEmpty()) {
             writer.writeStringField(1, message)
         }
-        if (seq != 0L) {
+        if (seq != 0uL) {
             writer.writeVarintField(2, seq)
         }
-        if (timestamp != 0L) {
+        if (timestamp != 0uL) {
             writer.writeVarintField(3, timestamp)
         }
         return writer.finish()
@@ -528,10 +528,10 @@ data class ChatMessage(
         if (text.isNotEmpty()) {
             writer.writeStringField(2, text)
         }
-        if (seq != 0L) {
+        if (seq != 0uL) {
             writer.writeVarintField(3, seq)
         }
-        if (timestamp != 0L) {
+        if (timestamp != 0uL) {
             writer.writeVarintField(4, timestamp)
         }
         return writer.finish()

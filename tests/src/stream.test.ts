@@ -12,6 +12,11 @@ import {
   RpcStatusCode,
 } from '@rpc-bridge/core';
 
+const enc = new TextEncoder();
+const dec = new TextDecoder();
+function toBytes(s: string): Uint8Array { return enc.encode(s); }
+function fromBytes(b: Uint8Array): string { return dec.decode(b); }
+
 describe('Stream', () => {
   it('should start in IDLE state', () => {
     const stream = new Stream(1);
@@ -45,38 +50,36 @@ describe('Stream', () => {
   });
 
   it('should queue and deliver messages', async () => {
-    const stream = new Stream<string>(1);
+    const stream = new Stream(1);
     stream.open();
 
-    stream.pushMessage('hello');
-    stream.pushMessage('world');
+    stream.pushMessage(toBytes('hello'));
+    stream.pushMessage(toBytes('world'));
     stream.pushEnd();
 
     const messages: string[] = [];
     for await (const msg of stream.messages()) {
-      messages.push(msg);
+      messages.push(fromBytes(msg));
     }
     assert.deepEqual(messages, ['hello', 'world']);
   });
 
   it('should handle async message delivery', async () => {
-    const stream = new Stream<string>(1);
+    const stream = new Stream(1);
     stream.open();
 
-    // Start consuming before any messages arrive
     const consumer = (async () => {
       const messages: string[] = [];
       for await (const msg of stream.messages()) {
-        messages.push(msg);
+        messages.push(fromBytes(msg));
       }
       return messages;
     })();
 
-    // Push messages with delays
     await new Promise(r => setTimeout(r, 10));
-    stream.pushMessage('a');
+    stream.pushMessage(toBytes('a'));
     await new Promise(r => setTimeout(r, 10));
-    stream.pushMessage('b');
+    stream.pushMessage(toBytes('b'));
     await new Promise(r => setTimeout(r, 10));
     stream.pushEnd();
 
@@ -85,16 +88,16 @@ describe('Stream', () => {
   });
 
   it('should propagate errors through the message iterator', async () => {
-    const stream = new Stream<string>(1);
+    const stream = new Stream(1);
     stream.open();
 
-    stream.pushMessage('ok');
+    stream.pushMessage(toBytes('ok'));
     stream.pushError(new RpcError(RpcStatusCode.INTERNAL, 'test error'));
 
     const messages: string[] = [];
     await assert.rejects(async () => {
       for await (const msg of stream.messages()) {
-        messages.push(msg);
+        messages.push(fromBytes(msg));
       }
     }, (err) => {
       return err instanceof RpcError && err.code === RpcStatusCode.INTERNAL;
@@ -103,18 +106,18 @@ describe('Stream', () => {
   });
 
   it('should collect a single unary response', async () => {
-    const stream = new Stream<string>(1);
+    const stream = new Stream(1);
     stream.open();
 
-    stream.pushMessage('response');
+    stream.pushMessage(toBytes('response'));
     stream.pushEnd();
 
     const result = await stream.collectUnary();
-    assert.equal(result, 'response');
+    assert.equal(fromBytes(result), 'response');
   });
 
   it('should throw on empty unary response', async () => {
-    const stream = new Stream<string>(1);
+    const stream = new Stream(1);
     stream.open();
 
     stream.pushEnd();
@@ -122,6 +125,20 @@ describe('Stream', () => {
     await assert.rejects(
       () => stream.collectUnary(),
       (err) => err instanceof RpcError && err.code === RpcStatusCode.INTERNAL,
+    );
+  });
+
+  it('should throw on multiple messages in unary response', async () => {
+    const stream = new Stream(1);
+    stream.open();
+
+    stream.pushMessage(toBytes('first'));
+    stream.pushMessage(toBytes('second'));
+    stream.pushEnd();
+
+    await assert.rejects(
+      () => stream.collectUnary(),
+      (err) => err instanceof RpcError && err.message.includes('another message'),
     );
   });
 
@@ -139,7 +156,7 @@ describe('Stream', () => {
     const stream = new Stream(1);
     stream.setState(StreamState.CLOSED);
     stream.cancel();
-    assert.equal(stream.state, StreamState.CLOSED); // Stays CLOSED
+    assert.equal(stream.state, StreamState.CLOSED);
   });
 
   it('should handle metadata', () => {
@@ -149,9 +166,9 @@ describe('Stream', () => {
   });
 
   it('should store trailers on end', async () => {
-    const stream = new Stream<string>(1);
+    const stream = new Stream(1);
     stream.open();
-    stream.pushMessage('msg');
+    stream.pushMessage(toBytes('msg'));
     stream.pushEnd({ 'trailer-key': 'trailer-value' });
 
     for await (const _ of stream.messages()) { /* consume */ }

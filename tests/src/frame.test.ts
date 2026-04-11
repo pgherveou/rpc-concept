@@ -253,8 +253,9 @@ describe('Frame encoding edge cases', () => {
   });
 
   it('should round-trip a fully populated frame', () => {
+    // Use ERROR type so errorCode is encoded (only ERROR frames encode errorCode)
     const frame: RpcFrame = {
-      type: FrameType.OPEN,
+      type: FrameType.ERROR,
       streamId: 999,
       sequence: 42,
       payload: new Uint8Array([1, 2, 3]),

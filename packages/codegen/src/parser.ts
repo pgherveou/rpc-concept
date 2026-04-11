@@ -118,9 +118,14 @@ function parseMessage(parser: TokenParser): MessageDef {
     const token = parser.peek();
     if (token === 'reserved') {
       parser.advance();
-      // Parse reserved field numbers
+      // Parse reserved field numbers or string names
       while (parser.peek() !== ';') {
         const tok = parser.advance();
+        // Skip quoted string reserved names (e.g., reserved "foo", "bar";)
+        if (tok.startsWith('"')) {
+          if (parser.peek() === ',') parser.advance();
+          continue;
+        }
         const num = parseInt(tok, 10);
         if (!isNaN(num)) {
           msg.reserved.push(num);
@@ -262,7 +267,7 @@ function parseMethod(parser: TokenParser): MethodDef {
     clientStreaming = true;
     parser.advance();
   }
-  const inputType = parser.advance();
+  const inputType = parser.readQualifiedName();
   parser.expect(')');
 
   parser.expect('returns');
@@ -273,7 +278,7 @@ function parseMethod(parser: TokenParser): MethodDef {
     serverStreaming = true;
     parser.advance();
   }
-  const outputType = parser.advance();
+  const outputType = parser.readQualifiedName();
   parser.expect(')');
 
   // Optional method options block or semicolon
@@ -297,7 +302,7 @@ function removeComments(content: string): string {
 
 function tokenize(content: string): string[] {
   const tokens: string[] = [];
-  const re = /("(?:[^"\\]|\\.)*")|([{}();=,\[\]])|([a-zA-Z_][a-zA-Z0-9_.]*)|(\d+)/g;
+  const re = /("(?:[^"\\]|\\.)*")|([{}();=,\[\]])|([a-zA-Z_][a-zA-Z0-9_.]*)|(-?\d+)/g;
   let match;
   while ((match = re.exec(content)) !== null) {
     tokens.push(match[0]);

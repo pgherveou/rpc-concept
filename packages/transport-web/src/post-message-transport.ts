@@ -45,6 +45,13 @@ export class PostMessageTransport extends MessageTransportBase {
     this.channelId = options.channelId ?? DEFAULT_CHANNEL_ID;
     this.source = options.source ?? (typeof self !== 'undefined' ? self as unknown as Window : window);
 
+    if (!this.expectedOrigin) {
+      this.logger.warn(
+        'PostMessageTransport: no expectedOrigin set -- accepting messages from ALL origins. ' +
+        'Set expectedOrigin to the host origin in production.',
+      );
+    }
+
     this.messageListener = (event: MessageEvent) => {
       // Validate origin
       if (this.expectedOrigin && event.origin !== this.expectedOrigin) {
@@ -67,9 +74,12 @@ export class PostMessageTransport extends MessageTransportBase {
   }
 
   protected sendRaw(data: Uint8Array | string): void {
+    if (typeof data !== 'string') {
+      throw new Error('PostMessageTransport expects base64 string data');
+    }
     const message = {
       channel: this.channelId,
-      frame: typeof data === 'string' ? data : '',
+      frame: data,
     };
 
     if (this.target instanceof Worker) {
