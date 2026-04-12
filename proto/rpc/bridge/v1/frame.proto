@@ -1,156 +1,50 @@
-// RPC Bridge Frame Protocol v1
-// This defines the wire format for all frames exchanged between
-// sandboxed web content and native host code.
+// RPC Bridge Frame Protocol
+// Simplified for local IPC between collocated guest and host.
 //
-// COMPATIBILITY RULES:
-// - Never remove or renumber existing fields
-// - New frame types must be added to FrameType enum with new numbers
-// - Unknown frame types must be silently ignored by receivers
-// - New fields must be optional (proto3 default) to maintain forward compat
-// - Use the extensions map for experimental features before standardizing
-// - Sequence numbers enable ordering validation and duplicate detection
+// COMPATIBILITY: Unknown frame types and fields are silently ignored.
 
 syntax = "proto3";
 
 package rpc.bridge.v1;
 
-// FrameType identifies the kind of frame being sent.
-// Receivers MUST ignore unknown frame types for forward compatibility.
 enum FrameType {
   FRAME_TYPE_UNSPECIFIED = 0;
 
-  // Connection-level handshake. Sent once per connection direction.
-  // stream_id MUST be 0 for handshake frames.
-  FRAME_TYPE_HANDSHAKE = 1;
-
   // Opens a new logical RPC stream.
-  // Sent by the client to initiate an RPC call.
   FRAME_TYPE_OPEN = 2;
 
   // Carries a protobuf-encoded message payload.
-  // Used in both directions for request/response data.
   FRAME_TYPE_MESSAGE = 3;
 
-  // Signals that the sender will not send any more MESSAGE frames.
-  // For unary RPCs, this is sent immediately after the single MESSAGE.
-  // For client-streaming, this signals the end of the client's stream.
+  // Signals the sender will not send any more MESSAGE frames.
   FRAME_TYPE_HALF_CLOSE = 4;
 
   // Signals successful completion of the stream.
-  // Sent by the server after all response messages.
-  // May contain trailers metadata.
   FRAME_TYPE_CLOSE = 5;
 
   // Requests cancellation of an active stream.
-  // Can be sent by either side. The other side SHOULD stop processing.
   FRAME_TYPE_CANCEL = 6;
 
   // Signals an error on the stream. Terminates the stream.
   FRAME_TYPE_ERROR = 7;
-
-  // Flow control: grants the peer N additional messages it may send.
-  // Credit-based backpressure mechanism.
-  FRAME_TYPE_REQUEST_N = 8;
-
-  // Reserved for future frame types
-  // FRAME_TYPE_PING = 9;
-  // FRAME_TYPE_PONG = 10;
-  // FRAME_TYPE_GOAWAY = 11;
-  // FRAME_TYPE_WINDOW_UPDATE = 12;
 }
 
-// RpcFrame is the fundamental unit of communication in the bridge protocol.
-// Every interaction between web content and native host is expressed as
-// one or more RpcFrame messages.
 message RpcFrame {
-  // Frame type discriminator. Receivers MUST handle unknown types gracefully.
   FrameType type = 1;
 
-  // Logical stream identifier. Assigned by the stream initiator (client).
-  // stream_id 0 is reserved for connection-level frames (HANDSHAKE).
-  // Odd stream IDs are client-initiated (standard RPC calls).
-  // Even stream IDs are reserved for future server-initiated streams.
+  // Logical stream identifier. 0 is reserved.
+  // Odd IDs are client-initiated, even IDs reserved for future use.
   uint32 stream_id = 2;
 
-  // Monotonically increasing sequence number within a stream+direction.
-  // Enables ordering validation and duplicate detection.
-  uint32 sequence = 3;
-
-  // Protobuf-encoded message payload (for MESSAGE frames).
+  // Protobuf-encoded message payload (MESSAGE frames).
   bytes payload = 4;
 
-  // Key-value metadata. Used in OPEN frames for headers,
-  // CLOSE frames for trailers, and optionally in other frames.
-  map<string, string> metadata = 5;
-
-  // Bitfield flags for frame-type-specific options.
-  // Bit 0: compressed payload
-  // Bits 1-7: reserved for future use
-  uint32 flags = 6;
-
-  // --- HANDSHAKE fields ---
-
-  // Protocol version. Current version is 1.
-  // Both sides send their version; the lower version is used.
-  uint32 protocol_version = 10;
-
-  // Capabilities supported by this endpoint.
-  // Used for feature negotiation. Unknown capabilities are ignored.
-  // Examples: "flow_control", "compression", "deadline", "metadata_binary"
-  repeated string capabilities = 11;
-
-  // Human-readable implementation identifier for debugging.
-  string implementation_id = 12;
-
-  // --- OPEN fields ---
-
-  // Fully qualified method name: "package.ServiceName/MethodName"
+  // Fully qualified method name: "package.ServiceName/MethodName" (OPEN frames).
   string method = 15;
 
-  // Deadline in milliseconds from now. 0 means no deadline.
-  uint64 deadline_ms = 16;
-
-  // Method type hint for the receiver.
-  MethodType method_type = 17;
-
-  // --- ERROR fields ---
-
-  // Error code. Uses a subset of gRPC status codes for familiarity.
+  // Error code (ERROR frames).
   uint32 error_code = 20;
 
-  // Human-readable error message.
+  // Human-readable error message (ERROR frames).
   string error_message = 21;
-
-  // Optional structured error details (protobuf-encoded).
-  bytes error_details = 22;
-
-  // --- REQUEST_N fields ---
-
-  // Number of additional messages the sender is willing to accept.
-  uint32 request_n = 25;
-
-  // --- CLOSE fields ---
-
-  // Trailing metadata sent with stream completion.
-  map<string, string> trailers = 30;
-
-  // --- Extension point ---
-
-  // Opaque extension data for experimental features.
-  // Keys should be namespaced (e.g., "x-mycompany-feature").
-  map<string, bytes> extensions = 100;
-
-  // Reserved field numbers for future protocol evolution.
-  reserved 50 to 99;
-  reserved 101 to 199;
-}
-
-// MethodType provides a hint about the streaming pattern.
-// This helps the receiver set up appropriate stream handling.
-enum MethodType {
-  METHOD_TYPE_UNSPECIFIED = 0;
-  METHOD_TYPE_UNARY = 1;
-  METHOD_TYPE_SERVER_STREAMING = 2;
-  METHOD_TYPE_CLIENT_STREAMING = 3;
-  METHOD_TYPE_BIDI_STREAMING = 4;
 }

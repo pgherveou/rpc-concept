@@ -2,8 +2,7 @@
  * Client-side RPC runtime.
  *
  * RpcClient manages outgoing RPC calls over a Transport.
- * It handles stream lifecycle, frame dispatch, flow control,
- * deadlines, and cancellation.
+ * It handles stream lifecycle, frame dispatch, deadlines, and cancellation.
  *
  * Generated client stubs delegate to RpcClient methods.
  */
@@ -15,26 +14,16 @@ import {
   createMessageFrame,
   createHalfCloseFrame,
   createCancelFrame,
-  createRequestNFrame,
 } from './frame.js';
 import type { Transport } from './transport.js';
 import { Stream, StreamManager, StreamState } from './stream.js';
 import { RpcError, RpcStatusCode, CancelledError, DeadlineExceededError } from './errors.js';
-import { type CallOptions, MethodType, type Logger, silentLogger } from './types.js';
-import { performHandshake, type HandshakeResult } from './handshake.js';
-import { DEFAULT_INITIAL_CREDITS } from './flow-control.js';
+import { type CallOptions, type Logger, silentLogger } from './types.js';
 
 export interface RpcClientOptions {
-  /** Transport for sending/receiving frames. */
   transport: Transport;
-  /** Logger instance. */
   logger?: Logger;
-  /** Skip the handshake (for testing or when handshake is handled externally). */
-  skipHandshake?: boolean;
-  /** Default deadline in ms for all calls (0 = no deadline). */
   defaultDeadlineMs?: number;
-  /** Default initial flow control credits. */
-  defaultInitialCredits?: number;
 }
 
 export class RpcClient {
@@ -42,53 +31,19 @@ export class RpcClient {
   private readonly streams: StreamManager;
   private readonly logger: Logger;
   private readonly defaultDeadlineMs: number;
-  private readonly defaultInitialCredits: number;
-  private handshakeResult?: HandshakeResult;
-  private ready: Promise<void>;
-  private isReady = false;
   private closed = false;
 
   constructor(options: RpcClientOptions) {
     this.transport = options.transport;
     this.logger = options.logger ?? silentLogger;
-    this.streams = new StreamManager(true); // client side
+    this.streams = new StreamManager(true);
     this.defaultDeadlineMs = options.defaultDeadlineMs ?? 0;
-    this.defaultInitialCredits = options.defaultInitialCredits ?? DEFAULT_INITIAL_CREDITS;
 
-    // Set up frame dispatch
     this.transport.onFrame((frame) => this.handleFrame(frame));
     this.transport.onError((err) => this.handleTransportError(err));
     this.transport.onClose(() => this.handleTransportClose());
-
-    // Perform handshake
-    if (options.skipHandshake) {
-      this.ready = Promise.resolve();
-      this.isReady = true;
-    } else {
-      this.ready = performHandshake(this.transport, { logger: this.logger })
-        .then((result) => {
-          this.handshakeResult = result;
-          this.isReady = true;
-        })
-        .catch((err) => {
-          this.logger.error('Handshake failed:', err);
-          this.closed = true;
-          throw err;
-        });
-    }
   }
 
-  /** Wait for the client to be ready (handshake complete). */
-  async waitReady(): Promise<void> {
-    await this.ready;
-  }
-
-  /** Get the handshake result, if handshake was performed. */
-  getHandshakeResult(): HandshakeResult | undefined {
-    return this.handshakeResult;
-  }
-
-  /** Close the client and cancel all active streams. */
   close(): void {
     if (this.closed) return;
     this.closed = true;
@@ -96,54 +51,27 @@ export class RpcClient {
     this.transport.close();
   }
 
-  // --- RPC call methods ---
-
-  /**
-   * Unary RPC: send one request, get one response.
-   */
   async unary(
     method: string,
     requestBytes: Uint8Array,
     options?: CallOptions,
-  ): Promise<{ data: Uint8Array; metadata?: Record<string, string>; trailers?: Record<string, string> }> {
-    await this.ready;
+  ): Promise<Uint8Array> {
     this.ensureOpen();
 
-    const credits = options?.initialCredits ?? this.defaultInitialCredits;
-    const stream = this.streams.createStream(credits);
+    const stream = this.streams.createStream();
     const deadlineMs = options?.deadlineMs ?? this.defaultDeadlineMs;
     const cleanup = this.setupCancellation(stream, options?.signal, deadlineMs);
 
     try {
-      // Send OPEN
-      const openFrame = createOpenFrame(
-        stream.streamId,
-        method,
-        MethodType.UNARY,
-        options?.metadata,
-        deadlineMs,
-      );
-      this.transport.send(openFrame);
+      this.transport.send(createOpenFrame(stream.streamId, method));
       stream.open();
 
-      // Send initial REQUEST_N
-      this.transport.send(createRequestNFrame(stream.streamId, credits));
+      this.transport.send(createMessageFrame(stream.streamId, requestBytes));
 
-      // Send message
-      const msgFrame = createMessageFrame(stream.streamId, stream.nextSendSequence(), requestBytes);
-      this.transport.send(msgFrame);
-
-      // Send HALF_CLOSE (client done sending)
       this.transport.send(createHalfCloseFrame(stream.streamId));
       stream.setState(StreamState.HALF_CLOSED_LOCAL);
 
-      // Wait for response
-      const responseBytes = await stream.collectUnary();
-      return {
-        data: responseBytes,
-        metadata: stream.responseMetadata,
-        trailers: stream.trailers,
-      };
+      return await stream.collectUnary();
     } catch (err) {
       this.cancelStream(stream);
       throw err;
@@ -153,53 +81,28 @@ export class RpcClient {
     }
   }
 
-  /**
-   * Server-streaming RPC: send one request, get a stream of responses.
-   */
   async *serverStream(
     method: string,
     requestBytes: Uint8Array,
     options?: CallOptions,
   ): AsyncGenerator<Uint8Array, void, undefined> {
-    await this.ready;
     this.ensureOpen();
 
-    const credits = options?.initialCredits ?? this.defaultInitialCredits;
-    const stream = this.streams.createStream(credits);
+    const stream = this.streams.createStream();
     const deadlineMs = options?.deadlineMs ?? this.defaultDeadlineMs;
     const cleanup = this.setupCancellation(stream, options?.signal, deadlineMs);
 
     try {
-      // Send OPEN
-      const openFrame = createOpenFrame(
-        stream.streamId,
-        method,
-        MethodType.SERVER_STREAMING,
-        options?.metadata,
-        deadlineMs,
-      );
-      this.transport.send(openFrame);
+      this.transport.send(createOpenFrame(stream.streamId, method));
       stream.open();
 
-      // Send initial REQUEST_N
-      this.transport.send(createRequestNFrame(stream.streamId, credits));
+      this.transport.send(createMessageFrame(stream.streamId, requestBytes));
 
-      // Send request message
-      const msgFrame = createMessageFrame(stream.streamId, stream.nextSendSequence(), requestBytes);
-      this.transport.send(msgFrame);
-
-      // Send HALF_CLOSE
       this.transport.send(createHalfCloseFrame(stream.streamId));
       stream.setState(StreamState.HALF_CLOSED_LOCAL);
 
-      // Yield incoming messages with flow control
       for await (const msg of stream.messages()) {
         yield msg;
-        // Replenish flow control credits
-        const additionalCredits = stream.receiveFlow.onMessageReceived();
-        if (additionalCredits > 0) {
-          this.transport.send(createRequestNFrame(stream.streamId, additionalCredits));
-        }
       }
     } catch (err) {
       this.cancelStream(stream);
@@ -210,58 +113,32 @@ export class RpcClient {
     }
   }
 
-  /**
-   * Client-streaming RPC: send a stream of requests, get one response.
-   */
   async clientStream(
     method: string,
     requests: AsyncIterable<Uint8Array>,
     options?: CallOptions,
-  ): Promise<{ data: Uint8Array; metadata?: Record<string, string>; trailers?: Record<string, string> }> {
-    await this.ready;
+  ): Promise<Uint8Array> {
     this.ensureOpen();
 
-    const credits = options?.initialCredits ?? this.defaultInitialCredits;
-    const stream = this.streams.createStream(credits);
+    const stream = this.streams.createStream();
     const deadlineMs = options?.deadlineMs ?? this.defaultDeadlineMs;
     const cleanup = this.setupCancellation(stream, options?.signal, deadlineMs);
 
     try {
-      // Send OPEN
-      const openFrame = createOpenFrame(
-        stream.streamId,
-        method,
-        MethodType.CLIENT_STREAMING,
-        options?.metadata,
-        deadlineMs,
-      );
-      this.transport.send(openFrame);
+      this.transport.send(createOpenFrame(stream.streamId, method));
       stream.open();
 
-      // Send initial REQUEST_N for the response
-      this.transport.send(createRequestNFrame(stream.streamId, credits));
-
-      // Stream request messages with flow control
       for await (const reqBytes of requests) {
         if (stream.state === StreamState.CANCELLED || stream.state === StreamState.ERROR) {
           break;
         }
-        await stream.sendFlow.acquire(stream.signal);
-        const msgFrame = createMessageFrame(stream.streamId, stream.nextSendSequence(), reqBytes);
-        this.transport.send(msgFrame);
+        this.transport.send(createMessageFrame(stream.streamId, reqBytes));
       }
 
-      // Send HALF_CLOSE
       this.transport.send(createHalfCloseFrame(stream.streamId));
       stream.setState(StreamState.HALF_CLOSED_LOCAL);
 
-      // Wait for single response
-      const responseBytes = await stream.collectUnary();
-      return {
-        data: responseBytes,
-        metadata: stream.responseMetadata,
-        trailers: stream.trailers,
-      };
+      return await stream.collectUnary();
     } catch (err) {
       this.cancelStream(stream);
       throw err;
@@ -271,73 +148,45 @@ export class RpcClient {
     }
   }
 
-  /**
-   * Bidirectional streaming RPC: send and receive message streams concurrently.
-   */
   bidiStream(
     method: string,
     requests: AsyncIterable<Uint8Array>,
     options?: CallOptions,
   ): AsyncGenerator<Uint8Array, void, undefined> {
-    const credits = options?.initialCredits ?? this.defaultInitialCredits;
-    // We need to create and return the generator immediately but do
-    // setup asynchronously inside it.
     const self = this;
     return (async function* () {
-      await self.ready;
       self.ensureOpen();
 
-      const stream = self.streams.createStream(credits);
+      const stream = self.streams.createStream();
       const deadlineMs = options?.deadlineMs ?? self.defaultDeadlineMs;
       const cleanup = self.setupCancellation(stream, options?.signal, deadlineMs);
 
       try {
-        // Send OPEN
-        const openFrame = createOpenFrame(
-          stream.streamId,
-          method,
-          MethodType.BIDI_STREAMING,
-          options?.metadata,
-          deadlineMs,
-        );
-        self.transport.send(openFrame);
+        self.transport.send(createOpenFrame(stream.streamId, method));
         stream.open();
 
-        // Send initial REQUEST_N
-        self.transport.send(createRequestNFrame(stream.streamId, credits));
-
-        // Start sending in the background
         const sendDone = (async () => {
           try {
             for await (const reqBytes of requests) {
               if (stream.state === StreamState.CANCELLED || stream.state === StreamState.ERROR) {
                 break;
               }
-              await stream.sendFlow.acquire(stream.signal);
-              const msgFrame = createMessageFrame(stream.streamId, stream.nextSendSequence(), reqBytes);
-              self.transport.send(msgFrame);
+              self.transport.send(createMessageFrame(stream.streamId, reqBytes));
             }
-            // Send HALF_CLOSE when client is done sending
             if (stream.state === StreamState.OPEN) {
               self.transport.send(createHalfCloseFrame(stream.streamId));
               stream.setState(StreamState.HALF_CLOSED_LOCAL);
             }
           } catch (err) {
-            // If sending fails, don't propagate here - the receive side will see it
             if (!(err instanceof CancelledError)) {
               self.logger.error('Bidi send error:', err);
             }
           }
         })();
 
-        // Yield incoming messages with flow control
         try {
           for await (const msg of stream.messages()) {
             yield msg;
-            const additionalCredits = stream.receiveFlow.onMessageReceived();
-            if (additionalCredits > 0) {
-              self.transport.send(createRequestNFrame(stream.streamId, additionalCredits));
-            }
           }
         } finally {
           await sendDone.catch(() => {});
@@ -352,18 +201,7 @@ export class RpcClient {
     })();
   }
 
-  // --- Frame handling ---
-
   private handleFrame(frame: RpcFrame): void {
-    // Ignore handshake frames (handled by handshake module)
-    if (frame.type === FrameType.HANDSHAKE) return;
-
-    // Guard: skip non-handshake frames if not yet ready
-    if (!this.isReady) {
-      this.logger.warn(`Received frame type=${frame.type} before handshake complete, ignoring`);
-      return;
-    }
-
     const stream = this.streams.getStream(frame.streamId);
     if (!stream) {
       this.logger.warn(`Received frame for unknown stream ${frame.streamId}, type=${frame.type}`);
@@ -372,37 +210,25 @@ export class RpcClient {
 
     switch (frame.type) {
       case FrameType.MESSAGE:
-        // Validate sequence number
-        if (!stream.validateReceiveSequence(frame.sequence)) {
-          this.logger.warn(`Out-of-order message on stream ${frame.streamId}: expected next sequence, got ${frame.sequence}`);
-          stream.pushError(new RpcError(RpcStatusCode.INTERNAL, 'Out-of-order message received'));
-          this.cancelStream(stream);
-          return;
-        }
-        if (frame.metadata) {
-          stream.setResponseMetadata(frame.metadata);
-        }
         stream.pushMessage(frame.payload ?? new Uint8Array(0));
         break;
 
       case FrameType.CLOSE:
         stream.setState(StreamState.CLOSED);
-        stream.pushEnd(frame.trailers);
+        stream.pushEnd();
         break;
 
       case FrameType.ERROR:
         stream.setState(StreamState.ERROR);
         stream.pushError(
           RpcError.fromFrame(
-            frame.errorCode ?? RpcStatusCode.UNKNOWN,
+            frame.errorCode ?? RpcStatusCode.INTERNAL,
             frame.errorMessage ?? 'Unknown error',
-            frame.errorDetails,
           ),
         );
         break;
 
       case FrameType.HALF_CLOSE:
-        // Server half-closed (no more messages from server)
         if (stream.state === StreamState.HALF_CLOSED_LOCAL) {
           stream.setState(StreamState.HALF_CLOSED_BOTH);
         } else {
@@ -410,17 +236,11 @@ export class RpcClient {
         }
         break;
 
-      case FrameType.REQUEST_N:
-        // Server granting us more send credits
-        stream.sendFlow.addCredits(frame.requestN ?? 0);
-        break;
-
       case FrameType.CANCEL:
         stream.cancel('Cancelled by server');
         break;
 
       default:
-        // Unknown frame type: ignore for forward compatibility
         this.logger.debug(`Ignoring unknown frame type ${frame.type} on stream ${frame.streamId}`);
         break;
     }
@@ -437,21 +257,15 @@ export class RpcClient {
     this.closed = true;
   }
 
-  // --- Helpers ---
-
   private ensureOpen(): void {
     if (this.closed) {
-      throw new RpcError(RpcStatusCode.UNAVAILABLE, 'Client is closed');
+      throw new RpcError(RpcStatusCode.INTERNAL, 'Client is closed');
     }
     if (!this.transport.isOpen) {
-      throw new RpcError(RpcStatusCode.UNAVAILABLE, 'Transport is not open');
+      throw new RpcError(RpcStatusCode.INTERNAL, 'Transport is not open');
     }
   }
 
-  /**
-   * Set up cancellation for a stream (abort signal + deadline).
-   * Returns a cleanup function that must be called in the finally block.
-   */
   private setupCancellation(
     stream: Stream,
     signal?: AbortSignal,
@@ -460,7 +274,6 @@ export class RpcClient {
     let deadlineTimer: ReturnType<typeof setTimeout> | undefined;
     let abortHandler: (() => void) | undefined;
 
-    // External abort signal
     if (signal) {
       if (signal.aborted) {
         stream.cancel('Aborted');
@@ -473,7 +286,6 @@ export class RpcClient {
       }
     }
 
-    // Deadline
     if (deadlineMs && deadlineMs > 0) {
       deadlineTimer = setTimeout(() => {
         if (stream.state === StreamState.OPEN ||
@@ -486,7 +298,6 @@ export class RpcClient {
       }, deadlineMs);
     }
 
-    // Return cleanup function
     return () => {
       if (deadlineTimer !== undefined) {
         clearTimeout(deadlineTimer);

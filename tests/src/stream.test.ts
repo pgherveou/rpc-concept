@@ -30,25 +30,6 @@ describe('Stream', () => {
     assert.equal(stream.state, StreamState.OPEN);
   });
 
-  it('should track send sequence numbers', () => {
-    const stream = new Stream(1);
-    assert.equal(stream.nextSendSequence(), 1);
-    assert.equal(stream.nextSendSequence(), 2);
-    assert.equal(stream.nextSendSequence(), 3);
-  });
-
-  it('should validate receive sequence numbers', () => {
-    const stream = new Stream(1);
-    assert.equal(stream.validateReceiveSequence(1), true);
-    assert.equal(stream.validateReceiveSequence(2), true);
-    assert.equal(stream.validateReceiveSequence(4), false); // Out of order
-  });
-
-  it('should skip validation for sequence 0', () => {
-    const stream = new Stream(1);
-    assert.equal(stream.validateReceiveSequence(0), true);
-  });
-
   it('should queue and deliver messages', async () => {
     const stream = new Stream(1);
     stream.open();
@@ -157,22 +138,6 @@ describe('Stream', () => {
     stream.setState(StreamState.CLOSED);
     stream.cancel();
     assert.equal(stream.state, StreamState.CLOSED);
-  });
-
-  it('should handle metadata', () => {
-    const stream = new Stream(1);
-    stream.setResponseMetadata({ 'key': 'value' });
-    assert.deepEqual(stream.responseMetadata, { 'key': 'value' });
-  });
-
-  it('should store trailers on end', async () => {
-    const stream = new Stream(1);
-    stream.open();
-    stream.pushMessage(toBytes('msg'));
-    stream.pushEnd({ 'trailer-key': 'trailer-value' });
-
-    for await (const _ of stream.messages()) { /* consume */ }
-    assert.deepEqual(stream.trailers, { 'trailer-key': 'trailer-value' });
   });
 });
 

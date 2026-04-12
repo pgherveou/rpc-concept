@@ -9,7 +9,7 @@
  * this transport very efficient for binary protobuf frames.
  */
 
-import { MessageTransportBase, FrameEncoding, type Logger } from '@rpc-bridge/core';
+import { MessageTransportBase, FrameEncoding, type Logger, type RpcFrame } from '@rpc-bridge/core';
 
 export interface MessagePortTransportOptions {
   /** The MessagePort to use for communication. */
@@ -18,26 +18,22 @@ export interface MessagePortTransportOptions {
   logger?: Logger;
 }
 
+/**
+ * MessagePort-based transport using structured cloning.
+ *
+ * Passes RpcFrame objects directly via postMessage, relying on the browser's
+ * structured clone algorithm. This avoids protobuf encode/decode overhead
+ * entirely. Uint8Array payloads within frames are cloned automatically.
+ */
 export class MessagePortTransport extends MessageTransportBase {
   private readonly port: MessagePort;
 
   constructor(options: MessagePortTransportOptions) {
-    super(FrameEncoding.BINARY, options.logger);
+    super(FrameEncoding.STRUCTURED_CLONE, options.logger);
     this.port = options.port;
 
-    // Set up message handler
     this.port.onmessage = (event: MessageEvent) => {
-      const data = event.data;
-      if (data instanceof ArrayBuffer) {
-        this.handleRawMessage(new Uint8Array(data));
-      } else if (data instanceof Uint8Array) {
-        this.handleRawMessage(data);
-      } else if (typeof data === 'string') {
-        // Fallback: base64-encoded string
-        this.handleRawMessage(data);
-      } else {
-        this.logger.warn('Unexpected message type on MessagePort:', typeof data);
-      }
+      this.handleRawMessage(event.data);
     };
 
     this.port.onmessageerror = (event: MessageEvent) => {
@@ -48,18 +44,8 @@ export class MessagePortTransport extends MessageTransportBase {
     this.port.start();
   }
 
-  protected sendRaw(data: Uint8Array | string): void {
-    if (data instanceof Uint8Array) {
-      // Always slice to get an owned copy before transferring.
-      // Transferring neuters the underlying ArrayBuffer, which would
-      // corrupt the caller's data if the Uint8Array shares a buffer
-      // with other views (e.g., a pooled allocator or the encoder's
-      // internal buffer).
-      const buffer = data.buffer.slice(data.byteOffset, data.byteOffset + data.byteLength);
-      this.port.postMessage(buffer, [buffer]);
-    } else {
-      this.port.postMessage(data);
-    }
+  protected sendRaw(data: Uint8Array | string | RpcFrame): void {
+    this.port.postMessage(data);
   }
 
   close(): void {

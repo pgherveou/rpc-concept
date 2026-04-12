@@ -2,7 +2,7 @@
  * Server-side RPC runtime.
  *
  * RpcServer dispatches incoming RPC calls to registered service handlers.
- * It manages server-side stream lifecycle, flow control, and error handling.
+ * It manages server-side stream lifecycle and error handling.
  *
  * Generated dispatcher code registers with RpcServer to handle specific services.
  */
@@ -14,14 +14,11 @@ import {
   createHalfCloseFrame,
   createCloseFrame,
   createErrorFrame,
-  createRequestNFrame,
 } from './frame.js';
 import type { Transport } from './transport.js';
 import { Stream, StreamManager, StreamState } from './stream.js';
 import { RpcError, RpcStatusCode } from './errors.js';
 import { MethodType, type CallContext, type Logger, silentLogger } from './types.js';
-import { acceptHandshake, type HandshakeResult } from './handshake.js';
-import { DEFAULT_INITIAL_CREDITS } from './flow-control.js';
 
 /** Handler function types for different RPC patterns. */
 export type UnaryHandler = (
@@ -52,76 +49,37 @@ export type MethodHandler =
 
 /** Service registration with all its method handlers. */
 export interface ServiceRegistration {
-  /** Fully qualified service name: "package.ServiceName" */
   name: string;
-  /** Method handlers keyed by method name. */
   methods: Record<string, MethodHandler>;
 }
 
 export interface RpcServerOptions {
   transport: Transport;
   logger?: Logger;
-  skipHandshake?: boolean;
-  defaultInitialCredits?: number;
 }
 
 export class RpcServer {
   private readonly transport: Transport;
   private readonly streams: StreamManager;
   private readonly logger: Logger;
-  private readonly defaultInitialCredits: number;
   private readonly services = new Map<string, ServiceRegistration>();
-  private handshakeResult?: HandshakeResult;
-  private ready: Promise<void>;
-  private isReady = false;
   private closed = false;
 
   constructor(options: RpcServerOptions) {
     this.transport = options.transport;
     this.logger = options.logger ?? silentLogger;
-    this.streams = new StreamManager(false); // server side
-    this.defaultInitialCredits = options.defaultInitialCredits ?? DEFAULT_INITIAL_CREDITS;
+    this.streams = new StreamManager(false);
 
-    // Set up frame dispatch
     this.transport.onFrame((frame) => this.handleFrame(frame));
     this.transport.onError((err) => this.handleTransportError(err));
     this.transport.onClose(() => this.handleTransportClose());
-
-    // Accept handshake
-    if (options.skipHandshake) {
-      this.ready = Promise.resolve();
-      this.isReady = true;
-    } else {
-      this.ready = acceptHandshake(this.transport, { logger: this.logger })
-        .then((result) => {
-          this.handshakeResult = result;
-          this.isReady = true;
-        })
-        .catch((err) => {
-          this.logger.error('Handshake failed:', err);
-          this.closed = true;
-          throw err;
-        });
-    }
   }
 
-  /** Wait for the server to be ready (handshake complete). */
-  async waitReady(): Promise<void> {
-    await this.ready;
-  }
-
-  /** Get handshake result. */
-  getHandshakeResult(): HandshakeResult | undefined {
-    return this.handshakeResult;
-  }
-
-  /** Register a service with its method handlers. */
   registerService(service: ServiceRegistration): void {
     this.services.set(service.name, service);
     this.logger.info(`Registered service: ${service.name} (${Object.keys(service.methods).length} methods)`);
   }
 
-  /** Close the server and cancel all active streams. */
   close(): void {
     if (this.closed) return;
     this.closed = true;
@@ -129,17 +87,7 @@ export class RpcServer {
     this.transport.close();
   }
 
-  // --- Frame handling ---
-
   private handleFrame(frame: RpcFrame): void {
-    if (frame.type === FrameType.HANDSHAKE) return;
-
-    // Guard: skip non-handshake frames if not yet ready
-    if (!this.isReady) {
-      this.logger.warn(`Received frame type=${frame.type} before handshake complete, ignoring`);
-      return;
-    }
-
     if (frame.type === FrameType.OPEN) {
       this.handleOpen(frame);
       return;
@@ -165,10 +113,6 @@ export class RpcServer {
         stream.pushEnd();
         break;
 
-      case FrameType.REQUEST_N:
-        stream.sendFlow.addCredits(frame.requestN ?? 0);
-        break;
-
       case FrameType.CANCEL:
         this.logger.debug(`Stream ${frame.streamId} cancelled by client`);
         stream.cancel('Cancelled by client');
@@ -178,9 +122,8 @@ export class RpcServer {
       case FrameType.ERROR:
         stream.pushError(
           RpcError.fromFrame(
-            frame.errorCode ?? RpcStatusCode.UNKNOWN,
+            frame.errorCode ?? RpcStatusCode.INTERNAL,
             frame.errorMessage ?? 'Client error',
-            frame.errorDetails,
           ),
         );
         this.streams.removeStream(frame.streamId);
@@ -199,7 +142,6 @@ export class RpcServer {
       return;
     }
 
-    // Parse method: "package.ServiceName/MethodName"
     const slashIdx = method.lastIndexOf('/');
     if (slashIdx < 0) {
       this.sendError(frame.streamId, RpcStatusCode.INVALID_ARGUMENT, `Invalid method format: ${method}`);
@@ -221,24 +163,16 @@ export class RpcServer {
       return;
     }
 
-    // Create the server-side stream
-    const stream = new Stream(frame.streamId, this.defaultInitialCredits);
+    const stream = new Stream(frame.streamId);
     stream.open();
     this.streams.registerStream(stream);
 
-    // Do NOT self-grant send credits here.
-    // The client's REQUEST_N frame will provide the send credits.
-
-    // Build call context
     const context: CallContext = {
-      metadata: frame.metadata ?? {},
-      deadline: frame.deadlineMs ? Date.now() + frame.deadlineMs : undefined,
       signal: stream.signal,
       streamId: frame.streamId,
       method,
     };
 
-    // Dispatch to the appropriate handler
     this.dispatchMethod(stream, methodHandler, context).catch((err) => {
       this.logger.error(`Handler error for ${method}:`, err);
     });
@@ -270,7 +204,7 @@ export class RpcServer {
       if (stream.state === StreamState.CANCELLED) return;
 
       if (err instanceof RpcError) {
-        this.sendError(streamId, err.code, err.message, err.details);
+        this.sendError(streamId, err.code, err.message);
       } else {
         const message = err instanceof Error ? err.message : String(err);
         this.sendError(streamId, RpcStatusCode.INTERNAL, message);
@@ -285,18 +219,10 @@ export class RpcServer {
     handler: UnaryHandler,
     context: CallContext,
   ): Promise<void> {
-    // Wait for the single request message
     const requestBytes = await stream.collectUnary();
-
-    // Call handler
     const responseBytes = await handler(requestBytes, context);
 
-    // Send response
-    await stream.sendFlow.acquire(stream.signal);
-    const msgFrame = createMessageFrame(stream.streamId, stream.nextSendSequence(), responseBytes);
-    this.transport.send(msgFrame);
-
-    // Close stream
+    this.transport.send(createMessageFrame(stream.streamId, responseBytes));
     this.transport.send(createCloseFrame(stream.streamId));
     stream.setState(StreamState.CLOSED);
   }
@@ -306,21 +232,14 @@ export class RpcServer {
     handler: ServerStreamHandler,
     context: CallContext,
   ): Promise<void> {
-    // Wait for the single request message
     const requestBytes = await stream.collectUnary();
-
-    // Call handler to get response stream
     const responses = handler(requestBytes, context);
 
-    // Send response messages with flow control
     for await (const responseBytes of responses) {
       if (stream.state === StreamState.CANCELLED) return;
-      await stream.sendFlow.acquire(stream.signal);
-      const msgFrame = createMessageFrame(stream.streamId, stream.nextSendSequence(), responseBytes);
-      this.transport.send(msgFrame);
+      this.transport.send(createMessageFrame(stream.streamId, responseBytes));
     }
 
-    // Close stream
     this.transport.send(createCloseFrame(stream.streamId));
     stream.setState(StreamState.CLOSED);
   }
@@ -330,21 +249,10 @@ export class RpcServer {
     handler: ClientStreamHandler,
     context: CallContext,
   ): Promise<void> {
-    // Send initial REQUEST_N to allow client to send
-    this.transport.send(createRequestNFrame(stream.streamId, this.defaultInitialCredits));
-
-    // Create async iterable for incoming messages with flow control
     const requests = this.createReceiveIterable(stream);
-
-    // Call handler
     const responseBytes = await handler(requests, context);
 
-    // Send response
-    await stream.sendFlow.acquire(stream.signal);
-    const msgFrame = createMessageFrame(stream.streamId, stream.nextSendSequence(), responseBytes);
-    this.transport.send(msgFrame);
-
-    // Close stream
+    this.transport.send(createMessageFrame(stream.streamId, responseBytes));
     this.transport.send(createCloseFrame(stream.streamId));
     stream.setState(StreamState.CLOSED);
   }
@@ -354,49 +262,26 @@ export class RpcServer {
     handler: BidiStreamHandler,
     context: CallContext,
   ): Promise<void> {
-    // Send initial REQUEST_N to allow client to send
-    this.transport.send(createRequestNFrame(stream.streamId, this.defaultInitialCredits));
-
-    // Create async iterable for incoming messages
     const requests = this.createReceiveIterable(stream);
-
-    // Call handler to get response stream
     const responses = handler(requests, context);
 
-    // Send response messages with flow control
     for await (const responseBytes of responses) {
       if (stream.state === StreamState.CANCELLED) return;
-      await stream.sendFlow.acquire(stream.signal);
-      const msgFrame = createMessageFrame(stream.streamId, stream.nextSendSequence(), responseBytes);
-      this.transport.send(msgFrame);
+      this.transport.send(createMessageFrame(stream.streamId, responseBytes));
     }
 
-    // Send HALF_CLOSE from server side
     this.transport.send(createHalfCloseFrame(stream.streamId));
-
-    // Close stream
     this.transport.send(createCloseFrame(stream.streamId));
     stream.setState(StreamState.CLOSED);
   }
 
-  /** Create an async iterable that yields messages with flow control replenishment. */
   private createReceiveIterable(stream: Stream): AsyncIterable<Uint8Array> {
-    const transport = this.transport;
-
     return {
       [Symbol.asyncIterator]() {
         const gen = stream.messages();
         return {
           async next() {
-            const result = await gen.next();
-            if (!result.done) {
-              // Replenish credits
-              const additionalCredits = stream.receiveFlow.onMessageReceived();
-              if (additionalCredits > 0) {
-                transport.send(createRequestNFrame(stream.streamId, additionalCredits));
-              }
-            }
-            return result;
+            return gen.next();
           },
           async return(value?: unknown) {
             await gen.return(undefined);
@@ -410,17 +295,10 @@ export class RpcServer {
     };
   }
 
-  // --- Helpers ---
-
-  private sendError(
-    streamId: number,
-    code: RpcStatusCode,
-    message: string,
-    details?: Uint8Array,
-  ): void {
+  private sendError(streamId: number, code: RpcStatusCode, message: string): void {
     try {
       if (this.transport.isOpen) {
-        this.transport.send(createErrorFrame(streamId, code, message, details));
+        this.transport.send(createErrorFrame(streamId, code, message));
       }
     } catch {
       // Best effort

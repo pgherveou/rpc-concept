@@ -6,9 +6,9 @@
  *   rpc-bridge-codegen --proto <file> [--ts-out <dir>] [--swift-out <dir>] [--kotlin-out <dir>]
  */
 
-import { readFileSync, writeFileSync, mkdirSync } from 'fs';
+import { writeFileSync, mkdirSync } from 'fs';
 import { resolve, dirname } from 'path';
-import { parseProto } from './parser.js';
+import { parseProtoFile } from './parser.js';
 import { generateMessages, generateClient, generateServer } from './gen-typescript.js';
 import { generateSwift } from './gen-swift.js';
 import { generateKotlin } from './gen-kotlin.js';
@@ -22,11 +22,10 @@ function main(): void {
     process.exit(1);
   }
 
-  // Parse the proto file
+  // Parse the proto file (uses protobufjs, resolves imports)
   const protoPath = resolve(options.proto);
   console.log(`Parsing proto file: ${protoPath}`);
-  const content = readFileSync(protoPath, 'utf-8');
-  const proto = parseProto(content);
+  const proto = parseProtoFile(protoPath);
 
   console.log(`Package: ${proto.package}`);
   console.log(`Messages: ${proto.messages.map(m => m.name).join(', ')}`);

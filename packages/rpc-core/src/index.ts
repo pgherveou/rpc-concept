@@ -7,28 +7,21 @@
  * - Client-side RPC runtime
  * - Server-side RPC runtime and dispatcher
  * - Stream lifecycle management
- * - Credit-based flow control (backpressure)
- * - Protocol version negotiation
  * - Structured error handling
  */
 
 // Frame types and encoding
 export {
   FrameType,
-  FrameFlags,
   type RpcFrame,
   encodeFrame,
   decodeFrame,
-  createHandshakeFrame,
   createOpenFrame,
   createMessageFrame,
   createHalfCloseFrame,
   createCloseFrame,
   createCancelFrame,
   createErrorFrame,
-  createRequestNFrame,
-  ProtoWriter,
-  ProtoReader,
 } from './frame.js';
 
 // Transport abstraction
@@ -51,15 +44,6 @@ export {
   StreamManager,
 } from './stream.js';
 
-// Flow control
-export {
-  DEFAULT_INITIAL_CREDITS,
-  DEFAULT_REPLENISH_CREDITS,
-  LOW_WATERMARK_RATIO,
-  SendFlowController,
-  ReceiveFlowController,
-} from './flow-control.js';
-
 // Client
 export {
   RpcClient,
@@ -78,17 +62,6 @@ export {
   type ServiceRegistration,
 } from './server.js';
 
-// Handshake
-export {
-  CURRENT_PROTOCOL_VERSION,
-  TS_IMPLEMENTATION_ID,
-  Capabilities,
-  DEFAULT_CAPABILITIES,
-  performHandshake,
-  acceptHandshake,
-  type HandshakeResult,
-} from './handshake.js';
-
 // Errors
 export {
   RpcStatusCode,
@@ -100,7 +73,6 @@ export {
 // Types
 export {
   MethodType,
-  type Metadata,
   type CallOptions,
   type CallContext,
   type MethodDescriptor,

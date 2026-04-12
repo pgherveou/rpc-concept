@@ -7,26 +7,16 @@
  */
 
 import { RpcError, CancelledError, RpcStatusCode } from './errors.js';
-import { SendFlowController, ReceiveFlowController, DEFAULT_INITIAL_CREDITS } from './flow-control.js';
-import type { Metadata } from './types.js';
 
 /** Possible states for a stream. */
 export enum StreamState {
-  /** Stream has been created but OPEN not yet sent/received. */
   IDLE = 'idle',
-  /** OPEN sent/received, stream is active. */
   OPEN = 'open',
-  /** Local side has sent HALF_CLOSE (no more outgoing messages). */
   HALF_CLOSED_LOCAL = 'half_closed_local',
-  /** Remote side has sent HALF_CLOSE (no more incoming messages). */
   HALF_CLOSED_REMOTE = 'half_closed_remote',
-  /** Both sides have half-closed. */
   HALF_CLOSED_BOTH = 'half_closed_both',
-  /** Stream completed normally (CLOSE received). */
   CLOSED = 'closed',
-  /** Stream terminated with error. */
   ERROR = 'error',
-  /** Stream was cancelled. */
   CANCELLED = 'cancelled',
 }
 
@@ -34,11 +24,10 @@ export enum StreamState {
 type QueueItem =
   | { type: 'message'; value: Uint8Array }
   | { type: 'error'; error: Error }
-  | { type: 'end'; trailers?: Metadata };
+  | { type: 'end' };
 
 /**
  * Manages a single logical stream's lifecycle and message buffering.
- * Used by both client and server sides.
  */
 export class Stream {
   readonly streamId: number;
@@ -49,25 +38,8 @@ export class Stream {
   private readonly queue: QueueItem[] = [];
   private waiter: ((item: QueueItem) => void) | null = null;
 
-  // Flow control
-  readonly sendFlow: SendFlowController;
-  readonly receiveFlow: ReceiveFlowController;
-
-  // Sequence tracking
-  private sendSequence = 0;
-  private receiveSequence = 0;
-
-  // Metadata
-  private _responseMetadata?: Metadata;
-  private _trailers?: Metadata;
-
-  constructor(
-    streamId: number,
-    initialCredits: number = DEFAULT_INITIAL_CREDITS,
-  ) {
+  constructor(streamId: number) {
     this.streamId = streamId;
-    this.sendFlow = new SendFlowController();
-    this.receiveFlow = new ReceiveFlowController(initialCredits);
   }
 
   get state(): StreamState {
@@ -78,40 +50,14 @@ export class Stream {
     return this.abortController.signal;
   }
 
-  get responseMetadata(): Metadata | undefined {
-    return this._responseMetadata;
-  }
-
-  get trailers(): Metadata | undefined {
-    return this._trailers;
-  }
-
-  /** Transition to a new state with validation. */
   setState(newState: StreamState): void {
     this._state = newState;
   }
 
-  /** Mark stream as open. */
   open(): void {
     this._state = StreamState.OPEN;
   }
 
-  /** Get and increment send sequence number. */
-  nextSendSequence(): number {
-    return ++this.sendSequence;
-  }
-
-  /** Validate and track incoming sequence number. */
-  validateReceiveSequence(seq: number): boolean {
-    if (seq <= 0) return true; // 0 means no sequence tracking
-    if (seq !== this.receiveSequence + 1) {
-      return false; // Out of order or duplicate
-    }
-    this.receiveSequence = seq;
-    return true;
-  }
-
-  /** Push an incoming message to the queue. */
   pushMessage(message: Uint8Array): void {
     const item: QueueItem = { type: 'message', value: message };
     if (this.waiter) {
@@ -123,10 +69,8 @@ export class Stream {
     }
   }
 
-  /** Signal that no more incoming messages will arrive. */
-  pushEnd(trailers?: Metadata): void {
-    this._trailers = trailers;
-    const item: QueueItem = { type: 'end', trailers };
+  pushEnd(): void {
+    const item: QueueItem = { type: 'end' };
     if (this.waiter) {
       const w = this.waiter;
       this.waiter = null;
@@ -136,10 +80,8 @@ export class Stream {
     }
   }
 
-  /** Signal an error on the incoming side. */
   pushError(error: Error): void {
     const item: QueueItem = { type: 'error', error };
-    // Note: do NOT abort the controller here - only cancel() should do that
     if (this.waiter) {
       const w = this.waiter;
       this.waiter = null;
@@ -149,7 +91,6 @@ export class Stream {
     }
   }
 
-  /** Cancel this stream. */
   cancel(reason?: string): void {
     if (this._state === StreamState.CLOSED ||
         this._state === StreamState.ERROR ||
@@ -159,19 +100,9 @@ export class Stream {
     this._state = StreamState.CANCELLED;
     const err = new CancelledError(reason ?? 'Stream cancelled');
     this.abortController.abort(err);
-    this.sendFlow.cancel();
     this.pushError(err);
   }
 
-  /** Set response metadata from OPEN response or first MESSAGE. */
-  setResponseMetadata(metadata: Metadata): void {
-    this._responseMetadata = metadata;
-  }
-
-  /**
-   * Async iterator for consuming incoming messages.
-   * Yields messages until the stream ends or errors.
-   */
   async *messages(): AsyncGenerator<Uint8Array, void, undefined> {
     while (true) {
       const item = await this.nextItem();
@@ -180,29 +111,20 @@ export class Stream {
       } else if (item.type === 'error') {
         throw item.error;
       } else {
-        // 'end'
         return;
       }
     }
   }
 
-  /** Wait for the next item from the queue. */
   private nextItem(): Promise<QueueItem> {
-    // Check queue first
     if (this.queue.length > 0) {
       return Promise.resolve(this.queue.shift()!);
     }
-
-    // Wait for next item
     return new Promise<QueueItem>((resolve) => {
       this.waiter = resolve;
     });
   }
 
-  /**
-   * Collect a single response (for unary calls).
-   * Expects exactly one message followed by end.
-   */
   async collectUnary(): Promise<Uint8Array> {
     const item = await this.nextItem();
     if (item.type === 'error') throw item.error;
@@ -210,7 +132,6 @@ export class Stream {
       throw new RpcError(RpcStatusCode.INTERNAL, 'Expected response message but stream ended');
     }
 
-    // Wait for end
     const endItem = await this.nextItem();
     if (endItem.type === 'error') throw endItem.error;
     if (endItem.type === 'message') {
@@ -233,11 +154,10 @@ export class StreamManager {
     this.nextStreamId = clientSide ? 1 : 2;
   }
 
-  /** Allocate a new stream ID and create a stream. */
-  createStream(initialCredits?: number): Stream {
+  createStream(): Stream {
     const id = this.nextStreamId;
     this.nextStreamId += 2;
-    const stream = new Stream(id, initialCredits);
+    const stream = new Stream(id);
     this.streams.set(id, stream);
     return stream;
   }

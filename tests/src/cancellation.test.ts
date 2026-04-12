@@ -8,7 +8,6 @@ import {
   RpcClient,
   RpcServer,
   MethodType,
-  RpcStatusCode,
   CancelledError,
   createLoopbackTransportPair,
   type CallContext,
@@ -22,8 +21,6 @@ function decode(bytes: Uint8Array): unknown { return JSON.parse(dec.decode(bytes
 
 describe('Cancellation', () => {
   it('should cancel a server-streaming RPC via AbortSignal', async () => {
-    let serverYieldCount = 0;
-
     const service: ServiceRegistration = {
       name: 'test.Svc',
       methods: {
@@ -33,7 +30,6 @@ describe('Cancellation', () => {
             let seq = 0;
             while (!ctx.signal.aborted) {
               seq++;
-              serverYieldCount = seq;
               yield encode({ seq });
               await new Promise(r => setTimeout(r, 50));
             }
@@ -43,10 +39,9 @@ describe('Cancellation', () => {
     };
 
     const [ct, st] = createLoopbackTransportPair();
-    const server = new RpcServer({ transport: st, skipHandshake: true });
+    const server = new RpcServer({ transport: st });
     server.registerService(service);
-    const client = new RpcClient({ transport: ct, skipHandshake: true });
-    await Promise.all([client.waitReady(), server.waitReady()]);
+    const client = new RpcClient({ transport: ct });
 
     const abort = new AbortController();
     const received: number[] = [];
@@ -64,7 +59,6 @@ describe('Cancellation', () => {
         }
       }
     } catch (err) {
-      // Expected: cancelled error
       assert.ok(err instanceof CancelledError || String(err).includes('cancel') || String(err).includes('abort'));
     }
 
@@ -81,7 +75,6 @@ describe('Cancellation', () => {
         SlowMethod: {
           type: MethodType.UNARY,
           handler: async (_req: Uint8Array, ctx: CallContext) => {
-            // Wait a long time (should be cancelled before completing)
             await new Promise((resolve, reject) => {
               const timer = setTimeout(resolve, 10000);
               ctx.signal.addEventListener('abort', () => {
@@ -96,14 +89,11 @@ describe('Cancellation', () => {
     };
 
     const [ct, st] = createLoopbackTransportPair();
-    const server = new RpcServer({ transport: st, skipHandshake: true });
+    const server = new RpcServer({ transport: st });
     server.registerService(service);
-    const client = new RpcClient({ transport: ct, skipHandshake: true });
-    await Promise.all([client.waitReady(), server.waitReady()]);
+    const client = new RpcClient({ transport: ct });
 
     const abort = new AbortController();
-
-    // Cancel after 100ms
     setTimeout(() => abort.abort(), 100);
 
     await assert.rejects(
@@ -135,10 +125,9 @@ describe('Cancellation', () => {
     };
 
     const [ct, st] = createLoopbackTransportPair();
-    const server = new RpcServer({ transport: st, skipHandshake: true });
+    const server = new RpcServer({ transport: st });
     server.registerService(service);
-    const client = new RpcClient({ transport: ct, skipHandshake: true });
-    await Promise.all([client.waitReady(), server.waitReady()]);
+    const client = new RpcClient({ transport: ct });
 
     await assert.rejects(
       () => client.unary('test.Svc/SlowMethod', encode({}), { deadlineMs: 100 }),
@@ -174,14 +163,12 @@ describe('Cancellation', () => {
     };
 
     const [ct, st] = createLoopbackTransportPair();
-    const server = new RpcServer({ transport: st, skipHandshake: true });
+    const server = new RpcServer({ transport: st });
     server.registerService(service);
-    const client = new RpcClient({ transport: ct, skipHandshake: true });
-    await Promise.all([client.waitReady(), server.waitReady()]);
+    const client = new RpcClient({ transport: ct });
 
     const received: number[] = [];
 
-    // Use a timeout to ensure the test doesn't hang
     const timeoutPromise = new Promise<void>((_, reject) =>
       setTimeout(() => reject(new Error('Test timed out')), 2000),
     );
@@ -192,7 +179,6 @@ describe('Cancellation', () => {
           const msg = decode(bytes) as { seq: number };
           received.push(msg.seq);
           if (received.length >= 2) {
-            // Close both sides to ensure clean termination
             ct.close();
             break;
           }

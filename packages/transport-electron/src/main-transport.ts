@@ -10,7 +10,7 @@
  * in non-Electron environments during type-checking).
  */
 
-import { MessageTransportBase, FrameEncoding, type Logger } from '@rpc-bridge/core';
+import { MessageTransportBase, FrameEncoding, type Logger, type RpcFrame } from '@rpc-bridge/core';
 
 /**
  * Duck-typed interface for Electron's MessagePortMain.
@@ -33,24 +33,20 @@ export interface ElectronMainTransportOptions {
   logger?: Logger;
 }
 
+/**
+ * Electron main process-side transport using structured cloning.
+ *
+ * Passes RpcFrame objects directly via MessagePortMain postMessage.
+ */
 export class ElectronMainTransport extends MessageTransportBase {
   private readonly port: ElectronMessagePortMain;
 
   constructor(options: ElectronMainTransportOptions) {
-    super(FrameEncoding.BINARY, options.logger);
+    super(FrameEncoding.STRUCTURED_CLONE, options.logger);
     this.port = options.port;
 
     this.port.on('message', (event) => {
-      const data = event.data;
-      if (data instanceof ArrayBuffer) {
-        this.handleRawMessage(new Uint8Array(data));
-      } else if (data instanceof Uint8Array) {
-        this.handleRawMessage(data);
-      } else if (typeof data === 'string') {
-        this.handleRawMessage(data);
-      } else if (Buffer.isBuffer(data)) {
-        this.handleRawMessage(new Uint8Array(data));
-      }
+      this.handleRawMessage(event.data as RpcFrame);
     });
 
     this.port.on('close', () => {
@@ -60,14 +56,8 @@ export class ElectronMainTransport extends MessageTransportBase {
     this.port.start();
   }
 
-  protected sendRaw(data: Uint8Array | string): void {
-    if (data instanceof Uint8Array) {
-      // Copy into a standalone ArrayBuffer and transfer it for zero-copy send
-      const copy = data.buffer.slice(data.byteOffset, data.byteOffset + data.byteLength);
-      this.port.postMessage(copy, [copy]);
-    } else {
-      this.port.postMessage(data);
-    }
+  protected sendRaw(data: Uint8Array | string | RpcFrame): void {
+    this.port.postMessage(data);
   }
 
   close(): void {

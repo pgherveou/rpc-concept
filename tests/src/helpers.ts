@@ -20,19 +20,13 @@ export function decode(bytes: Uint8Array): unknown {
   return JSON.parse(dec.decode(bytes));
 }
 
-export function createTestPair(service: ServiceRegistration, skipHandshake = false) {
+export function createTestPair(service: ServiceRegistration) {
   const [clientTransport, serverTransport] = createLoopbackTransportPair();
 
-  const server = new RpcServer({
-    transport: serverTransport,
-    skipHandshake,
-  });
+  const server = new RpcServer({ transport: serverTransport });
   server.registerService(service);
 
-  const client = new RpcClient({
-    transport: clientTransport,
-    skipHandshake,
-  });
+  const client = new RpcClient({ transport: clientTransport });
 
   return { client, server, clientTransport, serverTransport };
 }

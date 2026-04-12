@@ -37,7 +37,7 @@ RPC Bridge is a framework for type-safe, streaming-capable RPC between web conte
             | core runtime  | | (Data,     | | (ByteArray,  |
             | (frame, stream| | async/     | | coroutines)  |
             |  client,server| | await)     | |              |
-            |  flow-control)| +-----+------+ +-------+------+
+            |  errors)      | +-----+------+ +-------+------+
             +-------+------+       |                |
                     |               |                |
                     v               v                v
@@ -74,7 +74,7 @@ The system is organized into six layers, each building on the one below:
 +===================================================================+
 |                       RUNTIME LAYER                                |
 |  RpcClient  |  RpcServer  |  Stream  |  StreamManager             |
-|  Handshake  |  FlowControl  |  Errors  |  Types                   |
+|  Errors  |  Types                                                  |
 +===================================================================+
 |                     CODE GENERATION                                |
 |  Proto parser  |  gen-typescript  |  gen-swift  |  gen-kotlin      |
@@ -89,29 +89,27 @@ The system is organized into six layers, each building on the one below:
 
 The `.proto` files are the single source of truth. Two categories:
 
-- **`proto/rpc/bridge/v1/frame.proto`** -- Defines `RpcFrame`, the fundamental unit of communication. All frame types (HANDSHAKE, OPEN, MESSAGE, HALF_CLOSE, CLOSE, CANCEL, ERROR, REQUEST_N) and their fields are defined here. This is the wire protocol specification.
+- **`proto/rpc/bridge/v1/frame.proto`** -- Defines `RpcFrame`, the fundamental unit of communication. All frame types (OPEN, MESSAGE, HALF_CLOSE, CLOSE, CANCEL, ERROR) and their fields are defined here. This is the wire protocol specification.
 
-- **`proto/demo/hello/v1/hello.proto`** -- Defines the demo service (`HelloBridgeService`) with all four RPC patterns: unary, server-streaming, client-streaming, and bidi-streaming. Application developers write files like this.
+- **`demos/proto/hello.proto`** -- Defines the demo service (`HelloBridgeService`) with all four RPC patterns: unary, server-streaming, client-streaming, and bidi-streaming. Application developers write files like this.
 
 ### Layer 2: Code Generation (`packages/codegen`)
 
 A hand-rolled proto parser reads `.proto` files and generates platform-specific code:
 
-- **TypeScript**: `messages.ts` (classes with static `encode`/`decode`), `client.ts` (typed client stubs wrapping `RpcClient`), `server.ts` (handler interfaces + dispatcher factory)
-- **Swift**: structs with `encode()`/`decode(from:)`, service protocols, dispatcher classes
-- **Kotlin**: data classes with `encode()`/`decode()`, service interfaces, dispatcher classes
+- **TypeScript**: `messages.ts` (classes with `encode`/`decode` using `@bufbuild/protobuf`), `client.ts` (typed client stubs wrapping `RpcClient`), `server.ts` (handler interfaces + dispatcher factory)
+- **Swift**: typealiases to `protoc-gen-swift` generated types, service protocols, dispatcher classes using `SwiftProtobuf` serialization
+- **Kotlin**: `@Serializable` data classes with `@ProtoNumber` annotations using `kotlinx-serialization-protobuf`, service interfaces, dispatcher classes
 
 ### Layer 3: Runtime (`packages/rpc-core`)
 
 The core runtime handles the RPC lifecycle:
 
-- **`frame.ts`** -- Hand-rolled protobuf encoder/decoder for `RpcFrame`. Wire-compatible with native protobuf parsers on Swift/Kotlin, but avoids requiring a protobuf runtime dependency in JavaScript.
-- **`client.ts`** -- `RpcClient` manages outgoing calls: stream creation, frame dispatch, flow control, deadlines, cancellation.
+- **`frame.ts`** -- Protobuf encoder/decoder for `RpcFrame` using `BinaryWriter`/`BinaryReader` from `@bufbuild/protobuf/wire`.
+- **`client.ts`** -- `RpcClient` manages outgoing calls: stream creation, frame dispatch, deadlines, cancellation.
 - **`server.ts`** -- `RpcServer` dispatches incoming calls to registered service handlers. Supports all four RPC patterns.
 - **`stream.ts`** -- `Stream` manages a single logical stream's lifecycle and message buffering. `StreamManager` tracks all active streams per connection.
-- **`flow-control.ts`** -- Credit-based backpressure via `SendFlowController` and `ReceiveFlowController`. Uses REQUEST_N frames for credit replenishment.
-- **`handshake.ts`** -- Protocol version negotiation and capability intersection.
-- **`errors.ts`** -- Structured error codes modeled after gRPC status codes.
+- **`errors.ts`** -- Error codes (OK, CANCELLED, INVALID_ARGUMENT, DEADLINE_EXCEEDED, UNIMPLEMENTED, INTERNAL).
 - **`transport.ts`** -- The `Transport` interface and `MessageTransportBase` abstract class that all platform adapters extend.
 
 ### Layer 4: Transport
@@ -145,38 +143,43 @@ Each platform has a transport adapter that bridges the `Transport` interface to 
 
 ### Layer 6: Demo Applications
 
-Complete working demos for each platform:
+Each demo has a **host** (native/platform code running the RPC server) and embeds the shared **guest app** (web client running the RPC client). The guest app lives in `demos/guest-app/` and is bundled per-platform.
 
-- **`demos/web`** -- Host page with `RpcServer` + sandboxed iframe with `RpcClient`, connected via `MessagePort`
-- **`demos/electron`** -- Main process server + sandboxed renderer client via `MessageChannelMain`
-- **`demos/ios`** -- Swift Package with `RpcBridgeServer`, `HelloServiceImpl`, and WKWebView integration
-- **`demos/android`** -- Gradle project with `RpcBridgeServer`, `HelloServiceImpl`, and WebView integration
+- **`demos/proto`** -- Proto service definitions shared by guest and host. Generated code goes to `demos/generated/`.
+- **`demos/guest-app`** -- Shared guest web client (React). Single entry point (`main.ts`) with dual boot: MessagePort via `message` event (web/Electron) or direct transport injection via `window.__rpcBridgeBoot` (iOS/Android).
+- **`demos/host/web`** -- Web host: host page with `RpcServer`, sandboxed iframe loads guest app via `MessagePort`
+- **`demos/host/electron`** -- Electron host: main process server, sandboxed renderer loads guest app via `MessageChannelMain`
+- **`demos/host/ios`** -- iOS host: Swift app with `RpcBridgeServer`, `HelloServiceImpl`, WKWebView loads guest app
+- **`demos/host/android`** -- Android host: Gradle project with `RpcBridgeServer`, `HelloServiceImpl`, WebView loads guest app
 
 ## Monorepo Structure
 
 ```
 rpc-concept/
-  proto/                          # Protocol Buffer definitions
-    rpc/bridge/v1/frame.proto     #   Wire protocol (RpcFrame)
-    demo/hello/v1/hello.proto     #   Demo service definition
-  packages/
-    rpc-core/                     # Core runtime (frame, client, server, stream)
-    codegen/                      # Code generator (parser + gen-ts/swift/kotlin)
-    transport-web/                # Browser transports (MessagePort, postMessage)
-    transport-ios/                # iOS WKWebView transport (JS side)
-    transport-android/            # Android WebView transport (JS side)
-    transport-electron/           # Electron transports (preload + main)
-    shared-ui/                    # Shared demo UI components
-  generated/                      # Generated code output
-    ts/demo/hello/v1/             #   TypeScript messages, client, server
-    swift/                        #   Swift generated code
-    kotlin/                       #   Kotlin generated code
-  demos/
-    web/                          # Browser demo (host + iframe)
-    electron/                     # Electron demo (main + renderer)
-    ios/                          # iOS demo (Swift Package)
-    android/                      # Android demo (Gradle project)
-  tests/                          # Integration & unit tests
+  proto/
+    rpc/bridge/v1/frame.proto     # Core wire protocol (RpcFrame)
+  packages/                       # Framework code only
+    rpc-core/                       Core runtime (frame, client, server, stream)
+    codegen/                        Code generator (parser + gen-ts/swift/kotlin)
+    rpc-core-swift/                 Swift package (frame codec, server runtime, WKWebView transport)
+    rpc-core-android/               Android library (frame codec, server runtime, WebView transport)
+    transport-web/                  Browser transports (MessagePort, postMessage)
+    transport-ios/                  iOS WKWebView transport (JS side)
+    transport-android/              Android WebView transport (JS side)
+    transport-electron/             Electron transports (preload + main)
+  demos/                          # Demo applications
+    proto/hello.proto               Demo service proto definition (shared by guest + host)
+    generated/                      Generated TS messages + stubs (client + server)
+    guest-app/                      Shared guest web client
+      src/main.ts                     Single entry point (dual boot)
+      src/ui.ts                       Shared demo UI
+    host/
+      web/                          Web host (host page + iframe shell)
+      ios/                          iOS host (Swift app + WKWebView)
+      electron/                     Electron host (main process + preload)
+      android/                      Android host (Gradle project)
+  tests/                          # Unit and integration tests
+  e2e/                            # Playwright e2e tests
   docs/                           # This documentation
 ```
 
@@ -194,15 +197,6 @@ rpc-concept/
 8. `RpcServer` sends the response MESSAGE + CLOSE frames back through the transport.
 9. `RpcClient` receives the response, resolves the promise, and the generated client decodes the response bytes into a typed message.
 
-### Handshake Flow
-
-When a connection is established:
-
-1. Client sends a HANDSHAKE frame with its protocol version, capabilities, and implementation ID.
-2. Server receives the HANDSHAKE, computes the negotiated version (`min(client, server)`) and intersects capabilities.
-3. Server sends its own HANDSHAKE frame back.
-4. Client computes the same negotiation. Both sides now agree on version and features.
-
 ## Design Decisions and Rationale
 
 ### Why Not gRPC Transport?
@@ -211,13 +205,13 @@ gRPC was the inspiration for this protocol's design (streaming patterns, status 
 
 1. **gRPC-Web limitations**: gRPC-Web does not support client-streaming or bidi-streaming in browsers. It requires a proxy (Envoy) for HTTP/2 translation, adding operational complexity.
 
-2. **WebView incompatibility**: There is no gRPC transport for WKWebView (`webkit.messageHandlers`), Android WebView (`@JavascriptInterface`), or Electron IPC. These environments do not support HTTP/2 connections between the web content and the host process.
+2. **WebView incompatibility**: There is no gRPC transport for WKWebView (`webkit.messageHandlers`), Android WebView (`@JavascriptInterface`), or Electron IPC.
 
 3. **Sandboxing requirements**: The web content runs in sandboxed iframes or WebViews with no network access. Communication must happen through the platform's native bridge API, not over HTTP.
 
-4. **Binary efficiency**: On platforms that support binary transfer (MessagePort with transferable ArrayBuffers, Electron MessageChannelMain), we achieve zero-copy frame delivery. gRPC-Web forces text-based encoding.
+4. **Binary efficiency**: On platforms that support binary transfer (MessagePort with transferable ArrayBuffers, Electron MessageChannelMain), we achieve zero-copy frame delivery.
 
-5. **Minimal footprint**: The hand-rolled protobuf encoder/decoder is ~300 lines of code with zero dependencies, compared to pulling in a full gRPC-Web runtime.
+5. **Minimal footprint**: Protobuf encoding uses lightweight, well-established libraries (`@bufbuild/protobuf`, `SwiftProtobuf`, `kotlinx-serialization-protobuf`).
 
 ### The Proto-First Philosophy
 
@@ -228,15 +222,14 @@ The `.proto` file is the contract between client and server:
 - **Code generation** produces typed, safe code for every target platform.
 - **Wire compatibility** is guaranteed because all platforms use the same protobuf binary encoding for both frames and messages.
 
-This means a TypeScript client can talk to a Swift server (or a Kotlin server) with no serialization mismatches, because the proto definition governs field numbers and wire types on both sides.
-
 ### Frame Protocol Design
 
-The frame protocol is intentionally simple:
+The frame protocol is intentionally minimal for local IPC:
 
-- A single `RpcFrame` protobuf message type carries all frame types via a `FrameType` discriminator, avoiding the complexity of HTTP/2 framing.
-- Field numbers are grouped by purpose (common: 1-6, handshake: 10-12, open: 15-17, error: 20-22, etc.) with reserved ranges for future extension.
+- A single `RpcFrame` protobuf message type carries all frame types via a `FrameType` discriminator.
+- Only 6 fields: type, stream_id, payload, method, error_code, error_message.
 - Unknown fields and frame types are silently ignored, enabling forward compatibility.
+- No handshake, no sequence numbers, no metadata, no flow control. Guest and host are built together and communicate within the same process.
 
 ## Message Flow by RPC Pattern
 
@@ -245,13 +238,12 @@ The frame protocol is intentionally simple:
 ```
 Client                                    Server
   |                                         |
-  |--- OPEN (method, metadata) ------------>|
-  |--- REQUEST_N (initial credits) -------->|
+  |--- OPEN (method) --------------------->|
   |--- MESSAGE (request payload) ---------->|
   |--- HALF_CLOSE ------------------------->|
   |                                         |  (dispatches to handler)
   |<-- MESSAGE (response payload) ----------|
-  |<-- CLOSE (trailers) -------------------|
+  |<-- CLOSE ------------------------------|
   |                                         |
 ```
 
@@ -260,17 +252,15 @@ Client                                    Server
 ```
 Client                                    Server
   |                                         |
-  |--- OPEN (method, metadata) ------------>|
-  |--- REQUEST_N (initial credits) -------->|
+  |--- OPEN (method) --------------------->|
   |--- MESSAGE (request payload) ---------->|
   |--- HALF_CLOSE ------------------------->|
   |                                         |  (dispatches to handler)
   |<-- MESSAGE (response 1) ---------------|
   |<-- MESSAGE (response 2) ---------------|
-  |--- REQUEST_N (replenish credits) ------>|
   |<-- MESSAGE (response 3) ---------------|
   |<-- ...                                  |
-  |<-- CLOSE (trailers) -------------------|
+  |<-- CLOSE ------------------------------|
   |                                         |
 ```
 
@@ -279,16 +269,14 @@ Client                                    Server
 ```
 Client                                    Server
   |                                         |
-  |--- OPEN (method, metadata) ------------>|
-  |--- REQUEST_N (initial credits) -------->|
-  |                                         |<-- REQUEST_N (credits for client)
+  |--- OPEN (method) --------------------->|
   |--- MESSAGE (request 1) --------------->|
   |--- MESSAGE (request 2) --------------->|
   |--- MESSAGE (request 3) --------------->|
   |--- HALF_CLOSE ------------------------->|
   |                                         |  (handler processes all requests)
   |<-- MESSAGE (response payload) ----------|
-  |<-- CLOSE (trailers) -------------------|
+  |<-- CLOSE ------------------------------|
   |                                         |
 ```
 
@@ -297,20 +285,16 @@ Client                                    Server
 ```
 Client                                    Server
   |                                         |
-  |--- OPEN (method, metadata) ------------>|
-  |--- REQUEST_N (initial credits) -------->|
-  |                                         |<-- REQUEST_N (credits for client)
+  |--- OPEN (method) --------------------->|
   |--- MESSAGE (request 1) --------------->|
   |<-- MESSAGE (response 1) ---------------|
   |--- MESSAGE (request 2) --------------->|
   |<-- MESSAGE (response 2a) --------------|
   |<-- MESSAGE (response 2b) --------------|
-  |--- REQUEST_N (replenish) -------------->|
   |--- MESSAGE (request 3) --------------->|
   |--- HALF_CLOSE ------------------------->|
   |<-- MESSAGE (response 3) ---------------|
-  |<-- HALF_CLOSE --------------------------|
-  |<-- CLOSE (trailers) -------------------|
+  |<-- CLOSE ------------------------------|
   |                                         |
 ```
 
@@ -322,7 +306,7 @@ Client                                    Server
   |--- OPEN ------>                         |
   |--- MESSAGE --->  (RPC in progress)      |
   |                                         |
-  |--- CANCEL ----------------------------- >|
+  |--- CANCEL ----------------------------->|
   |                                         |  (handler task cancelled)
   |                                         |
 ```

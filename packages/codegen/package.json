@@ -8,13 +8,17 @@
   "bin": {
     "rpc-bridge-codegen": "dist/cli.js"
   },
-  "files": ["dist"],
+  "files": [
+    "dist"
+  ],
   "scripts": {
     "build": "tsc",
-    "generate": "node dist/cli.js --proto ../../proto/demo/hello/v1/hello.proto --ts-out ../../generated/ts/demo/hello/v1 --swift-out ../../generated/swift --kotlin-out ../../generated/kotlin",
+    "generate": "node dist/cli.js --proto ../../demos/proto/hello.proto --ts-out ../../demos/generated --swift-out ../../demos/host/ios/RPCBridgeDemo/generated --kotlin-out ../../demos/host/android/generated",
     "clean": "rm -rf dist"
   },
   "devDependencies": {
+    "@types/node": "^20.19.39",
+    "protobufjs": "^8.0.1",
     "typescript": "^5.4.0"
   }
 }

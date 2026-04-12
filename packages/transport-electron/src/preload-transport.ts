@@ -15,7 +15,7 @@
  * where MessagePort isn't available.
  */
 
-import { MessageTransportBase, FrameEncoding, type Logger } from '@rpc-bridge/core';
+import { MessageTransportBase, FrameEncoding, type Logger, type RpcFrame } from '@rpc-bridge/core';
 
 export interface ElectronPreloadTransportOptions {
   /** MessagePort received from the main process. */
@@ -24,22 +24,20 @@ export interface ElectronPreloadTransportOptions {
   logger?: Logger;
 }
 
+/**
+ * Electron preload/renderer-side transport using structured cloning.
+ *
+ * Passes RpcFrame objects directly via MessagePort postMessage.
+ */
 export class ElectronPreloadTransport extends MessageTransportBase {
   private readonly port: MessagePort;
 
   constructor(options: ElectronPreloadTransportOptions) {
-    super(FrameEncoding.BINARY, options.logger);
+    super(FrameEncoding.STRUCTURED_CLONE, options.logger);
     this.port = options.port;
 
     this.port.onmessage = (event: MessageEvent) => {
-      const data = event.data;
-      if (data instanceof ArrayBuffer) {
-        this.handleRawMessage(new Uint8Array(data));
-      } else if (data instanceof Uint8Array) {
-        this.handleRawMessage(data);
-      } else if (typeof data === 'string') {
-        this.handleRawMessage(data);
-      }
+      this.handleRawMessage(event.data);
     };
 
     this.port.onmessageerror = () => {
@@ -49,13 +47,8 @@ export class ElectronPreloadTransport extends MessageTransportBase {
     this.port.start();
   }
 
-  protected sendRaw(data: Uint8Array | string): void {
-    if (data instanceof Uint8Array) {
-      const buffer = data.buffer.slice(data.byteOffset, data.byteOffset + data.byteLength);
-      this.port.postMessage(buffer, [buffer]);
-    } else {
-      this.port.postMessage(data);
-    }
+  protected sendRaw(data: Uint8Array | string | RpcFrame): void {
+    this.port.postMessage(data);
   }
 
   close(): void {

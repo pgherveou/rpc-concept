@@ -1,10 +1,9 @@
 /**
  * Kotlin code generator for the RPC bridge framework.
  *
- * Generates idiomatic Kotlin data classes, service interfaces, and dispatcher
- * classes from parsed .proto file definitions. The generated protobuf encoding
- * uses varint and length-delimited wire format compatible with the TypeScript
- * ProtoWriter/ProtoReader implementation.
+ * Generates idiomatic Kotlin data classes with kotlinx-serialization-protobuf
+ * annotations, service interfaces, and dispatcher classes from parsed .proto
+ * file definitions.
  */
 
 import type {
@@ -41,14 +40,14 @@ function kotlinType(protoType: string): string {
   return PROTO_TO_KOTLIN[protoType] ?? protoType;
 }
 
-function kotlinFieldType(field: FieldDef, _allMessages: MessageDef[], allEnums: EnumDef[]): string {
+function kotlinFieldType(field: FieldDef, allEnums: EnumDef[]): string {
   const base = kotlinType(field.type);
   if (field.repeated) return `List<${base}>`;
   if (field.optional) return `${base}?`;
   return base;
 }
 
-function defaultValue(field: FieldDef, _allMessages: MessageDef[], allEnums: EnumDef[]): string {
+function defaultValue(field: FieldDef, allEnums: EnumDef[]): string {
   if (field.repeated) return 'emptyList()';
   if (field.optional) return 'null';
   const kt = kotlinType(field.type);
@@ -63,21 +62,11 @@ function defaultValue(field: FieldDef, _allMessages: MessageDef[], allEnums: Enu
     case 'Float': return '0.0f';
     case 'Double': return '0.0';
     default:
-      // Check if it's an enum
       if (allEnums.some((e) => e.name === field.type)) {
         return `${kt}.fromValue(0)`;
       }
-      // Nested message – use default constructor
       return `${kt}()`;
   }
-}
-
-function isEnum(protoType: string, allEnums: EnumDef[]): boolean {
-  return allEnums.some((e) => e.name === protoType);
-}
-
-function isMessage(protoType: string, allMessages: MessageDef[], allEnums: EnumDef[]): boolean {
-  return !PROTO_TO_KOTLIN[protoType] && !isEnum(protoType, allEnums);
 }
 
 function camelCase(name: string): string {
@@ -105,6 +94,8 @@ export function generateKotlin(proto: ProtoFile): string {
   }
 
   // File header
+  emit(0, '@file:OptIn(kotlinx.serialization.ExperimentalSerializationApi::class)');
+  emit(0, '');
   emit(0, '// -----------------------------------------------------------------');
   emit(0, '// GENERATED CODE - DO NOT EDIT');
   emit(0, '//');
@@ -120,15 +111,15 @@ export function generateKotlin(proto: ProtoFile): string {
   }
 
   // Imports
+  emit(0, 'import com.rpcbridge.DispatchResult');
+  emit(0, 'import com.rpcbridge.ServiceDispatcher');
   emit(0, 'import kotlinx.coroutines.flow.Flow');
-  emit(0, 'import kotlinx.coroutines.flow.flow');
+  emit(0, 'import kotlinx.coroutines.flow.first');
   emit(0, 'import kotlinx.coroutines.flow.map');
-  emit(0, 'import kotlinx.coroutines.flow.toList');
-  emit(0, 'import java.io.ByteArrayOutputStream');
+  emit(0, 'import kotlinx.serialization.Serializable');
+  emit(0, 'import kotlinx.serialization.protobuf.ProtoBuf');
+  emit(0, 'import kotlinx.serialization.protobuf.ProtoNumber');
   emit(0, '');
-
-  // Protobuf helpers
-  emitProtoHelpers(emit);
 
   // Enums
   for (const enumDef of proto.enums) {
@@ -137,7 +128,7 @@ export function generateKotlin(proto: ProtoFile): string {
 
   // Messages
   for (const msg of proto.messages) {
-    emitMessage(emit, msg, proto.messages, proto.enums);
+    emitMessage(emit, msg, proto.enums);
   }
 
   // Services
@@ -146,247 +137,7 @@ export function generateKotlin(proto: ProtoFile): string {
     emitDispatcher(emit, svc, proto.package);
   }
 
-  // DispatchResult sealed class (emitted once if there are services)
-  if (proto.services.length > 0) {
-    emitDispatchResult(emit);
-  }
-
   return lines.join('\n') + '\n';
-}
-
-// ---------------------------------------------------------------------------
-// Proto wire format helpers (generated into the Kotlin file)
-// ---------------------------------------------------------------------------
-
-function emitProtoHelpers(emit: (depth: number, line: string) => void) {
-  emit(0, '// -----------------------------------------------------------------');
-  emit(0, '// Protobuf wire format helpers');
-  emit(0, '// -----------------------------------------------------------------');
-  emit(0, '');
-
-  // ProtoWriter
-  emit(0, 'private class ProtoWriter {');
-  emit(1, 'private val buffer = ByteArrayOutputStream()');
-  emit(0, '');
-  emit(1, 'fun writeVarintField(fieldNumber: Int, value: Long) {');
-  emit(2, 'writeTag(fieldNumber, 0)');
-  emit(2, 'writeVarint(value)');
-  emit(1, '}');
-  emit(0, '');
-  emit(1, 'fun writeVarintField(fieldNumber: Int, value: Int) {');
-  emit(2, 'writeVarintField(fieldNumber, value.toLong())');
-  emit(1, '}');
-  emit(0, '');
-  emit(1, 'fun writeVarintField(fieldNumber: Int, value: UInt) {');
-  emit(2, 'writeVarintField(fieldNumber, value.toLong())');
-  emit(1, '}');
-  emit(0, '');
-  emit(1, 'fun writeVarintField(fieldNumber: Int, value: ULong) {');
-  emit(2, 'writeTag(fieldNumber, 0)');
-  emit(2, 'writeVarintUnsigned(value)');
-  emit(1, '}');
-  emit(0, '');
-  emit(1, 'fun writeBoolField(fieldNumber: Int, value: Boolean) {');
-  emit(2, 'writeVarintField(fieldNumber, if (value) 1L else 0L)');
-  emit(1, '}');
-  emit(0, '');
-  emit(1, 'fun writeBytesField(fieldNumber: Int, value: ByteArray) {');
-  emit(2, 'writeTag(fieldNumber, 2)');
-  emit(2, 'writeVarint(value.size.toLong())');
-  emit(2, 'buffer.write(value)');
-  emit(1, '}');
-  emit(0, '');
-  emit(1, 'fun writeStringField(fieldNumber: Int, value: String) {');
-  emit(2, 'writeBytesField(fieldNumber, value.toByteArray(Charsets.UTF_8))');
-  emit(1, '}');
-  emit(0, '');
-  emit(1, 'fun writeFloatField(fieldNumber: Int, value: Float) {');
-  emit(2, 'writeTag(fieldNumber, 5)');
-  emit(2, 'val bits = java.lang.Float.floatToIntBits(value)');
-  emit(2, 'buffer.write(bits and 0xFF)');
-  emit(2, 'buffer.write((bits shr 8) and 0xFF)');
-  emit(2, 'buffer.write((bits shr 16) and 0xFF)');
-  emit(2, 'buffer.write((bits shr 24) and 0xFF)');
-  emit(1, '}');
-  emit(0, '');
-  emit(1, 'fun writeDoubleField(fieldNumber: Int, value: Double) {');
-  emit(2, 'writeTag(fieldNumber, 1)');
-  emit(2, 'val bits = java.lang.Double.doubleToLongBits(value)');
-  emit(2, 'for (i in 0 until 8) {');
-  emit(3, 'buffer.write(((bits shr (i * 8)) and 0xFF).toInt())');
-  emit(2, '}');
-  emit(1, '}');
-  emit(0, '');
-  emit(1, 'fun writeFixed32Field(fieldNumber: Int, value: UInt) {');
-  emit(2, 'writeTag(fieldNumber, 5)');
-  emit(2, 'val v = value.toInt()');
-  emit(2, 'buffer.write(v and 0xFF)');
-  emit(2, 'buffer.write((v shr 8) and 0xFF)');
-  emit(2, 'buffer.write((v shr 16) and 0xFF)');
-  emit(2, 'buffer.write((v shr 24) and 0xFF)');
-  emit(1, '}');
-  emit(0, '');
-  emit(1, 'fun writeFixed64Field(fieldNumber: Int, value: ULong) {');
-  emit(2, 'writeTag(fieldNumber, 1)');
-  emit(2, 'val v = value.toLong()');
-  emit(2, 'for (i in 0 until 8) {');
-  emit(3, 'buffer.write(((v shr (i * 8)) and 0xFF).toInt())');
-  emit(2, '}');
-  emit(1, '}');
-  emit(0, '');
-  emit(1, 'fun writeSint32Field(fieldNumber: Int, value: Int) {');
-  emit(2, '// ZigZag encode');
-  emit(2, 'writeVarintField(fieldNumber, ((value shl 1) xor (value shr 31)).toLong())');
-  emit(1, '}');
-  emit(0, '');
-  emit(1, 'fun writeSint64Field(fieldNumber: Int, value: Long) {');
-  emit(2, '// ZigZag encode');
-  emit(2, 'writeVarintField(fieldNumber, (value shl 1) xor (value shr 63))');
-  emit(1, '}');
-  emit(0, '');
-  emit(1, 'fun writeLengthDelimited(fieldNumber: Int, data: ByteArray) {');
-  emit(2, 'writeTag(fieldNumber, 2)');
-  emit(2, 'writeVarint(data.size.toLong())');
-  emit(2, 'buffer.write(data)');
-  emit(1, '}');
-  emit(0, '');
-  emit(1, 'private fun writeTag(fieldNumber: Int, wireType: Int) {');
-  emit(2, 'writeVarint(((fieldNumber shl 3) or wireType).toLong())');
-  emit(1, '}');
-  emit(0, '');
-  emit(1, 'private fun writeVarint(value: Long) {');
-  emit(2, 'var v = value');
-  emit(2, 'while (v > 0x7F) {');
-  emit(3, 'buffer.write(((v and 0x7F) or 0x80).toInt())');
-  emit(3, 'v = v ushr 7');
-  emit(2, '}');
-  emit(2, 'buffer.write((v and 0x7F).toInt())');
-  emit(1, '}');
-  emit(0, '');
-  emit(1, 'private fun writeVarintUnsigned(value: ULong) {');
-  emit(2, 'var v = value');
-  emit(2, 'while (v > 0x7Fu) {');
-  emit(3, 'buffer.write(((v and 0x7Fu) or 0x80u).toInt())');
-  emit(3, 'v = v shr 7');
-  emit(2, '}');
-  emit(2, 'buffer.write((v and 0x7Fu).toInt())');
-  emit(1, '}');
-  emit(0, '');
-  emit(1, 'fun finish(): ByteArray = buffer.toByteArray()');
-  emit(0, '}');
-  emit(0, '');
-
-  // ProtoReader
-  emit(0, 'private class ProtoReader(private val data: ByteArray) {');
-  emit(1, 'private var offset = 0');
-  emit(0, '');
-  emit(1, 'fun hasMore(): Boolean = offset < data.size');
-  emit(0, '');
-  emit(1, 'fun readTag(): Int = readVarint().toInt()');
-  emit(0, '');
-  emit(1, 'fun readVarint(): Long {');
-  emit(2, 'var result = 0L');
-  emit(2, 'var shift = 0');
-  emit(2, 'while (offset < data.size) {');
-  emit(3, 'val b = data[offset++].toInt() and 0xFF');
-  emit(3, 'result = result or ((b and 0x7F).toLong() shl shift)');
-  emit(3, 'if (b and 0x80 == 0) return result');
-  emit(3, 'shift += 7');
-  emit(3, 'if (shift > 63) throw IllegalStateException("Varint too long")');
-  emit(2, '}');
-  emit(2, 'throw IllegalStateException("Unexpected end of data reading varint")');
-  emit(1, '}');
-  emit(0, '');
-  emit(1, 'fun readVarintUnsigned(): ULong {');
-  emit(2, 'var result = 0uL');
-  emit(2, 'var shift = 0');
-  emit(2, 'while (offset < data.size) {');
-  emit(3, 'val b = data[offset++].toInt() and 0xFF');
-  emit(3, 'result = result or ((b and 0x7F).toULong() shl shift)');
-  emit(3, 'if (b and 0x80 == 0) return result');
-  emit(3, 'shift += 7');
-  emit(3, 'if (shift > 63) throw IllegalStateException("Varint too long")');
-  emit(2, '}');
-  emit(2, 'throw IllegalStateException("Unexpected end of data reading varint")');
-  emit(1, '}');
-  emit(0, '');
-  emit(1, 'fun readBytes(): ByteArray {');
-  emit(2, 'val length = readVarint().toInt()');
-  emit(2, 'if (offset + length > data.size) {');
-  emit(3, 'throw IllegalStateException("Unexpected end of data reading bytes")');
-  emit(2, '}');
-  emit(2, 'val result = data.copyOfRange(offset, offset + length)');
-  emit(2, 'offset += length');
-  emit(2, 'return result');
-  emit(1, '}');
-  emit(0, '');
-  emit(1, 'fun readString(): String = readBytes().toString(Charsets.UTF_8)');
-  emit(0, '');
-  emit(1, 'fun readBool(): Boolean = readVarint() != 0L');
-  emit(0, '');
-  emit(1, 'fun readFloat(): Float {');
-  emit(2, 'if (offset + 4 > data.size) throw IllegalStateException("Unexpected end of data")');
-  emit(2, 'val bits = (data[offset].toInt() and 0xFF) or');
-  emit(3, '((data[offset + 1].toInt() and 0xFF) shl 8) or');
-  emit(3, '((data[offset + 2].toInt() and 0xFF) shl 16) or');
-  emit(3, '((data[offset + 3].toInt() and 0xFF) shl 24)');
-  emit(2, 'offset += 4');
-  emit(2, 'return java.lang.Float.intBitsToFloat(bits)');
-  emit(1, '}');
-  emit(0, '');
-  emit(1, 'fun readDouble(): Double {');
-  emit(2, 'if (offset + 8 > data.size) throw IllegalStateException("Unexpected end of data")');
-  emit(2, 'var bits = 0L');
-  emit(2, 'for (i in 0 until 8) {');
-  emit(3, 'bits = bits or ((data[offset + i].toLong() and 0xFF) shl (i * 8))');
-  emit(2, '}');
-  emit(2, 'offset += 8');
-  emit(2, 'return java.lang.Double.longBitsToDouble(bits)');
-  emit(1, '}');
-  emit(0, '');
-  emit(1, 'fun readFixed32(): UInt {');
-  emit(2, 'if (offset + 4 > data.size) throw IllegalStateException("Unexpected end of data")');
-  emit(2, 'val result = ((data[offset].toInt() and 0xFF) or');
-  emit(3, '((data[offset + 1].toInt() and 0xFF) shl 8) or');
-  emit(3, '((data[offset + 2].toInt() and 0xFF) shl 16) or');
-  emit(3, '((data[offset + 3].toInt() and 0xFF) shl 24)).toUInt()');
-  emit(2, 'offset += 4');
-  emit(2, 'return result');
-  emit(1, '}');
-  emit(0, '');
-  emit(1, 'fun readFixed64(): ULong {');
-  emit(2, 'if (offset + 8 > data.size) throw IllegalStateException("Unexpected end of data")');
-  emit(2, 'var result = 0uL');
-  emit(2, 'for (i in 0 until 8) {');
-  emit(3, 'result = result or ((data[offset + i].toLong() and 0xFF).toULong() shl (i * 8))');
-  emit(2, '}');
-  emit(2, 'offset += 8');
-  emit(2, 'return result');
-  emit(1, '}');
-  emit(0, '');
-  emit(1, 'fun readSint32(): Int {');
-  emit(2, 'val n = readVarint().toInt()');
-  emit(2, 'return (n ushr 1) xor -(n and 1)');
-  emit(1, '}');
-  emit(0, '');
-  emit(1, 'fun readSint64(): Long {');
-  emit(2, 'val n = readVarint()');
-  emit(2, 'return (n ushr 1) xor -(n and 1)');
-  emit(1, '}');
-  emit(0, '');
-  emit(1, 'fun skipField(wireType: Int) {');
-  emit(2, 'when (wireType) {');
-  emit(3, '0 -> readVarint()');
-  emit(3, '1 -> { offset += 8 }');
-  emit(3, '2 -> readBytes()');
-  emit(3, '5 -> { offset += 4 }');
-  emit(3, 'else -> throw IllegalStateException("Unknown wire type: $wireType")');
-  emit(2, '}');
-  emit(1, '}');
-  emit(0, '');
-  emit(1, 'fun subReader(): ProtoReader = ProtoReader(readBytes())');
-  emit(0, '}');
-  emit(0, '');
 }
 
 // ---------------------------------------------------------------------------
@@ -410,16 +161,17 @@ function emitEnum(emit: (depth: number, line: string) => void, enumDef: EnumDef)
 }
 
 // ---------------------------------------------------------------------------
-// Message data class generation
+// Message data class generation (using kotlinx-serialization-protobuf)
 // ---------------------------------------------------------------------------
 
 function emitMessage(
   emit: (depth: number, line: string) => void,
   msg: MessageDef,
-  allMessages: MessageDef[],
   allEnums: EnumDef[],
 ) {
   const fields = msg.fields;
+
+  emit(0, '@Serializable');
   if (fields.length === 0) {
     emit(0, `data class ${msg.name}(val _unused: Byte = 0) {`);
   } else {
@@ -427,262 +179,26 @@ function emitMessage(
     for (let i = 0; i < fields.length; i++) {
       const f = fields[i];
       const ktName = camelCase(f.name);
-      const ktType = kotlinFieldType(f, allMessages, allEnums);
-      const defVal = defaultValue(f, allMessages, allEnums);
+      const ktType = kotlinFieldType(f, allEnums);
+      const defVal = defaultValue(f, allEnums);
       const comma = i < fields.length - 1 ? ',' : '';
       const deprecation = f.deprecated ? '@Deprecated("Field is deprecated") ' : '';
-      emit(1, `${deprecation}val ${ktName}: ${ktType} = ${defVal}${comma}`);
+      emit(1, `${deprecation}@ProtoNumber(${f.number}) val ${ktName}: ${ktType} = ${defVal}${comma}`);
     }
     emit(0, ') {');
   }
 
   // encode()
   emit(0, '');
-  emit(1, 'fun encode(): ByteArray {');
-  emit(2, 'val writer = ProtoWriter()');
-  for (const f of fields) {
-    emitFieldEncode(emit, f, allMessages, allEnums, 2);
-  }
-  emit(2, 'return writer.finish()');
-  emit(1, '}');
+  emit(1, 'fun encode(): ByteArray = ProtoBuf.encodeToByteArray(this)');
 
   // companion object with decode()
   emit(0, '');
   emit(1, 'companion object {');
-  emit(2, `fun decode(data: ByteArray): ${msg.name} {`);
-  emit(3, 'val reader = ProtoReader(data)');
-  // Declare mutable locals for each field
-  for (const f of fields) {
-    const ktName = camelCase(f.name);
-    if (f.repeated) {
-      const base = kotlinType(f.type);
-      emit(3, `val ${ktName}List = mutableListOf<${base}>()`);
-    } else {
-      const ktType = kotlinFieldType(f, allMessages, allEnums);
-      const defVal = defaultValue(f, allMessages, allEnums);
-      emit(3, `var ${ktName}: ${ktType} = ${defVal}`);
-    }
-  }
-  emit(3, 'while (reader.hasMore()) {');
-  emit(4, 'val tag = reader.readTag()');
-  emit(4, 'val fieldNumber = tag ushr 3');
-  emit(4, 'val wireType = tag and 0x7');
-  emit(4, 'when (fieldNumber) {');
-  for (const f of fields) {
-    emitFieldDecode(emit, f, allMessages, allEnums, 5);
-  }
-  emit(5, 'else -> reader.skipField(wireType)');
-  emit(4, '}');
-  emit(3, '}');
-
-  // Construct the data class
-  if (fields.length === 0) {
-    emit(3, `return ${msg.name}()`);
-  } else {
-    emit(3, `return ${msg.name}(`);
-    for (let i = 0; i < fields.length; i++) {
-      const f = fields[i];
-      const ktName = camelCase(f.name);
-      const comma = i < fields.length - 1 ? ',' : '';
-      if (f.repeated) {
-        emit(4, `${ktName} = ${ktName}List.toList()${comma}`);
-      } else {
-        emit(4, `${ktName} = ${ktName}${comma}`);
-      }
-    }
-    emit(3, ')');
-  }
-  emit(2, '}');
+  emit(2, `fun decode(data: ByteArray): ${msg.name} = ProtoBuf.decodeFromByteArray(data)`);
   emit(1, '}');
   emit(0, '}');
   emit(0, '');
-}
-
-function emitFieldEncode(
-  emit: (depth: number, line: string) => void,
-  field: FieldDef,
-  allMessages: MessageDef[],
-  allEnums: EnumDef[],
-  depth: number,
-) {
-  const ktName = camelCase(field.name);
-  const fn = field.number;
-
-  if (field.repeated) {
-    emit(depth, `for (item in ${ktName}) {`);
-    emitSingleFieldWrite(emit, field, 'item', fn, allMessages, allEnums, depth + 1);
-    emit(depth, '}');
-    return;
-  }
-
-  // For optional fields, guard with null check
-  if (field.optional) {
-    emit(depth, `${ktName}?.let { v ->`);
-    emitSingleFieldWrite(emit, field, 'v', fn, allMessages, allEnums, depth + 1);
-    emit(depth, '}');
-    return;
-  }
-
-  // For non-optional, only write if non-default (proto3 behavior)
-  switch (field.type) {
-    case 'string':
-      emit(depth, `if (${ktName}.isNotEmpty()) {`);
-      emitSingleFieldWrite(emit, field, ktName, fn, allMessages, allEnums, depth + 1);
-      emit(depth, '}');
-      break;
-    case 'bytes':
-      emit(depth, `if (${ktName}.isNotEmpty()) {`);
-      emitSingleFieldWrite(emit, field, ktName, fn, allMessages, allEnums, depth + 1);
-      emit(depth, '}');
-      break;
-    case 'bool':
-      emit(depth, `if (${ktName}) {`);
-      emitSingleFieldWrite(emit, field, ktName, fn, allMessages, allEnums, depth + 1);
-      emit(depth, '}');
-      break;
-    case 'float':
-      emit(depth, `if (${ktName} != 0.0f) {`);
-      emitSingleFieldWrite(emit, field, ktName, fn, allMessages, allEnums, depth + 1);
-      emit(depth, '}');
-      break;
-    case 'double':
-      emit(depth, `if (${ktName} != 0.0) {`);
-      emitSingleFieldWrite(emit, field, ktName, fn, allMessages, allEnums, depth + 1);
-      emit(depth, '}');
-      break;
-    default:
-      if (isEnum(field.type, allEnums)) {
-        emit(depth, `if (${ktName}.value != 0) {`);
-        emitSingleFieldWrite(emit, field, ktName, fn, allMessages, allEnums, depth + 1);
-        emit(depth, '}');
-      } else if (isMessage(field.type, allMessages, allEnums)) {
-        // Always write messages (they self-describe emptiness)
-        emitSingleFieldWrite(emit, field, ktName, fn, allMessages, allEnums, depth);
-      } else {
-        // Numeric types
-        const kt = kotlinType(field.type);
-        const zeroLiteral = kt === 'ULong' ? '0uL' :
-          kt === 'UInt' ? '0u' :
-          kt === 'Long' ? '0L' : '0';
-        emit(depth, `if (${ktName} != ${zeroLiteral}) {`);
-        emitSingleFieldWrite(emit, field, ktName, fn, allMessages, allEnums, depth + 1);
-        emit(depth, '}');
-      }
-  }
-}
-
-function emitSingleFieldWrite(
-  emit: (depth: number, line: string) => void,
-  field: FieldDef,
-  valExpr: string,
-  fieldNumber: number,
-  allMessages: MessageDef[],
-  allEnums: EnumDef[],
-  depth: number,
-) {
-  switch (field.type) {
-    case 'string':
-      emit(depth, `writer.writeStringField(${fieldNumber}, ${valExpr})`);
-      break;
-    case 'bytes':
-      emit(depth, `writer.writeBytesField(${fieldNumber}, ${valExpr})`);
-      break;
-    case 'bool':
-      emit(depth, `writer.writeBoolField(${fieldNumber}, ${valExpr})`);
-      break;
-    case 'int32':
-      emit(depth, `writer.writeVarintField(${fieldNumber}, ${valExpr})`);
-      break;
-    case 'int64':
-      emit(depth, `writer.writeVarintField(${fieldNumber}, ${valExpr})`);
-      break;
-    case 'uint32':
-      emit(depth, `writer.writeVarintField(${fieldNumber}, ${valExpr})`);
-      break;
-    case 'uint64':
-      emit(depth, `writer.writeVarintField(${fieldNumber}, ${valExpr})`);
-      break;
-    case 'sint32':
-      emit(depth, `writer.writeSint32Field(${fieldNumber}, ${valExpr})`);
-      break;
-    case 'sint64':
-      emit(depth, `writer.writeSint64Field(${fieldNumber}, ${valExpr})`);
-      break;
-    case 'fixed32':
-      emit(depth, `writer.writeFixed32Field(${fieldNumber}, ${valExpr})`);
-      break;
-    case 'sfixed32':
-      emit(depth, `writer.writeFixed32Field(${fieldNumber}, ${valExpr}.toUInt())`);
-      break;
-    case 'fixed64':
-      emit(depth, `writer.writeFixed64Field(${fieldNumber}, ${valExpr})`);
-      break;
-    case 'sfixed64':
-      emit(depth, `writer.writeFixed64Field(${fieldNumber}, ${valExpr}.toULong())`);
-      break;
-    case 'float':
-      emit(depth, `writer.writeFloatField(${fieldNumber}, ${valExpr})`);
-      break;
-    case 'double':
-      emit(depth, `writer.writeDoubleField(${fieldNumber}, ${valExpr})`);
-      break;
-    default:
-      if (isEnum(field.type, allEnums)) {
-        emit(depth, `writer.writeVarintField(${fieldNumber}, ${valExpr}.value)`);
-      } else {
-        // Message type - encode as length-delimited sub-message
-        emit(depth, `writer.writeLengthDelimited(${fieldNumber}, ${valExpr}.encode())`);
-      }
-  }
-}
-
-function emitFieldDecode(
-  emit: (depth: number, line: string) => void,
-  field: FieldDef,
-  allMessages: MessageDef[],
-  allEnums: EnumDef[],
-  depth: number,
-) {
-  const ktName = camelCase(field.name);
-  const fn = field.number;
-
-  emit(depth, `${fn} -> {`);
-
-  const readExpr = readExpressionFor(field, allEnums);
-
-  if (field.repeated) {
-    emit(depth + 1, `${ktName}List.add(${readExpr})`);
-  } else {
-    emit(depth + 1, `${ktName} = ${readExpr}`);
-  }
-
-  emit(depth, '}');
-}
-
-function readExpressionFor(field: FieldDef, allEnums: EnumDef[]): string {
-  switch (field.type) {
-    case 'string': return 'reader.readString()';
-    case 'bytes': return 'reader.readBytes()';
-    case 'bool': return 'reader.readBool()';
-    case 'int32': return 'reader.readVarint().toInt()';
-    case 'int64': return 'reader.readVarint()';
-    case 'uint32': return 'reader.readVarint().toUInt()';
-    case 'uint64': return 'reader.readVarintUnsigned()';
-    case 'sint32': return 'reader.readSint32()';
-    case 'sint64': return 'reader.readSint64()';
-    case 'fixed32': return 'reader.readFixed32()';
-    case 'sfixed32': return 'reader.readFixed32().toInt()';
-    case 'fixed64': return 'reader.readFixed64()';
-    case 'sfixed64': return 'reader.readFixed64().toLong()';
-    case 'float': return 'reader.readFloat()';
-    case 'double': return 'reader.readDouble()';
-    default:
-      if (isEnum(field.type, allEnums)) {
-        return `${kotlinType(field.type)}.fromValue(reader.readVarint().toInt())`;
-      }
-      // Message type
-      return `${kotlinType(field.type)}.decode(reader.readBytes())`;
-  }
 }
 
 // ---------------------------------------------------------------------------
@@ -721,16 +237,6 @@ function emitServiceInterface(
 // Dispatcher generation
 // ---------------------------------------------------------------------------
 
-function emitDispatchResult(emit: (depth: number, line: string) => void) {
-  emit(0, 'sealed class DispatchResult {');
-  emit(1, 'data class Unary(val responseData: ByteArray) : DispatchResult()');
-  emit(1, 'data class ServerStream(val responseStream: Flow<ByteArray>) : DispatchResult()');
-  emit(1, 'data class ClientStream(val responseData: ByteArray) : DispatchResult()');
-  emit(1, 'data class BidiStream(val responseStream: Flow<ByteArray>) : DispatchResult()');
-  emit(0, '}');
-  emit(0, '');
-}
-
 function emitDispatcher(
   emit: (depth: number, line: string) => void,
   svc: ServiceDef,
@@ -739,48 +245,45 @@ function emitDispatcher(
   const dispatcherName = `${svc.name}Dispatcher`;
   const serviceQualifier = pkg ? `${pkg}.${svc.name}` : svc.name;
 
-  emit(0, `class ${dispatcherName}(private val service: ${svc.name}) {`);
+  emit(0, `class ${dispatcherName}(private val service: ${svc.name}) : ServiceDispatcher {`);
   emit(0, '');
-  emit(1, 'suspend fun dispatch(');
-  emit(2, 'method: String,');
-  emit(2, 'requestData: ByteArray?,');
-  emit(2, 'requestStream: Flow<ByteArray>?');
-  emit(1, '): DispatchResult {');
+  emit(1, `override val serviceName = "${serviceQualifier}"`);
+  emit(0, '');
+  emit(1, 'override suspend fun dispatch(method: String, messages: Flow<ByteArray>): DispatchResult {');
   emit(2, 'return when (method) {');
 
   for (const m of svc.methods) {
     const methodFullName = `"${serviceQualifier}/${m.name}"`;
     const reqType = kotlinType(m.inputType);
-    const respType = kotlinType(m.outputType);
     const methodName = lowerFirst(m.name);
 
     if (!m.clientStreaming && !m.serverStreaming) {
       // Unary
       emit(3, `${methodFullName} -> {`);
-      emit(4, `val request = ${reqType}.decode(requestData ?: ByteArray(0))`);
+      emit(4, `val request = ${reqType}.decode(messages.first())`);
       emit(4, `val response = service.${methodName}(request)`);
       emit(4, 'DispatchResult.Unary(response.encode())');
       emit(3, '}');
     } else if (!m.clientStreaming && m.serverStreaming) {
       // Server streaming
       emit(3, `${methodFullName} -> {`);
-      emit(4, `val request = ${reqType}.decode(requestData ?: ByteArray(0))`);
+      emit(4, `val request = ${reqType}.decode(messages.first())`);
       emit(4, `val responseFlow = service.${methodName}(request)`);
-      emit(4, 'DispatchResult.ServerStream(responseFlow.map { it.encode() })');
+      emit(4, 'DispatchResult.Stream(responseFlow.map { it.encode() })');
       emit(3, '}');
     } else if (m.clientStreaming && !m.serverStreaming) {
       // Client streaming
       emit(3, `${methodFullName} -> {`);
-      emit(4, `val typedStream = (requestStream ?: flow { }).map { ${reqType}.decode(it) }`);
+      emit(4, `val typedStream = messages.map { ${reqType}.decode(it) }`);
       emit(4, `val response = service.${methodName}(typedStream)`);
-      emit(4, 'DispatchResult.ClientStream(response.encode())');
+      emit(4, 'DispatchResult.Unary(response.encode())');
       emit(3, '}');
     } else {
       // Bidi streaming
       emit(3, `${methodFullName} -> {`);
-      emit(4, `val typedStream = (requestStream ?: flow { }).map { ${reqType}.decode(it) }`);
+      emit(4, `val typedStream = messages.map { ${reqType}.decode(it) }`);
       emit(4, `val responseFlow = service.${methodName}(typedStream)`);
-      emit(4, 'DispatchResult.BidiStream(responseFlow.map { it.encode() })');
+      emit(4, 'DispatchResult.Stream(responseFlow.map { it.encode() })');
       emit(3, '}');
     }
   }

@@ -6,7 +6,7 @@ This document describes how the RPC Bridge code generator works, what it produce
 
 The code generator (`packages/codegen`) reads `.proto` files and produces platform-specific source code for TypeScript, Swift, and Kotlin. The generated code provides:
 
-1. **Message types** with binary protobuf encode/decode methods
+1. **Message types** (TypeScript) or **typealiases** to protoc-generated types (Swift) or **annotated data classes** (Kotlin)
 2. **Client stubs** that wrap the RPC client with typed methods
 3. **Server interfaces** and **dispatchers** that route incoming RPCs to typed handler implementations
 
@@ -15,30 +15,21 @@ The code generator (`packages/codegen`) reads `.proto` files and produces platfo
 | Concern | Generated | Runtime |
 |---------|-----------|---------|
 | Message structs/classes | Yes | No |
-| Message encode/decode | Yes | Uses runtime `ProtoWriter`/`ProtoReader` (TS) or emitted helpers (Swift/Kotlin) |
+| Message encode/decode | Yes | `@bufbuild/protobuf` (TS), `SwiftProtobuf` (Swift), `kotlinx-serialization-protobuf` (Kotlin) |
 | Client stub methods | Yes | Delegates to runtime `RpcClient` |
 | Server handler interfaces | Yes | No |
 | Server dispatcher | Yes | Registers with runtime `RpcServer` |
 | Frame encode/decode | No | `@rpc-bridge/core` (frame.ts) |
 | Stream management | No | `@rpc-bridge/core` (stream.ts) |
-| Flow control | No | `@rpc-bridge/core` (flow-control.ts) |
 | Transport | No | Platform adapter packages |
 
-The key insight: generated code handles **serialization and type safety**, while the runtime handles **protocol mechanics** (framing, streaming, flow control, handshake).
+The key insight: generated code handles **serialization and type safety**, while the runtime handles **protocol mechanics** (framing, streaming, errors).
 
 ## Proto Parser
 
-### Hand-Rolled Minimal Parser
+The code generator uses [`protobufjs`](https://github.com/protobufjs/protobuf.js) as a dev dependency solely for parsing `.proto` files. This provides full proto3 support including imports, maps, oneofs, nested messages, and package-qualified type references. `protobufjs` is not used at runtime.
 
-The code generator includes a hand-rolled proto parser (`src/parser.ts`) rather than depending on `protoc` or `protobufjs`. This is intentional:
-
-- **Zero external dependencies**: The codegen tool is self-contained.
-- **Sufficient for RPC bridge use**: Parses the subset of proto3 needed for service stub generation (messages, enums, services, fields).
-- **Deterministic output**: No dependency on `protoc` version or plugin compatibility.
-
-### Parsed AST
-
-The parser produces a `ProtoFile` AST:
+The parser (`src/parser.ts`) wraps protobufjs and converts its reflection API into a `ProtoFile` AST consumed by the generators:
 
 ```typescript
 interface ProtoFile {
@@ -61,28 +52,7 @@ interface ServiceDef {
 }
 ```
 
-### Supported Proto3 Features
-
-| Feature | Supported |
-|---------|-----------|
-| `syntax = "proto3"` | Yes |
-| `package` | Yes |
-| `message` | Yes |
-| `enum` | Yes |
-| `service` + `rpc` | Yes |
-| Scalar types (string, bytes, bool, int32, uint32, int64, uint64, etc.) | Yes |
-| `repeated` fields | Yes |
-| `optional` fields | Yes |
-| `reserved` declarations | Yes (field numbers) |
-| `[deprecated = true]` option | Yes |
-| `stream` keyword in RPC methods | Yes |
-| `import` statements | Skipped (not resolved) |
-| `map` fields | Skipped |
-| `oneof` | Skipped |
-| Nested messages | Skipped |
-| Package-qualified type references | Partially (strips package prefix) |
-
-For production use with complex proto schemas, consider replacing the parser with `protoc` + a custom plugin while keeping the same generator output format.
+The CLI offers two entry points: `parseProtoFile(path)` resolves imports from disk, `parseProto(content)` parses a string directly.
 
 ## TypeScript Generation
 
@@ -114,23 +84,21 @@ export class HelloRequest implements IHelloRequest {
   }
 
   static encode(msg: IHelloRequest): Uint8Array {
-    const w = new ProtoWriter();
-    w.writeStringField(1, msg.name);
-    w.writeStringField(2, msg.language);
+    const w = new BinaryWriter();
+    if (msg.name.length) w.tag(1, WireType.LengthDelimited).string(msg.name);
+    if (msg.language.length) w.tag(2, WireType.LengthDelimited).string(msg.language);
     return w.finish();
   }
 
   static decode(data: Uint8Array): HelloRequest {
-    const r = new ProtoReader(data);
+    const r = new BinaryReader(data);
     const msg = new HelloRequest();
-    while (r.hasMore()) {
-      const tag = r.readTag();
-      const fieldNumber = tag >>> 3;
-      const wireType = tag & 0x7;
+    while (r.pos < r.len) {
+      const [fieldNumber, wireType] = r.tag();
       switch (fieldNumber) {
-        case 1: msg.name = r.readString(); break;
-        case 2: msg.language = r.readString(); break;
-        default: r.skipField(wireType); break;
+        case 1: msg.name = r.string(); break;
+        case 2: msg.language = r.string(); break;
+        default: r.skip(wireType); break;
       }
     }
     return msg;
@@ -138,7 +106,7 @@ export class HelloRequest implements IHelloRequest {
 }
 ```
 
-The `encode`/`decode` methods use `ProtoWriter`/`ProtoReader` from `@rpc-bridge/core`, producing wire-compatible protobuf binary output.
+The `encode`/`decode` methods use `BinaryWriter`/`BinaryReader` from `@bufbuild/protobuf/wire`, producing standard protobuf binary output.
 
 For enums, generates TypeScript `enum` declarations:
 
@@ -167,8 +135,8 @@ export class HelloBridgeServiceClient {
   // Unary RPC
   async sayHello(request: HelloRequest, options?: CallOptions): Promise<HelloResponse> {
     const requestBytes = HelloRequest.encode(request);
-    const result = await this.client.unary(`${this.service}/SayHello`, requestBytes, options);
-    return HelloResponse.decode(result.data);
+    const responseBytes = await this.client.unary(`${this.service}/SayHello`, requestBytes, options);
+    return HelloResponse.decode(responseBytes);
   }
 
   // Server-streaming RPC
@@ -187,8 +155,8 @@ export class HelloBridgeServiceClient {
     const encoded = (async function* () {
       for await (const req of requests) { yield CollectNamesRequest.encode(req); }
     })();
-    const result = await this.client.clientStream(`${this.service}/CollectNames`, encoded, options);
-    return CollectNamesResponse.decode(result.data);
+    const responseBytes = await this.client.clientStream(`${this.service}/CollectNames`, encoded, options);
+    return CollectNamesResponse.decode(responseBytes);
   }
 
   // Bidi-streaming RPC
@@ -241,66 +209,23 @@ The dispatcher handles the serialization boundary: it decodes incoming bytes int
 
 ## Swift Generation
 
-The Swift generator (`src/gen-swift.ts`) produces a single `.swift` file containing:
+The Swift generator (`src/gen-swift.ts`) produces a single `.swift` file per service. Message encoding is handled entirely by [SwiftProtobuf](https://github.com/apple/swift-protobuf) via `protoc-gen-swift`, so the codegen only generates RPC glue code.
 
-### Protobuf Helpers
+### Namespace Enum with Typealiases
 
-Each generated file includes `ProtoWriter` and `ProtoReader` structs that are wire-compatible with the TypeScript implementation. These are emitted inline to avoid a separate dependency.
-
-### Namespace Enum
-
-All types are nested inside a namespace enum (e.g., `DemoHelloV1`) to avoid polluting the global scope:
+All types are nested inside a namespace enum (e.g., `DemoHelloV1`). Messages are typealiases to the `protoc-gen-swift` generated types:
 
 ```swift
 public enum DemoHelloV1 {
-    // Messages, enums, protocols, dispatchers...
+    public typealias HelloRequest = Demo_Hello_V1_HelloRequest
+    public typealias HelloResponse = Demo_Hello_V1_HelloResponse
+    // ...
 }
 ```
 
-### Message Structs
+The `protoc-gen-swift` naming convention maps package `demo.hello.v1` + message `HelloRequest` to `Demo_Hello_V1_HelloRequest`. The typealiases provide shorter names within the namespace.
 
-For each message, generates a `Codable`, `Sendable`, `Equatable` struct with:
-
-- Typed properties with default values
-- Memberwise initializer
-- `encode() -> Data` method
-- `static func decode(from data: Data) -> Self` method
-
-```swift
-public struct HelloRequest: Codable, Sendable, Equatable {
-    public var name: String
-    public var language: String
-
-    public init(name: String = "", language: String = "") {
-        self.name = name
-        self.language = language
-    }
-
-    public func encode() -> Data {
-        var writer = ProtoWriter()
-        if !name.isEmpty { writer.writeStringField(fieldNumber: 1, value: name) }
-        if !language.isEmpty { writer.writeStringField(fieldNumber: 2, value: language) }
-        return writer.finish()
-    }
-
-    public static func decode(from data: Data) -> Self {
-        var reader = ProtoReader(data: data)
-        var name: String = ""
-        var language: String = ""
-        while reader.hasMore() {
-            let tag = reader.readTag()
-            let fieldNumber = tag >> 3
-            let wireType = tag & 0x7
-            switch fieldNumber {
-            case 1: name = reader.readString()
-            case 2: language = reader.readString()
-            default: reader.skipField(wireType: wireType)
-            }
-        }
-        return Self(name: name, language: language)
-    }
-}
-```
+Message structs are generated by running `protoc --swift_out` on the `.proto` files. These conform to `SwiftProtobuf.Message` and provide `serializedData()` / `init(serializedBytes:)` for encoding.
 
 ### Service Protocol
 
@@ -320,16 +245,19 @@ public protocol HelloBridgeServiceProvider: Sendable {
 A `Dispatcher` class that routes raw bytes to the typed protocol methods:
 
 ```swift
-public final class HelloBridgeServiceDispatcher: @unchecked Sendable {
+public final class HelloBridgeServiceDispatcher: ServiceDispatcher, @unchecked Sendable {
     private let provider: any HelloBridgeServiceProvider
 
-    public func dispatch(method: String, requestData: Data?, requestStream: AsyncStream<Data>?)
+    public func dispatch(method: String, messages: AsyncStream<Data>)
         async throws -> DispatchResult {
         switch method {
         case "demo.hello.v1.HelloBridgeService/SayHello":
-            let request = HelloRequest.decode(from: requestData!)
+            var requestData: Data?
+            for await data in messages { requestData = data; break }
+            guard let requestData else { throw DispatchError.missingRequestData }
+            let request = try HelloRequest(serializedBytes: requestData)
             let response = try await provider.sayHello(request)
-            return .unary(response.encode())
+            return .unary(try response.serializedData())
         // ...
         }
     }
@@ -342,42 +270,24 @@ The Kotlin generator (`src/gen-kotlin.ts`) produces a single `.kt` file containi
 
 ### Data Classes
 
-For each message, generates a Kotlin `data class` with:
-
-- Properties with default values
-- `encode(): ByteArray` method
-- `companion object { fun decode(data: ByteArray): ClassName }` method
+For each message, generates a Kotlin `data class` annotated with `@Serializable` and `@ProtoNumber` from `kotlinx-serialization-protobuf`:
 
 ```kotlin
+@Serializable
 data class HelloRequest(
-    val name: String = "",
-    val language: String = "",
+    @ProtoNumber(1) val name: String = "",
+    @ProtoNumber(2) val language: String = "",
 ) {
-    fun encode(): ByteArray {
-        val w = ProtoWriter()
-        if (name.isNotEmpty()) w.writeStringField(1, name)
-        if (language.isNotEmpty()) w.writeStringField(2, language)
-        return w.finish()
-    }
+    fun encode(): ByteArray = ProtoBuf.encodeToByteArray(this)
 
     companion object {
-        fun decode(data: ByteArray): HelloRequest {
-            val r = ProtoReader(data)
-            var name = ""
-            var language = ""
-            while (r.hasMore()) {
-                val tag = r.readTag()
-                when (tag shr 3) {
-                    1 -> name = r.readString()
-                    2 -> language = r.readString()
-                    else -> r.skipField(tag and 0x7)
-                }
-            }
-            return HelloRequest(name = name, language = language)
-        }
+        fun decode(data: ByteArray): HelloRequest =
+            ProtoBuf.decodeFromByteArray(data)
     }
 }
 ```
+
+The `@ProtoNumber` annotations map fields to their protobuf field numbers. Encoding and decoding is handled by `kotlinx-serialization-protobuf`, producing standard protobuf binary wire format.
 
 ### Service Interface
 
@@ -415,15 +325,15 @@ All output flags are optional. Only languages with a specified output directory 
 ```bash
 # Generate all three languages
 rpc-bridge-codegen \
-  --proto proto/demo/hello/v1/hello.proto \
-  --ts-out generated/ts/demo/hello/v1 \
-  --swift-out generated/swift \
-  --kotlin-out generated/kotlin
+  --proto demos/proto/hello.proto \
+  --ts-out demos/generated \
+  --swift-out demos/host/ios/RPCBridgeDemo/generated \
+  --kotlin-out demos/host/android/generated
 
 # Generate TypeScript only
 rpc-bridge-codegen \
-  --proto proto/demo/hello/v1/hello.proto \
-  --ts-out generated/ts/demo/hello/v1
+  --proto demos/proto/hello.proto \
+  --ts-out demos/generated
 ```
 
 ### Output Files
@@ -444,7 +354,7 @@ From the monorepo root:
 npm run generate
 ```
 
-This runs the codegen with the demo proto file, outputting to `generated/`.
+This runs the codegen with the demo proto file, outputting to `demos/generated/` (TypeScript), `demos/host/ios/RPCBridgeDemo/generated/` (Swift), and `demos/host/android/generated/` (Kotlin).
 
 ## Extending the Codegen for New Languages
 
@@ -477,11 +387,11 @@ const PROTO_TO_DART: Record<string, string> = {
 
 ### 3. Generate Message Encode/Decode
 
-Two options:
+Use an established protobuf library for the target language. Examples from existing generators:
 
-**a) Emit inline helpers** (like Swift): Include `ProtoWriter`/`ProtoReader` implementations in the generated code. Simpler but results in larger output.
-
-**b) Use a runtime library** (like TypeScript): Import `ProtoWriter`/`ProtoReader` from a companion runtime package. Cleaner but requires a separate package.
+- **TypeScript**: `BinaryWriter`/`BinaryReader` from `@bufbuild/protobuf/wire`
+- **Swift**: `protoc-gen-swift` generates `SwiftProtobuf.Message` conforming types
+- **Kotlin**: `@Serializable` + `@ProtoNumber` annotations with `kotlinx-serialization-protobuf`
 
 ### 4. Generate Service Stubs
 

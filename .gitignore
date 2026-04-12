@@ -8,6 +8,18 @@ dist/
 packages/*/dist/
 tests/dist/
 
+# Swift build artifacts
+.build/
+*.resolved
+**/build/
+
+# Test results
+test-results/
+tests/test-results/
+
+# Misc
+excalidraw.log
+
 # OS files
 .DS_Store
 Thumbs.db

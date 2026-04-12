@@ -2,7 +2,7 @@
  * Core types used throughout the RPC bridge framework.
  */
 
-/** Method streaming pattern */
+/** Method streaming pattern, used for server-side dispatch. */
 export enum MethodType {
   UNSPECIFIED = 0,
   UNARY = 1,
@@ -11,27 +11,16 @@ export enum MethodType {
   BIDI_STREAMING = 4,
 }
 
-/** Metadata is a simple string key-value map carried in frames. */
-export type Metadata = Record<string, string>;
-
 /** Call options for an individual RPC invocation. */
 export interface CallOptions {
   /** Deadline in milliseconds from now. 0 or undefined = no deadline. */
   deadlineMs?: number;
-  /** Initial metadata/headers to send with the call. */
-  metadata?: Metadata;
   /** AbortSignal for cancellation. */
   signal?: AbortSignal;
-  /** Initial flow control credits to grant the server (default: 16). */
-  initialCredits?: number;
 }
 
 /** Context available to server-side RPC handlers. */
 export interface CallContext {
-  /** Metadata from the client's OPEN frame. */
-  metadata: Metadata;
-  /** Deadline timestamp (Date.now()-based), or undefined if none. */
-  deadline?: number;
   /** Signal that fires when the stream is cancelled. */
   signal: AbortSignal;
   /** Stream ID for logging/debugging. */

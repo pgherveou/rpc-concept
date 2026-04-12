@@ -1,20 +1,16 @@
 /**
  * Swift code generator for the RPC bridge framework.
  *
- * Generates idiomatic Swift source code from parsed .proto definitions,
- * including message structs with protobuf wire-format encoding, service
- * protocols with async/await, and dispatcher classes for routing raw bytes
- * to typed handler methods.
+ * Generates typealiases to protoc-gen-swift types, service provider protocols
+ * with async/await, and dispatcher classes for routing raw bytes to typed
+ * handler methods.
  *
- * The generated protobuf encoding is wire-compatible with the TypeScript
- * ProtoWriter/ProtoReader implementation in @rpc-bridge/core.
+ * Message structs and protobuf encoding are handled by protoc-gen-swift.
+ * This generator only produces the RPC glue code.
  */
 
 import type {
   ProtoFile,
-  MessageDef,
-  FieldDef,
-  EnumDef,
   ServiceDef,
 } from './parser.js';
 
@@ -39,10 +35,8 @@ export function generateSwift(proto: ProtoFile): string {
   emit('// Any manual changes will be overwritten on the next generation run.');
   emit('');
   emit('import Foundation');
-  emit('');
-
-  // Protobuf helpers (emitted once per file)
-  emitBlock(protobufHelpers());
+  emit('import SwiftProtobuf');
+  emit('import RpcBridge');
   emit('');
 
   // Namespace enum (acts as a Swift namespace)
@@ -50,22 +44,22 @@ export function generateSwift(proto: ProtoFile): string {
   emit('');
   emit(`public enum ${namespace} {`);
 
-  // Enums
+  // Typealiases for enums
   for (const enumDef of proto.enums) {
     emit('');
-    emitBlock(indent(generateEnum(enumDef), 1));
+    emit(`    public typealias ${enumDef.name} = ${protocSwiftName(proto.package, enumDef.name)}`);
   }
 
-  // Messages
+  // Typealiases for messages
   for (const msg of proto.messages) {
     emit('');
-    emitBlock(indent(generateMessage(msg, proto), 1));
+    emit(`    public typealias ${msg.name} = ${protocSwiftName(proto.package, msg.name)}`);
   }
 
-  // Dispatch result and error types (emitted once for all services)
+  // Dispatch error type (emitted once for all services)
   if (proto.services.length > 0) {
     emit('');
-    emitBlock(indent(generateDispatchTypes(), 1));
+    emitBlock(indent(generateDispatchError(), 1));
   }
 
   // Services
@@ -93,9 +87,16 @@ function swiftNamespace(pkg: string): string {
     .join('');
 }
 
-/** Convert a proto field name (snake_case) to Swift camelCase. */
-function swiftFieldName(name: string): string {
-  return name.replace(/_([a-z])/g, (_, c: string) => c.toUpperCase());
+/**
+ * Convert a proto package + message name to the protoc-gen-swift generated name.
+ * e.g. package "demo.hello.v1" + message "HelloRequest" = "Demo_Hello_V1_HelloRequest"
+ */
+function protocSwiftName(pkg: string, typeName: string): string {
+  const prefix = pkg
+    .split('.')
+    .map((s) => s.charAt(0).toUpperCase() + s.slice(1))
+    .join('_');
+  return `${prefix}_${typeName}`;
 }
 
 /** Convert a proto method name (PascalCase) to Swift camelCase. */
@@ -103,436 +104,13 @@ function swiftMethodName(name: string): string {
   return name.charAt(0).toLowerCase() + name.slice(1);
 }
 
-/** Resolve a proto type reference to a Swift type name, keeping it relative
- *  inside the namespace enum so nested references just use the short name. */
-function resolveTypeName(protoType: string, _proto: ProtoFile): string {
-  // Strip leading package prefix if present
-  const pkg = _proto.package;
+/** Resolve a proto type reference to the short name used inside the namespace enum. */
+function resolveTypeName(protoType: string, proto: ProtoFile): string {
+  const pkg = proto.package;
   if (protoType.startsWith(pkg + '.')) {
     return protoType.slice(pkg.length + 1);
   }
   return protoType;
-}
-
-// ---------------------------------------------------------------------------
-// Proto-to-Swift type mapping
-// ---------------------------------------------------------------------------
-
-interface SwiftTypeInfo {
-  swiftType: string;
-  wireType: number; // 0 = varint, 2 = length-delimited
-  isScalar: boolean;
-  defaultExpr: string;
-}
-
-const WIRE_VARINT = 0;
-const WIRE_64BIT = 1;
-const WIRE_LENGTH_DELIMITED = 2;
-const WIRE_32BIT = 5;
-
-function swiftTypeInfo(protoType: string): SwiftTypeInfo {
-  switch (protoType) {
-    case 'string':
-      return { swiftType: 'String', wireType: WIRE_LENGTH_DELIMITED, isScalar: true, defaultExpr: '""' };
-    case 'bool':
-      return { swiftType: 'Bool', wireType: WIRE_VARINT, isScalar: true, defaultExpr: 'false' };
-    case 'uint32':
-      return { swiftType: 'UInt32', wireType: WIRE_VARINT, isScalar: true, defaultExpr: '0' };
-    case 'uint64':
-      return { swiftType: 'UInt64', wireType: WIRE_VARINT, isScalar: true, defaultExpr: '0' };
-    case 'int32':
-      return { swiftType: 'Int32', wireType: WIRE_VARINT, isScalar: true, defaultExpr: '0' };
-    case 'int64':
-      return { swiftType: 'Int64', wireType: WIRE_VARINT, isScalar: true, defaultExpr: '0' };
-    case 'sint32':
-      return { swiftType: 'Int32', wireType: WIRE_VARINT, isScalar: true, defaultExpr: '0' };
-    case 'sint64':
-      return { swiftType: 'Int64', wireType: WIRE_VARINT, isScalar: true, defaultExpr: '0' };
-    case 'fixed32':
-      return { swiftType: 'UInt32', wireType: WIRE_32BIT, isScalar: true, defaultExpr: '0' };
-    case 'sfixed32':
-      return { swiftType: 'Int32', wireType: WIRE_32BIT, isScalar: true, defaultExpr: '0' };
-    case 'fixed64':
-      return { swiftType: 'UInt64', wireType: WIRE_64BIT, isScalar: true, defaultExpr: '0' };
-    case 'sfixed64':
-      return { swiftType: 'Int64', wireType: WIRE_64BIT, isScalar: true, defaultExpr: '0' };
-    case 'float':
-      return { swiftType: 'Float', wireType: WIRE_32BIT, isScalar: true, defaultExpr: '0' };
-    case 'double':
-      return { swiftType: 'Double', wireType: WIRE_64BIT, isScalar: true, defaultExpr: '0' };
-    case 'bytes':
-      return { swiftType: 'Data', wireType: WIRE_LENGTH_DELIMITED, isScalar: true, defaultExpr: 'Data()' };
-    default:
-      // Message or enum reference
-      return { swiftType: protoType, wireType: WIRE_LENGTH_DELIMITED, isScalar: false, defaultExpr: `${protoType}()` };
-  }
-}
-
-// ---------------------------------------------------------------------------
-// Enum generation
-// ---------------------------------------------------------------------------
-
-function generateEnum(def: EnumDef): string {
-  const lines: string[] = [];
-  lines.push(`public enum ${def.name}: Int32, Codable, Sendable {`);
-  for (const v of def.values) {
-    lines.push(`    case ${swiftFieldName(v.name.toLowerCase())} = ${v.number}`);
-  }
-  lines.push('}');
-  return lines.join('\n');
-}
-
-// ---------------------------------------------------------------------------
-// Message struct generation
-// ---------------------------------------------------------------------------
-
-function generateMessage(msg: MessageDef, proto: ProtoFile): string {
-  const lines: string[] = [];
-
-  lines.push(`public struct ${msg.name}: Codable, Sendable, Equatable {`);
-
-  // Properties
-  for (const field of msg.fields) {
-    const resolved = resolveFieldType(field, proto);
-    if (field.deprecated) {
-      lines.push(`    @available(*, deprecated)`);
-    }
-    lines.push(`    public var ${swiftFieldName(field.name)}: ${resolved.type}`);
-  }
-
-  // Memberwise init
-  lines.push('');
-  lines.push('    public init(');
-  const initParams: string[] = [];
-  for (const field of msg.fields) {
-    const resolved = resolveFieldType(field, proto);
-    initParams.push(`        ${swiftFieldName(field.name)}: ${resolved.type} = ${resolved.defaultValue}`);
-  }
-  lines.push(initParams.join(',\n'));
-  lines.push('    ) {');
-  for (const field of msg.fields) {
-    const sn = swiftFieldName(field.name);
-    lines.push(`        self.${sn} = ${sn}`);
-  }
-  lines.push('    }');
-
-  // encode()
-  lines.push('');
-  lines.push('    public func encode() -> Data {');
-  lines.push('        var writer = ProtoWriter()');
-  for (const field of msg.fields) {
-    emitEncodeField(lines, field, proto);
-  }
-  lines.push('        return writer.finish()');
-  lines.push('    }');
-
-  // decode(from:)
-  lines.push('');
-  lines.push('    public static func decode(from data: Data) -> Self {');
-  lines.push('        var reader = ProtoReader(data: data)');
-  // Declare local variables for all fields
-  for (const field of msg.fields) {
-    const resolved = resolveFieldType(field, proto);
-    lines.push(`        var ${swiftFieldName(field.name)}: ${resolved.type} = ${resolved.defaultValue}`);
-  }
-  lines.push('        while reader.hasMore() {');
-  lines.push('            let tag = reader.readTag()');
-  lines.push('            let fieldNumber = tag >> 3');
-  lines.push('            let wireType = tag & 0x7');
-  lines.push('            switch fieldNumber {');
-  for (const field of msg.fields) {
-    emitDecodeField(lines, field, proto);
-  }
-  lines.push('            default:');
-  lines.push('                reader.skipField(wireType: wireType)');
-  lines.push('            }');
-  lines.push('        }');
-  // Construct result
-  const args = msg.fields
-    .map((f) => `${swiftFieldName(f.name)}: ${swiftFieldName(f.name)}`)
-    .join(', ');
-  lines.push(`        return Self(${args})`);
-  lines.push('    }');
-
-  lines.push('}');
-
-  return lines.join('\n');
-}
-
-interface ResolvedFieldType {
-  type: string;
-  defaultValue: string;
-}
-
-function resolveFieldType(field: FieldDef, proto: ProtoFile): ResolvedFieldType {
-  const info = swiftTypeInfo(field.type);
-  let base = info.swiftType;
-
-  // Check if this is a reference to a message/enum in the same proto
-  if (!info.isScalar) {
-    base = resolveTypeName(field.type, proto);
-  }
-
-  if (field.repeated) {
-    return { type: `[${base}]`, defaultValue: '[]' };
-  }
-  if (field.optional) {
-    return { type: `${base}?`, defaultValue: 'nil' };
-  }
-  return { type: base, defaultValue: info.isScalar ? info.defaultExpr : `${base}()` };
-}
-
-// ---------------------------------------------------------------------------
-// Encode helpers – emit Swift statements for writing a single field
-// ---------------------------------------------------------------------------
-
-function emitEncodeField(lines: string[], field: FieldDef, proto: ProtoFile): void {
-  const sn = swiftFieldName(field.name);
-  const fn = field.number;
-  const info = swiftTypeInfo(field.type);
-
-  if (field.repeated) {
-    lines.push(`        for item in ${sn} {`);
-    emitEncodeSingle(lines, 'item', fn, field.type, info, proto, '            ');
-    lines.push('        }');
-    return;
-  }
-
-  if (field.optional) {
-    lines.push(`        if let value = ${sn} {`);
-    emitEncodeSingle(lines, 'value', fn, field.type, info, proto, '            ');
-    lines.push('        }');
-    return;
-  }
-
-  // Non-optional, non-repeated: only write if not default value (proto3 semantics)
-  switch (field.type) {
-    case 'string':
-      lines.push(`        if !${sn}.isEmpty {`);
-      lines.push(`            writer.writeStringField(fieldNumber: ${fn}, value: ${sn})`);
-      lines.push('        }');
-      break;
-    case 'bytes':
-      lines.push(`        if !${sn}.isEmpty {`);
-      lines.push(`            writer.writeBytesField(fieldNumber: ${fn}, value: ${sn})`);
-      lines.push('        }');
-      break;
-    case 'bool':
-      lines.push(`        if ${sn} {`);
-      lines.push(`            writer.writeVarintField(fieldNumber: ${fn}, value: 1)`);
-      lines.push('        }');
-      break;
-    case 'uint32':
-    case 'int32':
-      lines.push(`        if ${sn} != 0 {`);
-      lines.push(`            writer.writeVarintField(fieldNumber: ${fn}, value: UInt64(${sn}))`);
-      lines.push('        }');
-      break;
-    case 'uint64':
-    case 'int64':
-      lines.push(`        if ${sn} != 0 {`);
-      lines.push(`            writer.writeVarintField(fieldNumber: ${fn}, value: UInt64(${sn}))`);
-      lines.push('        }');
-      break;
-    case 'sint32':
-      lines.push(`        if ${sn} != 0 {`);
-      lines.push(`            writer.writeSint32Field(fieldNumber: ${fn}, value: ${sn})`);
-      lines.push('        }');
-      break;
-    case 'sint64':
-      lines.push(`        if ${sn} != 0 {`);
-      lines.push(`            writer.writeSint64Field(fieldNumber: ${fn}, value: ${sn})`);
-      lines.push('        }');
-      break;
-    case 'fixed32':
-      lines.push(`        if ${sn} != 0 {`);
-      lines.push(`            writer.writeFixed32Field(fieldNumber: ${fn}, value: ${sn})`);
-      lines.push('        }');
-      break;
-    case 'sfixed32':
-      lines.push(`        if ${sn} != 0 {`);
-      lines.push(`            writer.writeFixed32Field(fieldNumber: ${fn}, value: UInt32(bitPattern: ${sn}))`);
-      lines.push('        }');
-      break;
-    case 'fixed64':
-      lines.push(`        if ${sn} != 0 {`);
-      lines.push(`            writer.writeFixed64Field(fieldNumber: ${fn}, value: ${sn})`);
-      lines.push('        }');
-      break;
-    case 'sfixed64':
-      lines.push(`        if ${sn} != 0 {`);
-      lines.push(`            writer.writeFixed64Field(fieldNumber: ${fn}, value: UInt64(bitPattern: ${sn}))`);
-      lines.push('        }');
-      break;
-    case 'float':
-      lines.push(`        if ${sn} != 0 {`);
-      lines.push(`            writer.writeFloatField(fieldNumber: ${fn}, value: ${sn})`);
-      lines.push('        }');
-      break;
-    case 'double':
-      lines.push(`        if ${sn} != 0 {`);
-      lines.push(`            writer.writeDoubleField(fieldNumber: ${fn}, value: ${sn})`);
-      lines.push('        }');
-      break;
-    default:
-      // Message type – always encode (proto3 has no "default" for messages, but
-      // they are only present when set; treat non-optional message fields as
-      // always present for simplicity)
-      if (!info.isScalar) {
-        const encoded = `${sn}.encode()`;
-        lines.push(`        writer.writeBytesField(fieldNumber: ${fn}, value: ${encoded})`);
-      }
-      break;
-  }
-}
-
-function emitEncodeSingle(
-  lines: string[],
-  varName: string,
-  fieldNumber: number,
-  protoType: string,
-  info: SwiftTypeInfo,
-  _proto: ProtoFile,
-  indent: string,
-): void {
-  switch (protoType) {
-    case 'string':
-      lines.push(`${indent}writer.writeStringField(fieldNumber: ${fieldNumber}, value: ${varName})`);
-      break;
-    case 'bytes':
-      lines.push(`${indent}writer.writeBytesField(fieldNumber: ${fieldNumber}, value: ${varName})`);
-      break;
-    case 'bool':
-      lines.push(`${indent}writer.writeVarintField(fieldNumber: ${fieldNumber}, value: ${varName} ? 1 : 0)`);
-      break;
-    case 'uint32':
-    case 'int32':
-      lines.push(`${indent}writer.writeVarintField(fieldNumber: ${fieldNumber}, value: UInt64(${varName}))`);
-      break;
-    case 'uint64':
-    case 'int64':
-      lines.push(`${indent}writer.writeVarintField(fieldNumber: ${fieldNumber}, value: UInt64(${varName}))`);
-      break;
-    case 'sint32':
-      lines.push(`${indent}writer.writeSint32Field(fieldNumber: ${fieldNumber}, value: ${varName})`);
-      break;
-    case 'sint64':
-      lines.push(`${indent}writer.writeSint64Field(fieldNumber: ${fieldNumber}, value: ${varName})`);
-      break;
-    case 'fixed32':
-      lines.push(`${indent}writer.writeFixed32Field(fieldNumber: ${fieldNumber}, value: ${varName})`);
-      break;
-    case 'sfixed32':
-      lines.push(`${indent}writer.writeFixed32Field(fieldNumber: ${fieldNumber}, value: UInt32(bitPattern: ${varName}))`);
-      break;
-    case 'fixed64':
-      lines.push(`${indent}writer.writeFixed64Field(fieldNumber: ${fieldNumber}, value: ${varName})`);
-      break;
-    case 'sfixed64':
-      lines.push(`${indent}writer.writeFixed64Field(fieldNumber: ${fieldNumber}, value: UInt64(bitPattern: ${varName}))`);
-      break;
-    case 'float':
-      lines.push(`${indent}writer.writeFloatField(fieldNumber: ${fieldNumber}, value: ${varName})`);
-      break;
-    case 'double':
-      lines.push(`${indent}writer.writeDoubleField(fieldNumber: ${fieldNumber}, value: ${varName})`);
-      break;
-    default:
-      if (!info.isScalar) {
-        lines.push(`${indent}writer.writeBytesField(fieldNumber: ${fieldNumber}, value: ${varName}.encode())`);
-      }
-      break;
-  }
-}
-
-// ---------------------------------------------------------------------------
-// Decode helpers – emit Swift switch-case arms for reading a single field
-// ---------------------------------------------------------------------------
-
-function emitDecodeField(lines: string[], field: FieldDef, proto: ProtoFile): void {
-  const sn = swiftFieldName(field.name);
-  const fn = field.number;
-  const info = swiftTypeInfo(field.type);
-
-  lines.push(`            case ${fn}:`);
-
-  if (field.repeated) {
-    emitDecodeValue(lines, `_val`, field.type, info, proto, '                ');
-    lines.push(`                ${sn}.append(_val)`);
-    return;
-  }
-
-  emitDecodeValue(lines, sn, field.type, info, proto, '                ');
-}
-
-function emitDecodeValue(
-  lines: string[],
-  varName: string,
-  protoType: string,
-  info: SwiftTypeInfo,
-  _proto: ProtoFile,
-  ind: string,
-): void {
-  const isLet = varName.startsWith('_');
-  const decl = isLet ? 'let' : '';
-  const assign = isLet ? `${decl} ${varName} = ` : `${varName} = `;
-
-  switch (protoType) {
-    case 'string':
-      lines.push(`${ind}${assign}reader.readString()`);
-      break;
-    case 'bytes':
-      lines.push(`${ind}${assign}reader.readBytes()`);
-      break;
-    case 'bool':
-      lines.push(`${ind}${assign}reader.readVarint() != 0`);
-      break;
-    case 'uint32':
-      lines.push(`${ind}${assign}UInt32(reader.readVarint())`);
-      break;
-    case 'uint64':
-      lines.push(`${ind}${assign}reader.readVarint()`);
-      break;
-    case 'int32':
-      lines.push(`${ind}${assign}Int32(bitPattern: UInt32(reader.readVarint()))`);
-      break;
-    case 'int64':
-      lines.push(`${ind}${assign}Int64(bitPattern: reader.readVarint())`);
-      break;
-    case 'sint32':
-      lines.push(`${ind}${assign}reader.readSint32()`);
-      break;
-    case 'sint64':
-      lines.push(`${ind}${assign}reader.readSint64()`);
-      break;
-    case 'fixed32':
-      lines.push(`${ind}${assign}reader.readFixed32()`);
-      break;
-    case 'sfixed32':
-      lines.push(`${ind}${assign}Int32(bitPattern: reader.readFixed32())`);
-      break;
-    case 'fixed64':
-      lines.push(`${ind}${assign}reader.readFixed64()`);
-      break;
-    case 'sfixed64':
-      lines.push(`${ind}${assign}Int64(bitPattern: reader.readFixed64())`);
-      break;
-    case 'float':
-      lines.push(`${ind}${assign}reader.readFloat()`);
-      break;
-    case 'double':
-      lines.push(`${ind}${assign}reader.readDouble()`);
-      break;
-    default:
-      if (!info.isScalar) {
-        const resolved = resolveTypeName(protoType, _proto);
-        lines.push(`${ind}${assign}${resolved}.decode(from: reader.readBytes())`);
-      } else {
-        // Fallback – skip
-        lines.push(`${ind}reader.skipField(wireType: wireType)`);
-      }
-      break;
-  }
 }
 
 // ---------------------------------------------------------------------------
@@ -549,16 +127,12 @@ function generateServiceProtocol(svc: ServiceDef, proto: ProtoFile): string {
     const methodName = swiftMethodName(m.name);
 
     if (!m.clientStreaming && !m.serverStreaming) {
-      // Unary
       lines.push(`    func ${methodName}(_ request: ${inputType}) async throws -> ${outputType}`);
     } else if (!m.clientStreaming && m.serverStreaming) {
-      // Server streaming
       lines.push(`    func ${methodName}(_ request: ${inputType}) -> AsyncThrowingStream<${outputType}, Error>`);
     } else if (m.clientStreaming && !m.serverStreaming) {
-      // Client streaming
       lines.push(`    func ${methodName}(_ requests: AsyncStream<${inputType}>) async throws -> ${outputType}`);
     } else {
-      // Bidi streaming
       lines.push(`    func ${methodName}(_ requests: AsyncStream<${inputType}>) -> AsyncThrowingStream<${outputType}, Error>`);
     }
   }
@@ -571,17 +145,11 @@ function generateServiceProtocol(svc: ServiceDef, proto: ProtoFile): string {
 // Dispatcher class generation
 // ---------------------------------------------------------------------------
 
-function generateDispatchTypes(): string {
+function generateDispatchError(): string {
   const lines: string[] = [];
-  lines.push('public enum DispatchResult: Sendable {');
-  lines.push('    case unary(Data)');
-  lines.push('    case stream(AsyncThrowingStream<Data, Error>)');
-  lines.push('}');
-  lines.push('');
   lines.push('public enum DispatchError: Error, Sendable {');
   lines.push('    case unknownMethod(String)');
   lines.push('    case missingRequestData');
-  lines.push('    case missingRequestStream');
   lines.push('}');
   return lines.join('\n');
 }
@@ -590,8 +158,8 @@ function generateDispatcher(svc: ServiceDef, proto: ProtoFile): string {
   const lines: string[] = [];
   const fqServiceName = `${proto.package}.${svc.name}`;
 
-  // Dispatcher class
-  lines.push(`public final class ${svc.name}Dispatcher: @unchecked Sendable {`);
+  lines.push(`public final class ${svc.name}Dispatcher: ServiceDispatcher, @unchecked Sendable {`);
+  lines.push(`    public let serviceName = "${fqServiceName}"`);
   lines.push(`    private let provider: any ${svc.name}Provider`);
   lines.push('');
   lines.push(`    public init(provider: any ${svc.name}Provider) {`);
@@ -599,17 +167,14 @@ function generateDispatcher(svc: ServiceDef, proto: ProtoFile): string {
   lines.push('    }');
   lines.push('');
 
-  // dispatch method
   lines.push('    public func dispatch(');
   lines.push('        method: String,');
-  lines.push('        requestData: Data?,');
-  lines.push('        requestStream: AsyncStream<Data>?');
+  lines.push('        messages: AsyncStream<Data>');
   lines.push('    ) async throws -> DispatchResult {');
   lines.push('        switch method {');
 
   for (const m of svc.methods) {
     const inputType = resolveTypeName(m.inputType, proto);
-    const outputType = resolveTypeName(m.outputType, proto);
     const methodName = swiftMethodName(m.name);
     const fullMethodName = `${fqServiceName}/${m.name}`;
 
@@ -617,24 +182,24 @@ function generateDispatcher(svc: ServiceDef, proto: ProtoFile): string {
 
     if (!m.clientStreaming && !m.serverStreaming) {
       // Unary
-      lines.push(`            guard let requestData else {`);
-      lines.push(`                throw DispatchError.missingRequestData`);
-      lines.push('            }');
-      lines.push(`            let request = ${inputType}.decode(from: requestData)`);
+      lines.push('            var requestData: Data?');
+      lines.push('            for await data in messages { requestData = data; break }');
+      lines.push('            guard let requestData else { throw DispatchError.missingRequestData }');
+      lines.push(`            let request = try ${inputType}(serializedBytes: requestData)`);
       lines.push(`            let response = try await provider.${methodName}(request)`);
-      lines.push('            return .unary(response.encode())');
+      lines.push('            return .unary(try response.serializedData())');
     } else if (!m.clientStreaming && m.serverStreaming) {
       // Server streaming
-      lines.push(`            guard let requestData else {`);
-      lines.push(`                throw DispatchError.missingRequestData`);
-      lines.push('            }');
-      lines.push(`            let request = ${inputType}.decode(from: requestData)`);
+      lines.push('            var requestData: Data?');
+      lines.push('            for await data in messages { requestData = data; break }');
+      lines.push('            guard let requestData else { throw DispatchError.missingRequestData }');
+      lines.push(`            let request = try ${inputType}(serializedBytes: requestData)`);
       lines.push(`            let responseStream = provider.${methodName}(request)`);
       lines.push('            let mappedStream = AsyncThrowingStream<Data, Error> { continuation in');
       lines.push('                Task {');
       lines.push('                    do {');
       lines.push('                        for try await response in responseStream {');
-      lines.push('                            continuation.yield(response.encode())');
+      lines.push('                            continuation.yield(try response.serializedData())');
       lines.push('                        }');
       lines.push('                        continuation.finish()');
       lines.push('                    } catch {');
@@ -645,28 +210,26 @@ function generateDispatcher(svc: ServiceDef, proto: ProtoFile): string {
       lines.push('            return .stream(mappedStream)');
     } else if (m.clientStreaming && !m.serverStreaming) {
       // Client streaming
-      lines.push(`            guard let requestStream else {`);
-      lines.push(`                throw DispatchError.missingRequestStream`);
-      lines.push('            }');
       lines.push(`            let typedStream = AsyncStream<${inputType}> { continuation in`);
       lines.push('                Task {');
-      lines.push('                    for await data in requestStream {');
-      lines.push(`                        continuation.yield(${inputType}.decode(from: data))`);
+      lines.push('                    for await data in messages {');
+      lines.push(`                        if let msg = try? ${inputType}(serializedBytes: data) {`);
+      lines.push('                            continuation.yield(msg)');
+      lines.push('                        }');
       lines.push('                    }');
       lines.push('                    continuation.finish()');
       lines.push('                }');
       lines.push('            }');
       lines.push(`            let response = try await provider.${methodName}(typedStream)`);
-      lines.push('            return .unary(response.encode())');
+      lines.push('            return .unary(try response.serializedData())');
     } else {
       // Bidi streaming
-      lines.push(`            guard let requestStream else {`);
-      lines.push(`                throw DispatchError.missingRequestStream`);
-      lines.push('            }');
       lines.push(`            let typedStream = AsyncStream<${inputType}> { continuation in`);
       lines.push('                Task {');
-      lines.push('                    for await data in requestStream {');
-      lines.push(`                        continuation.yield(${inputType}.decode(from: data))`);
+      lines.push('                    for await data in messages {');
+      lines.push(`                        if let msg = try? ${inputType}(serializedBytes: data) {`);
+      lines.push('                            continuation.yield(msg)');
+      lines.push('                        }');
       lines.push('                    }');
       lines.push('                    continuation.finish()');
       lines.push('                }');
@@ -676,7 +239,7 @@ function generateDispatcher(svc: ServiceDef, proto: ProtoFile): string {
       lines.push('                Task {');
       lines.push('                    do {');
       lines.push('                        for try await response in responseStream {');
-      lines.push('                            continuation.yield(response.encode())');
+      lines.push('                            continuation.yield(try response.serializedData())');
       lines.push('                        }');
       lines.push('                        continuation.finish()');
       lines.push('                    } catch {');
@@ -695,202 +258,6 @@ function generateDispatcher(svc: ServiceDef, proto: ProtoFile): string {
   lines.push('}');
 
   return lines.join('\n');
-}
-
-// ---------------------------------------------------------------------------
-// Protobuf wire format helpers (emitted once at the top of generated file)
-// ---------------------------------------------------------------------------
-
-function protobufHelpers(): string {
-  return `// MARK: - Protobuf Wire Format Helpers
-
-/// Low-level protobuf writer that produces wire-format-compatible binary data.
-/// Compatible with the TypeScript ProtoWriter in @rpc-bridge/core.
-/// Private to the namespace enum to avoid conflicts with module-level
-/// ProtoWriter/ProtoReader defined in ProtobufHelpers.swift.
-private struct ProtoWriter {
-    private var data = Data()
-
-    init() {}
-
-    // MARK: - Field writers
-
-    mutating func writeVarintField(fieldNumber: Int, value: UInt64) {
-        writeTag(fieldNumber: fieldNumber, wireType: 0)
-        writeVarint(value)
-    }
-
-    mutating func writeBytesField(fieldNumber: Int, value: Data) {
-        writeTag(fieldNumber: fieldNumber, wireType: 2)
-        writeVarint(UInt64(value.count))
-        data.append(value)
-    }
-
-    mutating func writeStringField(fieldNumber: Int, value: String) {
-        let encoded = Data(value.utf8)
-        writeBytesField(fieldNumber: fieldNumber, value: encoded)
-    }
-
-    mutating func writeFixed32Field(fieldNumber: Int, value: UInt32) {
-        writeTag(fieldNumber: fieldNumber, wireType: 5)
-        var v = value
-        withUnsafeBytes(of: &v) { data.append(contentsOf: $0) }
-    }
-
-    mutating func writeFixed64Field(fieldNumber: Int, value: UInt64) {
-        writeTag(fieldNumber: fieldNumber, wireType: 1)
-        var v = value
-        withUnsafeBytes(of: &v) { data.append(contentsOf: $0) }
-    }
-
-    mutating func writeFloatField(fieldNumber: Int, value: Float) {
-        writeFixed32Field(fieldNumber: fieldNumber, value: value.bitPattern)
-    }
-
-    mutating func writeDoubleField(fieldNumber: Int, value: Double) {
-        writeFixed64Field(fieldNumber: fieldNumber, value: value.bitPattern)
-    }
-
-    mutating func writeSint32Field(fieldNumber: Int, value: Int32) {
-        let encoded = UInt64((value << 1) ^ (value >> 31))
-        writeVarintField(fieldNumber: fieldNumber, value: encoded)
-    }
-
-    mutating func writeSint64Field(fieldNumber: Int, value: Int64) {
-        let encoded = UInt64(bitPattern: (value << 1) ^ (value >> 63))
-        writeVarintField(fieldNumber: fieldNumber, value: encoded)
-    }
-
-    // MARK: - Primitives
-
-    mutating func writeTag(fieldNumber: Int, wireType: Int) {
-        writeVarint(UInt64((fieldNumber << 3) | wireType))
-    }
-
-    mutating func writeVarint(_ value: UInt64) {
-        var v = value
-        while v > 0x7F {
-            data.append(UInt8((v & 0x7F) | 0x80))
-            v >>= 7
-        }
-        data.append(UInt8(v & 0x7F))
-    }
-
-    func finish() -> Data {
-        return data
-    }
-}
-
-/// Low-level protobuf reader that parses wire-format-compatible binary data.
-/// Compatible with the TypeScript ProtoReader in @rpc-bridge/core.
-/// Private to the namespace enum to avoid conflicts with module-level
-/// ProtoWriter/ProtoReader defined in ProtobufHelpers.swift.
-private struct ProtoReader {
-    private let data: Data
-    private var offset: Int = 0
-
-    init(data: Data) {
-        self.data = data
-    }
-
-    func hasMore() -> Bool {
-        return offset < data.count
-    }
-
-    mutating func readTag() -> UInt64 {
-        return readVarint()
-    }
-
-    mutating func readVarint() -> UInt64 {
-        var result: UInt64 = 0
-        var shift: UInt64 = 0
-        while offset < data.count {
-            let byte = data[data.startIndex.advanced(by: offset)]
-            offset += 1
-            result |= UInt64(byte & 0x7F) << shift
-            if (byte & 0x80) == 0 {
-                return result
-            }
-            shift += 7
-            if shift > 63 {
-                fatalError("Varint too long")
-            }
-        }
-        fatalError("Unexpected end of data reading varint")
-    }
-
-    mutating func readBytes() -> Data {
-        let length = Int(readVarint())
-        guard offset + length <= data.count else {
-            fatalError("Unexpected end of data reading bytes")
-        }
-        let start = data.startIndex.advanced(by: offset)
-        let end = start.advanced(by: length)
-        let result = data[start..<end]
-        offset += length
-        return Data(result)
-    }
-
-    mutating func readString() -> String {
-        let bytes = readBytes()
-        return String(data: bytes, encoding: .utf8) ?? ""
-    }
-
-    mutating func readFixed32() -> UInt32 {
-        guard offset + 4 <= data.count else { fatalError("Unexpected end of data reading fixed32") }
-        var result: UInt32 = 0
-        let start = data.startIndex.advanced(by: offset)
-        _ = withUnsafeMutableBytes(of: &result) { buf in
-            data.copyBytes(to: buf, from: start..<start.advanced(by: 4))
-        }
-        offset += 4
-        return UInt32(littleEndian: result)
-    }
-
-    mutating func readFixed64() -> UInt64 {
-        guard offset + 8 <= data.count else { fatalError("Unexpected end of data reading fixed64") }
-        var result: UInt64 = 0
-        let start = data.startIndex.advanced(by: offset)
-        _ = withUnsafeMutableBytes(of: &result) { buf in
-            data.copyBytes(to: buf, from: start..<start.advanced(by: 8))
-        }
-        offset += 8
-        return UInt64(littleEndian: result)
-    }
-
-    mutating func readFloat() -> Float {
-        return Float(bitPattern: readFixed32())
-    }
-
-    mutating func readDouble() -> Double {
-        return Double(bitPattern: readFixed64())
-    }
-
-    mutating func readSint32() -> Int32 {
-        let n = UInt32(readVarint())
-        return Int32(bitPattern: (n >> 1) ^ (0 &- (n & 1)))
-    }
-
-    mutating func readSint64() -> Int64 {
-        let n = readVarint()
-        return Int64(bitPattern: (n >> 1) ^ (0 &- (n & 1)))
-    }
-
-    mutating func skipField(wireType: UInt64) {
-        switch wireType {
-        case 0: // varint
-            _ = readVarint()
-        case 1: // 64-bit
-            offset += 8
-        case 2: // length-delimited
-            _ = readBytes()
-        case 5: // 32-bit
-            offset += 4
-        default:
-            fatalError("Unknown wire type: \\(wireType)")
-        }
-    }
-}`;
 }
 
 // ---------------------------------------------------------------------------

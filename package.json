@@ -5,12 +5,12 @@
   "description": "Cross-platform RPC bridge framework using protobuf service definitions",
   "workspaces": [
     "packages/*",
-    "generated",
-    "demos/*",
+    "demos/guest-app",
+    "demos/host/*",
     "tests"
   ],
   "scripts": {
-    "build": "npm run build:core && npm run build:codegen && npm run generate && npm run build:transports && npm run build:shared-ui",
+    "build": "npm run build:core && npm run build:codegen && npm run generate && npm run build:transports && npm run build:guest-app && npm run build:hosts",
     "build:core": "cd packages/rpc-core && npm run build",
     "build:codegen": "cd packages/codegen && npm run build",
     "build:transports": "npm run build:transport-web && npm run build:transport-ios && npm run build:transport-android && npm run build:transport-electron",
@@ -18,12 +18,17 @@
     "build:transport-ios": "cd packages/transport-ios && npm run build",
     "build:transport-android": "cd packages/transport-android && npm run build",
     "build:transport-electron": "cd packages/transport-electron && npm run build",
-    "build:shared-ui": "cd packages/shared-ui && npm run build",
+    "build:guest-app": "cd demos/guest-app && npm run build",
+    "build:hosts": "npm run build:host-web && npm run build:host-electron",
+    "build:host-web": "cd demos/host/web && npm run build",
+    "build:host-electron": "cd demos/host/electron && npm run build",
     "generate": "cd packages/codegen && npm run generate",
     "test": "cd tests && npm test",
-    "clean": "rm -rf packages/*/dist generated/ts demos/*/dist tests/dist"
+    "test:e2e": "playwright test",
+    "clean": "rm -rf packages/*/dist packages/*/*.tsbuildinfo demos/guest-app/dist demos/host/*/dist tests/dist"
   },
   "devDependencies": {
+    "@playwright/test": "^1.59.1",
     "typescript": "^5.4.0"
   }
 }

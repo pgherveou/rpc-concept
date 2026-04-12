@@ -14,7 +14,6 @@ import {
   RpcError,
   RpcStatusCode,
   createLoopbackTransportPair,
-  createConsoleLogger,
   type CallContext,
   type ServiceRegistration,
 } from '@rpc-bridge/core';
@@ -24,19 +23,13 @@ const dec = new TextDecoder();
 function encode(obj: unknown): Uint8Array { return enc.encode(JSON.stringify(obj)); }
 function decode(bytes: Uint8Array): unknown { return JSON.parse(dec.decode(bytes)); }
 
-function createTestPair(service: ServiceRegistration, skipHandshake = false) {
+function createTestPair(service: ServiceRegistration) {
   const [clientTransport, serverTransport] = createLoopbackTransportPair();
 
-  const server = new RpcServer({
-    transport: serverTransport,
-    skipHandshake,
-  });
+  const server = new RpcServer({ transport: serverTransport });
   server.registerService(service);
 
-  const client = new RpcClient({
-    transport: clientTransport,
-    skipHandshake,
-  });
+  const client = new RpcClient({ transport: clientTransport });
 
   return { client, server, clientTransport, serverTransport };
 }
@@ -57,11 +50,10 @@ describe('RpcClient + RpcServer Integration', () => {
         },
       };
 
-      const { client, server } = createTestPair(service, true);
-      await Promise.all([client.waitReady(), server.waitReady()]);
+      const { client, server } = createTestPair(service);
 
       const result = await client.unary('test.Svc/Echo', encode({ msg: 'hello' }));
-      const response = decode(result.data) as { reply: string };
+      const response = decode(result) as { reply: string };
       assert.equal(response.reply, 'Echo: hello');
 
       client.close();
@@ -75,18 +67,17 @@ describe('RpcClient + RpcServer Integration', () => {
           Fail: {
             type: MethodType.UNARY,
             handler: async () => {
-              throw new RpcError(RpcStatusCode.NOT_FOUND, 'Resource not found');
+              throw new RpcError(RpcStatusCode.INTERNAL, 'Something went wrong');
             },
           },
         },
       };
 
-      const { client, server } = createTestPair(service, true);
-      await Promise.all([client.waitReady(), server.waitReady()]);
+      const { client, server } = createTestPair(service);
 
       await assert.rejects(
         () => client.unary('test.Svc/Fail', encode({})),
-        (err) => err instanceof RpcError && err.code === RpcStatusCode.NOT_FOUND,
+        (err) => err instanceof RpcError && err.code === RpcStatusCode.INTERNAL,
       );
 
       client.close();
@@ -99,8 +90,7 @@ describe('RpcClient + RpcServer Integration', () => {
         methods: {},
       };
 
-      const { client, server } = createTestPair(service, true);
-      await Promise.all([client.waitReady(), server.waitReady()]);
+      const { client, server } = createTestPair(service);
 
       await assert.rejects(
         () => client.unary('test.Svc/Unknown', encode({})),
@@ -117,8 +107,7 @@ describe('RpcClient + RpcServer Integration', () => {
         methods: {},
       };
 
-      const { client, server } = createTestPair(service, true);
-      await Promise.all([client.waitReady(), server.waitReady()]);
+      const { client, server } = createTestPair(service);
 
       await assert.rejects(
         () => client.unary('unknown.Svc/Method', encode({})),
@@ -147,8 +136,7 @@ describe('RpcClient + RpcServer Integration', () => {
         },
       };
 
-      const { client, server } = createTestPair(service, true);
-      await Promise.all([client.waitReady(), server.waitReady()]);
+      const { client, server } = createTestPair(service);
 
       const results: number[] = [];
       for await (const bytes of client.serverStream('test.Svc/Count', encode({ n: 5 }))) {
@@ -175,8 +163,7 @@ describe('RpcClient + RpcServer Integration', () => {
         },
       };
 
-      const { client, server } = createTestPair(service, true);
-      await Promise.all([client.waitReady(), server.waitReady()]);
+      const { client, server } = createTestPair(service);
 
       const results: unknown[] = [];
       for await (const bytes of client.serverStream('test.Svc/Empty', encode({}))) {
@@ -211,8 +198,7 @@ describe('RpcClient + RpcServer Integration', () => {
         },
       };
 
-      const { client, server } = createTestPair(service, true);
-      await Promise.all([client.waitReady(), server.waitReady()]);
+      const { client, server } = createTestPair(service);
 
       async function* generateRequests() {
         for (const value of [10, 20, 30, 40]) {
@@ -221,7 +207,7 @@ describe('RpcClient + RpcServer Integration', () => {
       }
 
       const result = await client.clientStream('test.Svc/Sum', generateRequests());
-      const response = decode(result.data) as { sum: number; count: number };
+      const response = decode(result) as { sum: number; count: number };
       assert.equal(response.sum, 100);
       assert.equal(response.count, 4);
 
@@ -247,11 +233,9 @@ describe('RpcClient + RpcServer Integration', () => {
         },
       };
 
-      const { client, server } = createTestPair(service, true);
-      await Promise.all([client.waitReady(), server.waitReady()]);
+      const { client, server } = createTestPair(service);
 
       const messages = ['hello', 'world', 'foo'];
-      let idx = 0;
 
       async function* generateRequests() {
         for (const msg of messages) {
@@ -266,42 +250,6 @@ describe('RpcClient + RpcServer Integration', () => {
       }
 
       assert.deepEqual(replies, ['Echo: hello', 'Echo: world', 'Echo: foo']);
-
-      client.close();
-      server.close();
-    });
-  });
-
-  describe('Handshake', () => {
-    it('should complete protocol handshake', async () => {
-      const service: ServiceRegistration = {
-        name: 'test.Svc',
-        methods: {
-          Ping: {
-            type: MethodType.UNARY,
-            handler: async () => encode({ pong: true }),
-          },
-        },
-      };
-
-      // Don't skip handshake
-      const { client, server } = createTestPair(service, false);
-      await Promise.all([client.waitReady(), server.waitReady()]);
-
-      const clientHS = client.getHandshakeResult();
-      const serverHS = server.getHandshakeResult();
-
-      assert.ok(clientHS);
-      assert.ok(serverHS);
-      assert.equal(clientHS.protocolVersion, 1);
-      assert.equal(serverHS.protocolVersion, 1);
-      assert.ok(clientHS.capabilities.has('flow_control'));
-      assert.ok(clientHS.capabilities.has('cancellation'));
-
-      // Verify RPC works after handshake
-      const result = await client.unary('test.Svc/Ping', encode({}));
-      const response = decode(result.data) as { pong: boolean };
-      assert.equal(response.pong, true);
 
       client.close();
       server.close();

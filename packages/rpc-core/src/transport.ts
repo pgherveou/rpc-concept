@@ -50,10 +50,12 @@ export interface Transport {
  * Different platform bridges may need different encodings.
  */
 export enum FrameEncoding {
-  /** Binary protobuf encoding (Uint8Array). Most efficient. */
+  /** Binary protobuf encoding (Uint8Array). */
   BINARY = 'binary',
-  /** Base64-encoded protobuf bytes (string). For bridges that only support strings. */
+  /** Base64-encoded protobuf bytes (string). For bridges that only support strings (iOS, Android). */
   BASE64 = 'base64',
+  /** Structured clone: pass RpcFrame as a plain object. For MessagePort and Electron IPC. */
+  STRUCTURED_CLONE = 'structured_clone',
 }
 
 /**
@@ -82,8 +84,15 @@ export abstract class MessageTransportBase implements Transport {
     if (!this._isOpen) {
       throw new Error('Transport is closed');
     }
+
+    if (this.encoding === FrameEncoding.STRUCTURED_CLONE) {
+      this.logger.debug(`TX frame type=${frame.type} stream=${frame.streamId} method=${frame.method ?? '-'} (structured clone)`);
+      this.sendRaw(frame);
+      return;
+    }
+
     const encoded = encodeFrame(frame);
-    this.logger.debug(`TX frame type=${frame.type} stream=${frame.streamId} seq=${frame.sequence} (${encoded.length} bytes)`);
+    this.logger.debug(`TX frame type=${frame.type} stream=${frame.streamId} method=${frame.method ?? '-'} (${encoded.length} bytes)`);
 
     if (this.encoding === FrameEncoding.BASE64) {
       this.sendRaw(uint8ArrayToBase64(encoded));
@@ -93,36 +102,46 @@ export abstract class MessageTransportBase implements Transport {
   }
 
   /** Implement to send raw data over the platform bridge. */
-  protected abstract sendRaw(data: Uint8Array | string): void;
+  protected abstract sendRaw(data: Uint8Array | string | RpcFrame): void;
 
   /** Call this from subclass when raw data arrives from the peer. */
-  protected handleRawMessage(data: Uint8Array | string | ArrayBuffer): void {
+  protected handleRawMessage(data: Uint8Array | string | ArrayBuffer | RpcFrame): void {
     try {
+      // Structured clone mode: data is already an RpcFrame-like object
+      if (this.encoding === FrameEncoding.STRUCTURED_CLONE && typeof data === 'object' && !(data instanceof Uint8Array) && !(data instanceof ArrayBuffer)) {
+        const frame = data as RpcFrame;
+        this.logger.debug(`RX frame type=${frame.type} stream=${frame.streamId} method=${frame.method ?? '-'} (structured clone)`);
+        this.dispatchFrame(frame);
+        return;
+      }
+
       let bytes: Uint8Array;
       if (typeof data === 'string') {
         bytes = base64ToUint8Array(data);
       } else if (data instanceof ArrayBuffer) {
         bytes = new Uint8Array(data);
       } else {
-        bytes = data;
+        bytes = data as Uint8Array;
       }
 
       const frame = decodeFrame(bytes);
-      this.logger.debug(`RX frame type=${frame.type} stream=${frame.streamId} seq=${frame.sequence} (${bytes.length} bytes)`);
-
-      // Snapshot handlers to avoid issues if handlers modify the array
-      const handlers = [...this.frameHandlers];
-      for (const handler of handlers) {
-        try {
-          handler(frame);
-        } catch (err) {
-          this.logger.error('Frame handler error:', err);
-        }
-      }
+      this.logger.debug(`RX frame type=${frame.type} stream=${frame.streamId} method=${frame.method ?? '-'} (${bytes.length} bytes)`);
+      this.dispatchFrame(frame);
     } catch (err) {
       const error = err instanceof Error ? err : new Error(String(err));
       this.logger.error('Failed to decode frame:', error);
       this.emitError(error);
+    }
+  }
+
+  private dispatchFrame(frame: RpcFrame): void {
+    const handlers = [...this.frameHandlers];
+    for (const handler of handlers) {
+      try {
+        handler(frame);
+      } catch (err) {
+        this.logger.error('Frame handler error:', err);
+      }
     }
   }
 
@@ -220,7 +239,7 @@ class LoopbackTransport extends MessageTransportBase {
     this.peer = peer;
   }
 
-  protected sendRaw(data: Uint8Array | string): void {
+  protected sendRaw(data: Uint8Array | string | RpcFrame): void {
     if (!this.peer || !this.peer.isOpen) {
       throw new Error(`Loopback peer (${this.side}) is not connected`);
     }

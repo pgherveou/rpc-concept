@@ -61,7 +61,7 @@ export class AndroidWebViewTransport extends MessageTransportBase {
     }
   }
 
-  protected sendRaw(data: Uint8Array | string): void {
+  protected sendRaw(data: Uint8Array | string | object): void {
     if (typeof data !== 'string') {
       throw new Error('Expected base64 string but received binary data');
     }
