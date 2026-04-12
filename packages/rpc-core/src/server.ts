@@ -22,24 +22,24 @@ import { MethodType, type CallContext, type Logger, silentLogger } from './types
 
 /** Handler function types for different RPC patterns. */
 export type UnaryHandler = (
-  request: Uint8Array,
+  request: unknown,
   context: CallContext,
-) => Promise<Uint8Array>;
+) => Promise<unknown>;
 
 export type ServerStreamHandler = (
-  request: Uint8Array,
+  request: unknown,
   context: CallContext,
-) => AsyncIterable<Uint8Array>;
+) => AsyncIterable<unknown>;
 
 export type ClientStreamHandler = (
-  requests: AsyncIterable<Uint8Array>,
+  requests: AsyncIterable<unknown>,
   context: CallContext,
-) => Promise<Uint8Array>;
+) => Promise<unknown>;
 
 export type BidiStreamHandler = (
-  requests: AsyncIterable<Uint8Array>,
+  requests: AsyncIterable<unknown>,
   context: CallContext,
-) => AsyncIterable<Uint8Array>;
+) => AsyncIterable<unknown>;
 
 export type MethodHandler =
   | { type: MethodType.UNARY; handler: UnaryHandler }
@@ -101,7 +101,7 @@ export class RpcServer {
 
     switch (frame.type) {
       case FrameType.MESSAGE:
-        stream.pushMessage(frame.payload ?? new Uint8Array(0));
+        stream.pushMessage(frame.payload);
         break;
 
       case FrameType.HALF_CLOSE:
@@ -219,10 +219,10 @@ export class RpcServer {
     handler: UnaryHandler,
     context: CallContext,
   ): Promise<void> {
-    const requestBytes = await stream.collectUnary();
-    const responseBytes = await handler(requestBytes, context);
+    const request = await stream.collectUnary();
+    const response = await handler(request, context);
 
-    this.transport.send(createMessageFrame(stream.streamId, responseBytes));
+    this.transport.send(createMessageFrame(stream.streamId, response));
     this.transport.send(createCloseFrame(stream.streamId));
     stream.setState(StreamState.CLOSED);
   }
@@ -232,12 +232,12 @@ export class RpcServer {
     handler: ServerStreamHandler,
     context: CallContext,
   ): Promise<void> {
-    const requestBytes = await stream.collectUnary();
-    const responses = handler(requestBytes, context);
+    const request = await stream.collectUnary();
+    const responses = handler(request, context);
 
-    for await (const responseBytes of responses) {
+    for await (const response of responses) {
       if (stream.state === StreamState.CANCELLED) return;
-      this.transport.send(createMessageFrame(stream.streamId, responseBytes));
+      this.transport.send(createMessageFrame(stream.streamId, response));
     }
 
     this.transport.send(createCloseFrame(stream.streamId));
@@ -250,9 +250,9 @@ export class RpcServer {
     context: CallContext,
   ): Promise<void> {
     const requests = this.createReceiveIterable(stream);
-    const responseBytes = await handler(requests, context);
+    const response = await handler(requests, context);
 
-    this.transport.send(createMessageFrame(stream.streamId, responseBytes));
+    this.transport.send(createMessageFrame(stream.streamId, response));
     this.transport.send(createCloseFrame(stream.streamId));
     stream.setState(StreamState.CLOSED);
   }
@@ -265,9 +265,9 @@ export class RpcServer {
     const requests = this.createReceiveIterable(stream);
     const responses = handler(requests, context);
 
-    for await (const responseBytes of responses) {
+    for await (const response of responses) {
       if (stream.state === StreamState.CANCELLED) return;
-      this.transport.send(createMessageFrame(stream.streamId, responseBytes));
+      this.transport.send(createMessageFrame(stream.streamId, response));
     }
 
     this.transport.send(createHalfCloseFrame(stream.streamId));
@@ -275,7 +275,7 @@ export class RpcServer {
     stream.setState(StreamState.CLOSED);
   }
 
-  private createReceiveIterable(stream: Stream): AsyncIterable<Uint8Array> {
+  private createReceiveIterable(stream: Stream): AsyncIterable<unknown> {
     return {
       [Symbol.asyncIterator]() {
         const gen = stream.messages();
@@ -285,7 +285,7 @@ export class RpcServer {
           },
           async return(value?: unknown) {
             await gen.return(undefined);
-            return { done: true as const, value: value as Uint8Array };
+            return { done: true as const, value };
           },
           async throw(err?: unknown) {
             return gen.throw(err);

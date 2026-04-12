@@ -40,23 +40,21 @@ export function registerHelloBridgeService(handler: IHelloBridgeServiceHandler):
   // SayHello
   methods['SayHello'] = {
     type: MethodType.UNARY,
-    handler: async (requestBytes: Uint8Array, context: CallContext): Promise<Uint8Array> => {
-      const request = HelloRequest.decode(requestBytes);
+    handler: async (data: unknown, context: CallContext): Promise<unknown> => {
+      const request = HelloRequest.fromJSON(data as Record<string, unknown>);
       const response = await handler.sayHello(request, context);
-      return HelloResponse.encode(response);
+      return HelloResponse.toJSON(response);
     },
   };
 
   // WatchGreeting
   methods['WatchGreeting'] = {
     type: MethodType.SERVER_STREAMING,
-    handler: (requestBytes: Uint8Array, context: CallContext): AsyncIterable<Uint8Array> => {
-      const request = GreetingStreamRequest.decode(requestBytes);
+    handler: (data: unknown, context: CallContext): AsyncIterable<unknown> => {
+      const request = GreetingStreamRequest.fromJSON(data as Record<string, unknown>);
       const responses = handler.watchGreeting(request, context);
       return (async function* () {
-        for await (const resp of responses) {
-          yield GreetingEvent.encode(resp);
-        }
+        for await (const resp of responses) yield GreetingEvent.toJSON(resp);
       })();
     },
   };
@@ -64,33 +62,25 @@ export function registerHelloBridgeService(handler: IHelloBridgeServiceHandler):
   // CollectNames
   methods['CollectNames'] = {
     type: MethodType.CLIENT_STREAMING,
-    handler: async (requests: AsyncIterable<Uint8Array>, context: CallContext): Promise<Uint8Array> => {
-      // Decode each incoming request message
+    handler: async (requests: AsyncIterable<unknown>, context: CallContext): Promise<unknown> => {
       const decoded = (async function* () {
-        for await (const bytes of requests) {
-          yield CollectNamesRequest.decode(bytes);
-        }
+        for await (const d of requests) yield CollectNamesRequest.fromJSON(d as Record<string, unknown>);
       })();
       const response = await handler.collectNames(decoded, context);
-      return CollectNamesResponse.encode(response);
+      return CollectNamesResponse.toJSON(response);
     },
   };
 
   // Chat
   methods['Chat'] = {
     type: MethodType.BIDI_STREAMING,
-    handler: (requests: AsyncIterable<Uint8Array>, context: CallContext): AsyncIterable<Uint8Array> => {
-      // Decode each incoming request message
+    handler: (requests: AsyncIterable<unknown>, context: CallContext): AsyncIterable<unknown> => {
       const decoded = (async function* () {
-        for await (const bytes of requests) {
-          yield ChatMessage.decode(bytes);
-        }
+        for await (const d of requests) yield ChatMessage.fromJSON(d as Record<string, unknown>);
       })();
       const responses = handler.chat(decoded, context);
       return (async function* () {
-        for await (const resp of responses) {
-          yield ChatMessage.encode(resp);
-        }
+        for await (const resp of responses) yield ChatMessage.toJSON(resp);
       })();
     },
   };

@@ -22,7 +22,7 @@ export enum StreamState {
 
 /** Queued item for the message buffer. */
 type QueueItem =
-  | { type: 'message'; value: Uint8Array }
+  | { type: 'message'; value: unknown }
   | { type: 'error'; error: Error }
   | { type: 'end' };
 
@@ -58,7 +58,7 @@ export class Stream {
     this._state = StreamState.OPEN;
   }
 
-  pushMessage(message: Uint8Array): void {
+  pushMessage(message: unknown): void {
     const item: QueueItem = { type: 'message', value: message };
     if (this.waiter) {
       const w = this.waiter;
@@ -103,7 +103,7 @@ export class Stream {
     this.pushError(err);
   }
 
-  async *messages(): AsyncGenerator<Uint8Array, void, undefined> {
+  async *messages(): AsyncGenerator<unknown, void, undefined> {
     while (true) {
       const item = await this.nextItem();
       if (item.type === 'message') {
@@ -125,7 +125,7 @@ export class Stream {
     });
   }
 
-  async collectUnary(): Promise<Uint8Array> {
+  async collectUnary(): Promise<unknown> {
     const item = await this.nextItem();
     if (item.type === 'error') throw item.error;
     if (item.type === 'end') {

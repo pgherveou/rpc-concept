@@ -6,8 +6,8 @@ import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import {
   FrameType,
-  encodeFrame,
-  decodeFrame,
+  frameToJSON,
+  frameFromJSON,
   createMessageFrame,
   type RpcFrame,
   createLoopbackTransportPair,
@@ -17,50 +17,47 @@ import {
   type ServiceRegistration,
 } from '@rpc-bridge/core';
 
-const enc = new TextEncoder();
-function encode(obj: unknown): Uint8Array { return enc.encode(JSON.stringify(obj)); }
-function decode(bytes: Uint8Array): unknown { return JSON.parse(new TextDecoder().decode(bytes)); }
-
 describe('Forward Compatibility', () => {
-  it('should ignore unknown frame types', () => {
+  it('should round-trip unknown frame types through JSON', () => {
     const frame: RpcFrame = {
       type: 99 as FrameType,
       streamId: 1,
     };
-    const encoded = encodeFrame(frame);
-    const decoded = decodeFrame(encoded);
+    const json = frameToJSON(frame);
+    const decoded = frameFromJSON(json);
     assert.equal(decoded.type, 99);
+    assert.equal(decoded.streamId, 1);
   });
 
-  it('should preserve unknown fields in encoding round-trip', () => {
-    const base = createMessageFrame(1, new Uint8Array([0xAA, 0xBB]));
-    const encoded = encodeFrame(base);
+  it('should preserve unknown fields in JSON round-trip', () => {
+    const base = createMessageFrame(1, { data: 'test' });
+    const json = frameToJSON(base);
+    const parsed = JSON.parse(json);
 
-    // Append unknown field 9, varint wire type, value 42
-    const extraField = new Uint8Array([72, 42]);
-    const combined = new Uint8Array(encoded.length + extraField.length);
-    combined.set(encoded);
-    combined.set(extraField, encoded.length);
+    // Add unknown fields (simulating a newer protocol version)
+    parsed.futureField = 'hello';
+    parsed.anotherNewField = 42;
 
-    const decoded = decodeFrame(combined);
+    const decoded = frameFromJSON(JSON.stringify(parsed));
     assert.equal(decoded.type, FrameType.MESSAGE);
     assert.equal(decoded.streamId, 1);
-    assert.deepEqual(decoded.payload, new Uint8Array([0xAA, 0xBB]));
+    assert.deepEqual(decoded.payload, { data: 'test' });
+    // Unknown fields are naturally preserved in JSON
+    assert.equal((decoded as unknown as Record<string, unknown>)['futureField'], 'hello');
+    assert.equal((decoded as unknown as Record<string, unknown>)['anotherNewField'], 42);
   });
 
-  it('should skip unknown length-delimited fields', () => {
-    const base = createMessageFrame(1, new Uint8Array([1]));
-    const encoded = encodeFrame(base);
+  it('should handle extra nested objects in JSON', () => {
+    const base = createMessageFrame(1, { value: 1 });
+    const json = frameToJSON(base);
+    const parsed = JSON.parse(json);
 
-    // Field 13 (unused), length-delimited, 4 bytes
-    const extraField = new Uint8Array([106, 4, 0xDE, 0xAD, 0xBE, 0xEF]);
-    const combined = new Uint8Array(encoded.length + extraField.length);
-    combined.set(encoded);
-    combined.set(extraField, encoded.length);
+    // Add an unknown nested field
+    parsed.metadata = { version: 2, flags: [1, 2, 3] };
 
-    const decoded = decodeFrame(combined);
+    const decoded = frameFromJSON(JSON.stringify(parsed));
     assert.equal(decoded.type, FrameType.MESSAGE);
-    assert.deepEqual(decoded.payload, new Uint8Array([1]));
+    assert.deepEqual(decoded.payload, { value: 1 });
   });
 });
 
@@ -71,8 +68,8 @@ describe('Backward Compatibility', () => {
       streamId: 1,
       method: 'test.Svc/Method',
     };
-    const encoded = encodeFrame(frame);
-    const decoded = decodeFrame(encoded);
+    const json = frameToJSON(frame);
+    const decoded = frameFromJSON(json);
 
     assert.equal(decoded.errorCode, undefined);
     assert.equal(decoded.errorMessage, undefined);
@@ -85,7 +82,7 @@ describe('Backward Compatibility', () => {
       methods: {
         Ping: {
           type: MethodType.UNARY,
-          handler: async () => encode({ pong: true }),
+          handler: async () => ({ pong: true }),
         },
       },
     };
@@ -95,8 +92,8 @@ describe('Backward Compatibility', () => {
     server.registerService(service);
     const client = new RpcClient({ transport: ct });
 
-    const result = await client.unary('test.Svc/Ping', encode({}));
-    const resp = decode(result) as { pong: boolean };
+    const result = await client.unary('test.Svc/Ping', {});
+    const resp = result as { pong: boolean };
     assert.equal(resp.pong, true);
 
     client.close();
@@ -105,7 +102,7 @@ describe('Backward Compatibility', () => {
 });
 
 describe('Error code compatibility', () => {
-  it('should handle standard error codes', () => {
+  it('should handle standard error codes through JSON', () => {
     const codes = [1, 3, 4, 12, 13];
     for (const code of codes) {
       const frame: RpcFrame = {
@@ -114,8 +111,8 @@ describe('Error code compatibility', () => {
         errorCode: code,
         errorMessage: `Error with code ${code}`,
       };
-      const encoded = encodeFrame(frame);
-      const decoded = decodeFrame(encoded);
+      const json = frameToJSON(frame);
+      const decoded = frameFromJSON(json);
       assert.equal(decoded.errorCode, code);
       assert.equal(decoded.errorMessage, `Error with code ${code}`);
     }
@@ -128,8 +125,8 @@ describe('Error code compatibility', () => {
       errorCode: 999,
       errorMessage: 'Future error type',
     };
-    const encoded = encodeFrame(frame);
-    const decoded = decodeFrame(encoded);
+    const json = frameToJSON(frame);
+    const decoded = frameFromJSON(json);
     assert.equal(decoded.errorCode, 999);
     assert.equal(decoded.errorMessage, 'Future error type');
   });

@@ -8,7 +8,7 @@
  * Platform-specific adapters implement this interface.
  */
 
-import { type RpcFrame, encodeFrame, decodeFrame } from './frame.js';
+import { type RpcFrame, frameToJSON, frameFromJSON } from './frame.js';
 import type { Logger } from './types.js';
 import { silentLogger } from './types.js';
 
@@ -50,12 +50,10 @@ export interface Transport {
  * Different platform bridges may need different encodings.
  */
 export enum FrameEncoding {
-  /** Binary protobuf encoding (Uint8Array). */
-  BINARY = 'binary',
-  /** Base64-encoded protobuf bytes (string). For bridges that only support strings (iOS, Android). */
-  BASE64 = 'base64',
   /** Structured clone: pass RpcFrame as a plain object. For MessagePort and Electron IPC. */
   STRUCTURED_CLONE = 'structured_clone',
+  /** JSON string encoding. For bridges that only support strings (iOS, Android). */
+  JSON = 'json',
 }
 
 /**
@@ -70,7 +68,7 @@ export abstract class MessageTransportBase implements Transport {
   private _isOpen = true;
 
   constructor(
-    protected readonly encoding: FrameEncoding = FrameEncoding.BINARY,
+    protected readonly encoding: FrameEncoding = FrameEncoding.STRUCTURED_CLONE,
     logger?: Logger,
   ) {
     this.logger = logger ?? silentLogger;
@@ -88,45 +86,27 @@ export abstract class MessageTransportBase implements Transport {
     if (this.encoding === FrameEncoding.STRUCTURED_CLONE) {
       this.logger.debug(`TX frame type=${frame.type} stream=${frame.streamId} method=${frame.method ?? '-'} (structured clone)`);
       this.sendRaw(frame);
-      return;
-    }
-
-    const encoded = encodeFrame(frame);
-    this.logger.debug(`TX frame type=${frame.type} stream=${frame.streamId} method=${frame.method ?? '-'} (${encoded.length} bytes)`);
-
-    if (this.encoding === FrameEncoding.BASE64) {
-      this.sendRaw(uint8ArrayToBase64(encoded));
     } else {
-      this.sendRaw(encoded);
+      this.logger.debug(`TX frame type=${frame.type} stream=${frame.streamId} method=${frame.method ?? '-'} (json)`);
+      this.sendRaw(frameToJSON(frame));
     }
   }
 
   /** Implement to send raw data over the platform bridge. */
-  protected abstract sendRaw(data: Uint8Array | string | RpcFrame): void;
+  protected abstract sendRaw(data: string | RpcFrame): void;
 
   /** Call this from subclass when raw data arrives from the peer. */
-  protected handleRawMessage(data: Uint8Array | string | ArrayBuffer | RpcFrame): void {
+  protected handleRawMessage(data: string | RpcFrame): void {
     try {
-      // Structured clone mode: data is already an RpcFrame-like object
-      if (this.encoding === FrameEncoding.STRUCTURED_CLONE && typeof data === 'object' && !(data instanceof Uint8Array) && !(data instanceof ArrayBuffer)) {
+      if (this.encoding === FrameEncoding.STRUCTURED_CLONE) {
         const frame = data as RpcFrame;
         this.logger.debug(`RX frame type=${frame.type} stream=${frame.streamId} method=${frame.method ?? '-'} (structured clone)`);
         this.dispatchFrame(frame);
-        return;
-      }
-
-      let bytes: Uint8Array;
-      if (typeof data === 'string') {
-        bytes = base64ToUint8Array(data);
-      } else if (data instanceof ArrayBuffer) {
-        bytes = new Uint8Array(data);
       } else {
-        bytes = data as Uint8Array;
+        const frame = frameFromJSON(data as string);
+        this.logger.debug(`RX frame type=${frame.type} stream=${frame.streamId} method=${frame.method ?? '-'} (json)`);
+        this.dispatchFrame(frame);
       }
-
-      const frame = decodeFrame(bytes);
-      this.logger.debug(`RX frame type=${frame.type} stream=${frame.streamId} method=${frame.method ?? '-'} (${bytes.length} bytes)`);
-      this.dispatchFrame(frame);
     } catch (err) {
       const error = err instanceof Error ? err : new Error(String(err));
       this.logger.error('Failed to decode frame:', error);
@@ -188,31 +168,6 @@ export abstract class MessageTransportBase implements Transport {
   }
 }
 
-// --- Base64 utilities ---
-
-export function uint8ArrayToBase64(bytes: Uint8Array): string {
-  if (typeof btoa === 'function') {
-    let binary = '';
-    for (let i = 0; i < bytes.length; i++) {
-      binary += String.fromCharCode(bytes[i]);
-    }
-    return btoa(binary);
-  }
-  return Buffer.from(bytes).toString('base64');
-}
-
-export function base64ToUint8Array(base64: string): Uint8Array {
-  if (typeof atob === 'function') {
-    const binary = atob(base64);
-    const bytes = new Uint8Array(binary.length);
-    for (let i = 0; i < binary.length; i++) {
-      bytes[i] = binary.charCodeAt(i);
-    }
-    return bytes;
-  }
-  return new Uint8Array(Buffer.from(base64, 'base64'));
-}
-
 /**
  * In-memory loopback transport pair for testing.
  * Frames sent on one side are received by the other.
@@ -232,14 +187,14 @@ class LoopbackTransport extends MessageTransportBase {
     private readonly side: string,
     logger?: Logger,
   ) {
-    super(FrameEncoding.BINARY, logger);
+    super(FrameEncoding.STRUCTURED_CLONE, logger);
   }
 
   setPeer(peer: LoopbackTransport): void {
     this.peer = peer;
   }
 
-  protected sendRaw(data: Uint8Array | string | RpcFrame): void {
+  protected sendRaw(data: string | RpcFrame): void {
     if (!this.peer || !this.peer.isOpen) {
       throw new Error(`Loopback peer (${this.side}) is not connected`);
     }

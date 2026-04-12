@@ -53,9 +53,9 @@ export class RpcClient {
 
   async unary(
     method: string,
-    requestBytes: Uint8Array,
+    request: unknown,
     options?: CallOptions,
-  ): Promise<Uint8Array> {
+  ): Promise<unknown> {
     this.ensureOpen();
 
     const stream = this.streams.createStream();
@@ -66,7 +66,7 @@ export class RpcClient {
       this.transport.send(createOpenFrame(stream.streamId, method));
       stream.open();
 
-      this.transport.send(createMessageFrame(stream.streamId, requestBytes));
+      this.transport.send(createMessageFrame(stream.streamId, request));
 
       this.transport.send(createHalfCloseFrame(stream.streamId));
       stream.setState(StreamState.HALF_CLOSED_LOCAL);
@@ -83,9 +83,9 @@ export class RpcClient {
 
   async *serverStream(
     method: string,
-    requestBytes: Uint8Array,
+    request: unknown,
     options?: CallOptions,
-  ): AsyncGenerator<Uint8Array, void, undefined> {
+  ): AsyncGenerator<unknown, void, undefined> {
     this.ensureOpen();
 
     const stream = this.streams.createStream();
@@ -96,7 +96,7 @@ export class RpcClient {
       this.transport.send(createOpenFrame(stream.streamId, method));
       stream.open();
 
-      this.transport.send(createMessageFrame(stream.streamId, requestBytes));
+      this.transport.send(createMessageFrame(stream.streamId, request));
 
       this.transport.send(createHalfCloseFrame(stream.streamId));
       stream.setState(StreamState.HALF_CLOSED_LOCAL);
@@ -115,9 +115,9 @@ export class RpcClient {
 
   async clientStream(
     method: string,
-    requests: AsyncIterable<Uint8Array>,
+    requests: AsyncIterable<unknown>,
     options?: CallOptions,
-  ): Promise<Uint8Array> {
+  ): Promise<unknown> {
     this.ensureOpen();
 
     const stream = this.streams.createStream();
@@ -128,11 +128,11 @@ export class RpcClient {
       this.transport.send(createOpenFrame(stream.streamId, method));
       stream.open();
 
-      for await (const reqBytes of requests) {
+      for await (const req of requests) {
         if (stream.state === StreamState.CANCELLED || stream.state === StreamState.ERROR) {
           break;
         }
-        this.transport.send(createMessageFrame(stream.streamId, reqBytes));
+        this.transport.send(createMessageFrame(stream.streamId, req));
       }
 
       this.transport.send(createHalfCloseFrame(stream.streamId));
@@ -150,9 +150,9 @@ export class RpcClient {
 
   bidiStream(
     method: string,
-    requests: AsyncIterable<Uint8Array>,
+    requests: AsyncIterable<unknown>,
     options?: CallOptions,
-  ): AsyncGenerator<Uint8Array, void, undefined> {
+  ): AsyncGenerator<unknown, void, undefined> {
     const self = this;
     return (async function* () {
       self.ensureOpen();
@@ -167,11 +167,11 @@ export class RpcClient {
 
         const sendDone = (async () => {
           try {
-            for await (const reqBytes of requests) {
+            for await (const req of requests) {
               if (stream.state === StreamState.CANCELLED || stream.state === StreamState.ERROR) {
                 break;
               }
-              self.transport.send(createMessageFrame(stream.streamId, reqBytes));
+              self.transport.send(createMessageFrame(stream.streamId, req));
             }
             if (stream.state === StreamState.OPEN) {
               self.transport.send(createHalfCloseFrame(stream.streamId));
@@ -210,7 +210,7 @@ export class RpcClient {
 
     switch (frame.type) {
       case FrameType.MESSAGE:
-        stream.pushMessage(frame.payload ?? new Uint8Array(0));
+        stream.pushMessage(frame.payload);
         break;
 
       case FrameType.CLOSE:

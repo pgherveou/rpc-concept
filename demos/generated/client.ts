@@ -21,60 +21,34 @@ export class HelloBridgeServiceClient {
   }
 
   /** Unary RPC: SayHello */
-  async sayHello(request: HelloRequest, options?: CallOptions): Promise<HelloResponse> {
-    const requestBytes = HelloRequest.encode(request);
-    const result = await this.client.unary(
-      `${this.service}/SayHello`,
-      requestBytes,
-      options,
-    );
-    return HelloResponse.decode(result);
+  async sayHello(request: IHelloRequest, options?: CallOptions): Promise<HelloResponse> {
+    const result = await this.client.unary(`${this.service}/SayHello`, HelloRequest.toJSON(request), options);
+    return HelloResponse.fromJSON(result as Record<string, unknown>);
   }
 
   /** Server-streaming RPC: WatchGreeting */
-  async *watchGreeting(request: GreetingStreamRequest, options?: CallOptions): AsyncGenerator<GreetingEvent, void, undefined> {
-    const requestBytes = GreetingStreamRequest.encode(request);
-    const stream = this.client.serverStream(
-      `${this.service}/WatchGreeting`,
-      requestBytes,
-      options,
-    );
-    for await (const chunk of stream) {
-      yield GreetingEvent.decode(chunk);
+  async *watchGreeting(request: IGreetingStreamRequest, options?: CallOptions): AsyncGenerator<GreetingEvent, void, undefined> {
+    for await (const data of this.client.serverStream(`${this.service}/WatchGreeting`, GreetingStreamRequest.toJSON(request), options)) {
+      yield GreetingEvent.fromJSON(data as Record<string, unknown>);
     }
   }
 
   /** Client-streaming RPC: CollectNames */
-  async collectNames(requests: AsyncIterable<CollectNamesRequest>, options?: CallOptions): Promise<CollectNamesResponse> {
-    // Encode each request message lazily
-    const encoded = (async function* () {
-      for await (const req of requests) {
-        yield CollectNamesRequest.encode(req);
-      }
+  async collectNames(requests: AsyncIterable<ICollectNamesRequest>, options?: CallOptions): Promise<CollectNamesResponse> {
+    const mapped = (async function* () {
+      for await (const req of requests) yield CollectNamesRequest.toJSON(req);
     })();
-    const result = await this.client.clientStream(
-      `${this.service}/CollectNames`,
-      encoded,
-      options,
-    );
-    return CollectNamesResponse.decode(result);
+    const result = await this.client.clientStream(`${this.service}/CollectNames`, mapped, options);
+    return CollectNamesResponse.fromJSON(result as Record<string, unknown>);
   }
 
   /** Bidirectional-streaming RPC: Chat */
-  async *chat(requests: AsyncIterable<ChatMessage>, options?: CallOptions): AsyncGenerator<ChatMessage, void, undefined> {
-    // Encode each request message lazily
-    const encoded = (async function* () {
-      for await (const req of requests) {
-        yield ChatMessage.encode(req);
-      }
+  async *chat(requests: AsyncIterable<IChatMessage>, options?: CallOptions): AsyncGenerator<ChatMessage, void, undefined> {
+    const mapped = (async function* () {
+      for await (const req of requests) yield ChatMessage.toJSON(req);
     })();
-    const stream = this.client.bidiStream(
-      `${this.service}/Chat`,
-      encoded,
-      options,
-    );
-    for await (const chunk of stream) {
-      yield ChatMessage.decode(chunk);
+    for await (const data of this.client.bidiStream(`${this.service}/Chat`, mapped, options)) {
+      yield ChatMessage.fromJSON(data as Record<string, unknown>);
     }
   }
 }

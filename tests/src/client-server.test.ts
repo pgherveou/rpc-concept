@@ -18,11 +18,6 @@ import {
   type ServiceRegistration,
 } from '@rpc-bridge/core';
 
-const enc = new TextEncoder();
-const dec = new TextDecoder();
-function encode(obj: unknown): Uint8Array { return enc.encode(JSON.stringify(obj)); }
-function decode(bytes: Uint8Array): unknown { return JSON.parse(dec.decode(bytes)); }
-
 function createTestPair(service: ServiceRegistration) {
   const [clientTransport, serverTransport] = createLoopbackTransportPair();
 
@@ -42,9 +37,9 @@ describe('RpcClient + RpcServer Integration', () => {
         methods: {
           Echo: {
             type: MethodType.UNARY,
-            handler: async (reqBytes: Uint8Array, _ctx: CallContext) => {
-              const req = decode(reqBytes) as { msg: string };
-              return encode({ reply: `Echo: ${req.msg}` });
+            handler: async (req: unknown, _ctx: CallContext) => {
+              const { msg } = req as { msg: string };
+              return { reply: `Echo: ${msg}` };
             },
           },
         },
@@ -52,8 +47,8 @@ describe('RpcClient + RpcServer Integration', () => {
 
       const { client, server } = createTestPair(service);
 
-      const result = await client.unary('test.Svc/Echo', encode({ msg: 'hello' }));
-      const response = decode(result) as { reply: string };
+      const result = await client.unary('test.Svc/Echo', { msg: 'hello' });
+      const response = result as { reply: string };
       assert.equal(response.reply, 'Echo: hello');
 
       client.close();
@@ -76,7 +71,7 @@ describe('RpcClient + RpcServer Integration', () => {
       const { client, server } = createTestPair(service);
 
       await assert.rejects(
-        () => client.unary('test.Svc/Fail', encode({})),
+        () => client.unary('test.Svc/Fail', {}),
         (err) => err instanceof RpcError && err.code === RpcStatusCode.INTERNAL,
       );
 
@@ -93,7 +88,7 @@ describe('RpcClient + RpcServer Integration', () => {
       const { client, server } = createTestPair(service);
 
       await assert.rejects(
-        () => client.unary('test.Svc/Unknown', encode({})),
+        () => client.unary('test.Svc/Unknown', {}),
         (err) => err instanceof RpcError && err.code === RpcStatusCode.UNIMPLEMENTED,
       );
 
@@ -110,7 +105,7 @@ describe('RpcClient + RpcServer Integration', () => {
       const { client, server } = createTestPair(service);
 
       await assert.rejects(
-        () => client.unary('unknown.Svc/Method', encode({})),
+        () => client.unary('unknown.Svc/Method', {}),
         (err) => err instanceof RpcError && err.code === RpcStatusCode.UNIMPLEMENTED,
       );
 
@@ -126,12 +121,12 @@ describe('RpcClient + RpcServer Integration', () => {
         methods: {
           Count: {
             type: MethodType.SERVER_STREAMING,
-            handler: async function* (reqBytes: Uint8Array, _ctx: CallContext) {
-              const req = decode(reqBytes) as { n: number };
-              for (let i = 1; i <= req.n; i++) {
-                yield encode({ count: i });
+            handler: async function* (req: unknown, _ctx: CallContext) {
+              const { n } = req as { n: number };
+              for (let i = 1; i <= n; i++) {
+                yield { count: i };
               }
-            } as unknown as (req: Uint8Array, ctx: CallContext) => AsyncIterable<Uint8Array>,
+            } as unknown as (req: unknown, ctx: CallContext) => AsyncIterable<unknown>,
           },
         },
       };
@@ -139,9 +134,9 @@ describe('RpcClient + RpcServer Integration', () => {
       const { client, server } = createTestPair(service);
 
       const results: number[] = [];
-      for await (const bytes of client.serverStream('test.Svc/Count', encode({ n: 5 }))) {
-        const msg = decode(bytes) as { count: number };
-        results.push(msg.count);
+      for await (const msg of client.serverStream('test.Svc/Count', { n: 5 })) {
+        const resp = msg as { count: number };
+        results.push(resp.count);
       }
 
       assert.deepEqual(results, [1, 2, 3, 4, 5]);
@@ -158,7 +153,7 @@ describe('RpcClient + RpcServer Integration', () => {
             type: MethodType.SERVER_STREAMING,
             handler: async function* () {
               // Yield nothing
-            } as unknown as (req: Uint8Array, ctx: CallContext) => AsyncIterable<Uint8Array>,
+            } as unknown as (req: unknown, ctx: CallContext) => AsyncIterable<unknown>,
           },
         },
       };
@@ -166,8 +161,8 @@ describe('RpcClient + RpcServer Integration', () => {
       const { client, server } = createTestPair(service);
 
       const results: unknown[] = [];
-      for await (const bytes of client.serverStream('test.Svc/Empty', encode({}))) {
-        results.push(decode(bytes));
+      for await (const msg of client.serverStream('test.Svc/Empty', {})) {
+        results.push(msg);
       }
 
       assert.equal(results.length, 0);
@@ -184,15 +179,15 @@ describe('RpcClient + RpcServer Integration', () => {
         methods: {
           Sum: {
             type: MethodType.CLIENT_STREAMING,
-            handler: async (requests: AsyncIterable<Uint8Array>, _ctx: CallContext) => {
+            handler: async (requests: AsyncIterable<unknown>, _ctx: CallContext) => {
               let sum = 0;
               let count = 0;
-              for await (const reqBytes of requests) {
-                const req = decode(reqBytes) as { value: number };
-                sum += req.value;
+              for await (const req of requests) {
+                const { value } = req as { value: number };
+                sum += value;
                 count++;
               }
-              return encode({ sum, count });
+              return { sum, count };
             },
           },
         },
@@ -202,12 +197,12 @@ describe('RpcClient + RpcServer Integration', () => {
 
       async function* generateRequests() {
         for (const value of [10, 20, 30, 40]) {
-          yield encode({ value });
+          yield { value };
         }
       }
 
       const result = await client.clientStream('test.Svc/Sum', generateRequests());
-      const response = decode(result) as { sum: number; count: number };
+      const response = result as { sum: number; count: number };
       assert.equal(response.sum, 100);
       assert.equal(response.count, 4);
 
@@ -223,12 +218,12 @@ describe('RpcClient + RpcServer Integration', () => {
         methods: {
           Echo: {
             type: MethodType.BIDI_STREAMING,
-            handler: async function* (requests: AsyncIterable<Uint8Array>, _ctx: CallContext) {
-              for await (const reqBytes of requests) {
-                const req = decode(reqBytes) as { msg: string };
-                yield encode({ reply: `Echo: ${req.msg}` });
+            handler: async function* (requests: AsyncIterable<unknown>, _ctx: CallContext) {
+              for await (const req of requests) {
+                const { msg } = req as { msg: string };
+                yield { reply: `Echo: ${msg}` };
               }
-            } as unknown as (reqs: AsyncIterable<Uint8Array>, ctx: CallContext) => AsyncIterable<Uint8Array>,
+            } as unknown as (reqs: AsyncIterable<unknown>, ctx: CallContext) => AsyncIterable<unknown>,
           },
         },
       };
@@ -239,14 +234,14 @@ describe('RpcClient + RpcServer Integration', () => {
 
       async function* generateRequests() {
         for (const msg of messages) {
-          yield encode({ msg });
+          yield { msg };
         }
       }
 
       const replies: string[] = [];
-      for await (const bytes of client.bidiStream('test.Svc/Echo', generateRequests())) {
-        const msg = decode(bytes) as { reply: string };
-        replies.push(msg.reply);
+      for await (const msg of client.bidiStream('test.Svc/Echo', generateRequests())) {
+        const resp = msg as { reply: string };
+        replies.push(resp.reply);
       }
 
       assert.deepEqual(replies, ['Echo: hello', 'Echo: world', 'Echo: foo']);

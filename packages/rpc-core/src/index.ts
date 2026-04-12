@@ -2,7 +2,7 @@
  * @rpc-bridge/core - Core runtime for the RPC bridge framework.
  *
  * This package provides:
- * - Frame encoding/decoding (protobuf-compatible wire format)
+ * - Frame types and JSON serialization
  * - Transport abstraction for platform bridges
  * - Client-side RPC runtime
  * - Server-side RPC runtime and dispatcher
@@ -10,12 +10,12 @@
  * - Structured error handling
  */
 
-// Frame types and encoding
+// Frame types and serialization
 export {
   FrameType,
   type RpcFrame,
-  encodeFrame,
-  decodeFrame,
+  frameToJSON,
+  frameFromJSON,
   createOpenFrame,
   createMessageFrame,
   createHalfCloseFrame,
@@ -33,8 +33,6 @@ export {
   FrameEncoding,
   MessageTransportBase,
   createLoopbackTransportPair,
-  uint8ArrayToBase64,
-  base64ToUint8Array,
 } from './transport.js';
 
 // Stream management

@@ -14,11 +14,6 @@ import {
   type ServiceRegistration,
 } from '@rpc-bridge/core';
 
-const enc = new TextEncoder();
-const dec = new TextDecoder();
-function encode(obj: unknown): Uint8Array { return enc.encode(JSON.stringify(obj)); }
-function decode(bytes: Uint8Array): unknown { return JSON.parse(dec.decode(bytes)); }
-
 describe('Cancellation', () => {
   it('should cancel a server-streaming RPC via AbortSignal', async () => {
     const service: ServiceRegistration = {
@@ -26,14 +21,14 @@ describe('Cancellation', () => {
       methods: {
         InfiniteStream: {
           type: MethodType.SERVER_STREAMING,
-          handler: async function* (_req: Uint8Array, ctx: CallContext) {
+          handler: async function* (_req: unknown, ctx: CallContext) {
             let seq = 0;
             while (!ctx.signal.aborted) {
               seq++;
-              yield encode({ seq });
+              yield { seq };
               await new Promise(r => setTimeout(r, 50));
             }
-          } as unknown as (req: Uint8Array, ctx: CallContext) => AsyncIterable<Uint8Array>,
+          } as unknown as (req: unknown, ctx: CallContext) => AsyncIterable<unknown>,
         },
       },
     };
@@ -47,13 +42,13 @@ describe('Cancellation', () => {
     const received: number[] = [];
 
     try {
-      for await (const bytes of client.serverStream(
+      for await (const msg of client.serverStream(
         'test.Svc/InfiniteStream',
-        encode({}),
+        {},
         { signal: abort.signal },
       )) {
-        const msg = decode(bytes) as { seq: number };
-        received.push(msg.seq);
+        const resp = msg as { seq: number };
+        received.push(resp.seq);
         if (received.length >= 3) {
           abort.abort();
         }
@@ -74,7 +69,7 @@ describe('Cancellation', () => {
       methods: {
         SlowMethod: {
           type: MethodType.UNARY,
-          handler: async (_req: Uint8Array, ctx: CallContext) => {
+          handler: async (_req: unknown, ctx: CallContext) => {
             await new Promise((resolve, reject) => {
               const timer = setTimeout(resolve, 10000);
               ctx.signal.addEventListener('abort', () => {
@@ -82,7 +77,7 @@ describe('Cancellation', () => {
                 reject(new Error('cancelled'));
               });
             });
-            return encode({ result: 'should not get here' });
+            return { result: 'should not get here' };
           },
         },
       },
@@ -97,7 +92,7 @@ describe('Cancellation', () => {
     setTimeout(() => abort.abort(), 100);
 
     await assert.rejects(
-      () => client.unary('test.Svc/SlowMethod', encode({}), { signal: abort.signal }),
+      () => client.unary('test.Svc/SlowMethod', {}, { signal: abort.signal }),
     );
 
     client.close();
@@ -110,7 +105,7 @@ describe('Cancellation', () => {
       methods: {
         SlowMethod: {
           type: MethodType.UNARY,
-          handler: async (_req: Uint8Array, ctx: CallContext) => {
+          handler: async (_req: unknown, ctx: CallContext) => {
             await new Promise((resolve, reject) => {
               const timer = setTimeout(resolve, 10000);
               ctx.signal.addEventListener('abort', () => {
@@ -118,7 +113,7 @@ describe('Cancellation', () => {
                 reject(new Error('cancelled'));
               });
             });
-            return encode({});
+            return {};
           },
         },
       },
@@ -130,7 +125,7 @@ describe('Cancellation', () => {
     const client = new RpcClient({ transport: ct });
 
     await assert.rejects(
-      () => client.unary('test.Svc/SlowMethod', encode({}), { deadlineMs: 100 }),
+      () => client.unary('test.Svc/SlowMethod', {}, { deadlineMs: 100 }),
       (err) => {
         return err instanceof Error && (
           err.message.includes('Deadline') ||
@@ -150,14 +145,14 @@ describe('Cancellation', () => {
       methods: {
         Stream: {
           type: MethodType.SERVER_STREAMING,
-          handler: async function* (_req: Uint8Array, ctx: CallContext) {
+          handler: async function* (_req: unknown, ctx: CallContext) {
             let seq = 0;
             while (!ctx.signal.aborted) {
               seq++;
-              yield encode({ seq });
+              yield { seq };
               await new Promise(r => setTimeout(r, 50));
             }
-          } as unknown as (req: Uint8Array, ctx: CallContext) => AsyncIterable<Uint8Array>,
+          } as unknown as (req: unknown, ctx: CallContext) => AsyncIterable<unknown>,
         },
       },
     };
@@ -175,9 +170,9 @@ describe('Cancellation', () => {
 
     const streamPromise = (async () => {
       try {
-        for await (const bytes of client.serverStream('test.Svc/Stream', encode({}))) {
-          const msg = decode(bytes) as { seq: number };
-          received.push(msg.seq);
+        for await (const msg of client.serverStream('test.Svc/Stream', {})) {
+          const resp = msg as { seq: number };
+          received.push(resp.seq);
           if (received.length >= 2) {
             ct.close();
             break;

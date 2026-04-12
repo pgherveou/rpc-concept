@@ -12,11 +12,6 @@ import {
   RpcStatusCode,
 } from '@rpc-bridge/core';
 
-const enc = new TextEncoder();
-const dec = new TextDecoder();
-function toBytes(s: string): Uint8Array { return enc.encode(s); }
-function fromBytes(b: Uint8Array): string { return dec.decode(b); }
-
 describe('Stream', () => {
   it('should start in IDLE state', () => {
     const stream = new Stream(1);
@@ -34,13 +29,13 @@ describe('Stream', () => {
     const stream = new Stream(1);
     stream.open();
 
-    stream.pushMessage(toBytes('hello'));
-    stream.pushMessage(toBytes('world'));
+    stream.pushMessage('hello');
+    stream.pushMessage('world');
     stream.pushEnd();
 
     const messages: string[] = [];
     for await (const msg of stream.messages()) {
-      messages.push(fromBytes(msg));
+      messages.push(msg as string);
     }
     assert.deepEqual(messages, ['hello', 'world']);
   });
@@ -52,15 +47,15 @@ describe('Stream', () => {
     const consumer = (async () => {
       const messages: string[] = [];
       for await (const msg of stream.messages()) {
-        messages.push(fromBytes(msg));
+        messages.push(msg as string);
       }
       return messages;
     })();
 
     await new Promise(r => setTimeout(r, 10));
-    stream.pushMessage(toBytes('a'));
+    stream.pushMessage('a');
     await new Promise(r => setTimeout(r, 10));
-    stream.pushMessage(toBytes('b'));
+    stream.pushMessage('b');
     await new Promise(r => setTimeout(r, 10));
     stream.pushEnd();
 
@@ -72,13 +67,13 @@ describe('Stream', () => {
     const stream = new Stream(1);
     stream.open();
 
-    stream.pushMessage(toBytes('ok'));
+    stream.pushMessage('ok');
     stream.pushError(new RpcError(RpcStatusCode.INTERNAL, 'test error'));
 
     const messages: string[] = [];
     await assert.rejects(async () => {
       for await (const msg of stream.messages()) {
-        messages.push(fromBytes(msg));
+        messages.push(msg as string);
       }
     }, (err) => {
       return err instanceof RpcError && err.code === RpcStatusCode.INTERNAL;
@@ -90,11 +85,11 @@ describe('Stream', () => {
     const stream = new Stream(1);
     stream.open();
 
-    stream.pushMessage(toBytes('response'));
+    stream.pushMessage('response');
     stream.pushEnd();
 
     const result = await stream.collectUnary();
-    assert.equal(fromBytes(result), 'response');
+    assert.equal(result, 'response');
   });
 
   it('should throw on empty unary response', async () => {
@@ -113,8 +108,8 @@ describe('Stream', () => {
     const stream = new Stream(1);
     stream.open();
 
-    stream.pushMessage(toBytes('first'));
-    stream.pushMessage(toBytes('second'));
+    stream.pushMessage('first');
+    stream.pushMessage('second');
     stream.pushEnd();
 
     await assert.rejects(
