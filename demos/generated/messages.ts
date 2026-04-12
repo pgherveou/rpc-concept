@@ -54,18 +54,38 @@ export class HelloRequest implements IHelloRequest {
     }
     return msg;
   }
+
+  /** Serialize to a JSON-compatible plain object (proto3 JSON mapping). */
+  static toJSON(msg: IHelloRequest): Record<string, unknown> {
+    const o: Record<string, unknown> = {};
+    if (msg.name !== '') {
+      o.name = msg.name;
+    }
+    if (msg.language !== '') {
+      o.language = msg.language;
+    }
+    return o;
+  }
+
+  /** Deserialize from a JSON-compatible plain object (proto3 JSON mapping). */
+  static fromJSON(o: Record<string, unknown>): HelloRequest {
+    const msg = new HelloRequest();
+    if (typeof o.name === 'string') msg.name = o.name as string;
+    if (typeof o.language === 'string') msg.language = o.language as string;
+    return msg;
+  }
 }
 
 /** Message: HelloResponse */
 export interface IHelloResponse {
   message: string;
-  timestamp: number;
+  timestamp: bigint;
   serverVersion: string;
 }
 
 export class HelloResponse implements IHelloResponse {
   message: string = '';
-  timestamp: number = 0;
+  timestamp: bigint = 0n;
   serverVersion: string = '';
 
   constructor(init?: Partial<IHelloResponse>) {
@@ -80,8 +100,8 @@ export class HelloResponse implements IHelloResponse {
     if (msg.message !== '') {
       w.tag(1, WireType.LengthDelimited).string(msg.message);
     }
-    if (msg.timestamp !== 0) {
-      w.tag(2, WireType.Varint).uint64(BigInt(msg.timestamp));
+    if (msg.timestamp !== 0n) {
+      w.tag(2, WireType.Varint).uint64(msg.timestamp);
     }
     if (msg.serverVersion !== '') {
       w.tag(3, WireType.LengthDelimited).string(msg.serverVersion);
@@ -101,7 +121,7 @@ export class HelloResponse implements IHelloResponse {
           break;
         }
         case 2: {
-          msg.timestamp = Number(r.uint64());
+          msg.timestamp = BigInt(r.uint64());
           break;
         }
         case 3: {
@@ -113,6 +133,30 @@ export class HelloResponse implements IHelloResponse {
           break;
       }
     }
+    return msg;
+  }
+
+  /** Serialize to a JSON-compatible plain object (proto3 JSON mapping). */
+  static toJSON(msg: IHelloResponse): Record<string, unknown> {
+    const o: Record<string, unknown> = {};
+    if (msg.message !== '') {
+      o.message = msg.message;
+    }
+    if (msg.timestamp !== 0n) {
+      o.timestamp = msg.timestamp.toString();
+    }
+    if (msg.serverVersion !== '') {
+      o.serverVersion = msg.serverVersion;
+    }
+    return o;
+  }
+
+  /** Deserialize from a JSON-compatible plain object (proto3 JSON mapping). */
+  static fromJSON(o: Record<string, unknown>): HelloResponse {
+    const msg = new HelloResponse();
+    if (typeof o.message === 'string') msg.message = o.message as string;
+    { const v = o.timestamp; if (typeof v === 'string') msg.timestamp = BigInt(v); else if (typeof v === 'number') msg.timestamp = BigInt(v); else if (typeof v === 'bigint') msg.timestamp = v; }
+    if (typeof o.serverVersion === 'string') msg.serverVersion = o.serverVersion as string;
     return msg;
   }
 }
@@ -176,19 +220,43 @@ export class GreetingStreamRequest implements IGreetingStreamRequest {
     }
     return msg;
   }
+
+  /** Serialize to a JSON-compatible plain object (proto3 JSON mapping). */
+  static toJSON(msg: IGreetingStreamRequest): Record<string, unknown> {
+    const o: Record<string, unknown> = {};
+    if (msg.name !== '') {
+      o.name = msg.name;
+    }
+    if (msg.maxCount !== 0) {
+      o.maxCount = msg.maxCount;
+    }
+    if (msg.intervalMs !== 0) {
+      o.intervalMs = msg.intervalMs;
+    }
+    return o;
+  }
+
+  /** Deserialize from a JSON-compatible plain object (proto3 JSON mapping). */
+  static fromJSON(o: Record<string, unknown>): GreetingStreamRequest {
+    const msg = new GreetingStreamRequest();
+    if (typeof o.name === 'string') msg.name = o.name as string;
+    if (typeof o.maxCount === 'number') msg.maxCount = o.maxCount as number;
+    if (typeof o.intervalMs === 'number') msg.intervalMs = o.intervalMs as number;
+    return msg;
+  }
 }
 
 /** Message: GreetingEvent */
 export interface IGreetingEvent {
   message: string;
-  seq: number;
-  timestamp: number;
+  seq: bigint;
+  timestamp: bigint;
 }
 
 export class GreetingEvent implements IGreetingEvent {
   message: string = '';
-  seq: number = 0;
-  timestamp: number = 0;
+  seq: bigint = 0n;
+  timestamp: bigint = 0n;
 
   constructor(init?: Partial<IGreetingEvent>) {
     if (init) {
@@ -202,11 +270,11 @@ export class GreetingEvent implements IGreetingEvent {
     if (msg.message !== '') {
       w.tag(1, WireType.LengthDelimited).string(msg.message);
     }
-    if (msg.seq !== 0) {
-      w.tag(2, WireType.Varint).uint64(BigInt(msg.seq));
+    if (msg.seq !== 0n) {
+      w.tag(2, WireType.Varint).uint64(msg.seq);
     }
-    if (msg.timestamp !== 0) {
-      w.tag(3, WireType.Varint).uint64(BigInt(msg.timestamp));
+    if (msg.timestamp !== 0n) {
+      w.tag(3, WireType.Varint).uint64(msg.timestamp);
     }
     return w.finish();
   }
@@ -223,11 +291,11 @@ export class GreetingEvent implements IGreetingEvent {
           break;
         }
         case 2: {
-          msg.seq = Number(r.uint64());
+          msg.seq = BigInt(r.uint64());
           break;
         }
         case 3: {
-          msg.timestamp = Number(r.uint64());
+          msg.timestamp = BigInt(r.uint64());
           break;
         }
         default:
@@ -235,6 +303,30 @@ export class GreetingEvent implements IGreetingEvent {
           break;
       }
     }
+    return msg;
+  }
+
+  /** Serialize to a JSON-compatible plain object (proto3 JSON mapping). */
+  static toJSON(msg: IGreetingEvent): Record<string, unknown> {
+    const o: Record<string, unknown> = {};
+    if (msg.message !== '') {
+      o.message = msg.message;
+    }
+    if (msg.seq !== 0n) {
+      o.seq = msg.seq.toString();
+    }
+    if (msg.timestamp !== 0n) {
+      o.timestamp = msg.timestamp.toString();
+    }
+    return o;
+  }
+
+  /** Deserialize from a JSON-compatible plain object (proto3 JSON mapping). */
+  static fromJSON(o: Record<string, unknown>): GreetingEvent {
+    const msg = new GreetingEvent();
+    if (typeof o.message === 'string') msg.message = o.message as string;
+    { const v = o.seq; if (typeof v === 'string') msg.seq = BigInt(v); else if (typeof v === 'number') msg.seq = BigInt(v); else if (typeof v === 'bigint') msg.seq = v; }
+    { const v = o.timestamp; if (typeof v === 'string') msg.timestamp = BigInt(v); else if (typeof v === 'number') msg.timestamp = BigInt(v); else if (typeof v === 'bigint') msg.timestamp = v; }
     return msg;
   }
 }
@@ -278,6 +370,22 @@ export class CollectNamesRequest implements ICollectNamesRequest {
           break;
       }
     }
+    return msg;
+  }
+
+  /** Serialize to a JSON-compatible plain object (proto3 JSON mapping). */
+  static toJSON(msg: ICollectNamesRequest): Record<string, unknown> {
+    const o: Record<string, unknown> = {};
+    if (msg.name !== '') {
+      o.name = msg.name;
+    }
+    return o;
+  }
+
+  /** Deserialize from a JSON-compatible plain object (proto3 JSON mapping). */
+  static fromJSON(o: Record<string, unknown>): CollectNamesRequest {
+    const msg = new CollectNamesRequest();
+    if (typeof o.name === 'string') msg.name = o.name as string;
     return msg;
   }
 }
@@ -332,21 +440,41 @@ export class CollectNamesResponse implements ICollectNamesResponse {
     }
     return msg;
   }
+
+  /** Serialize to a JSON-compatible plain object (proto3 JSON mapping). */
+  static toJSON(msg: ICollectNamesResponse): Record<string, unknown> {
+    const o: Record<string, unknown> = {};
+    if (msg.message !== '') {
+      o.message = msg.message;
+    }
+    if (msg.count !== 0) {
+      o.count = msg.count;
+    }
+    return o;
+  }
+
+  /** Deserialize from a JSON-compatible plain object (proto3 JSON mapping). */
+  static fromJSON(o: Record<string, unknown>): CollectNamesResponse {
+    const msg = new CollectNamesResponse();
+    if (typeof o.message === 'string') msg.message = o.message as string;
+    if (typeof o.count === 'number') msg.count = o.count as number;
+    return msg;
+  }
 }
 
 /** Message: ChatMessage */
 export interface IChatMessage {
   from: string;
   text: string;
-  seq: number;
-  timestamp: number;
+  seq: bigint;
+  timestamp: bigint;
 }
 
 export class ChatMessage implements IChatMessage {
   from: string = '';
   text: string = '';
-  seq: number = 0;
-  timestamp: number = 0;
+  seq: bigint = 0n;
+  timestamp: bigint = 0n;
 
   constructor(init?: Partial<IChatMessage>) {
     if (init) {
@@ -363,11 +491,11 @@ export class ChatMessage implements IChatMessage {
     if (msg.text !== '') {
       w.tag(2, WireType.LengthDelimited).string(msg.text);
     }
-    if (msg.seq !== 0) {
-      w.tag(3, WireType.Varint).uint64(BigInt(msg.seq));
+    if (msg.seq !== 0n) {
+      w.tag(3, WireType.Varint).uint64(msg.seq);
     }
-    if (msg.timestamp !== 0) {
-      w.tag(4, WireType.Varint).uint64(BigInt(msg.timestamp));
+    if (msg.timestamp !== 0n) {
+      w.tag(4, WireType.Varint).uint64(msg.timestamp);
     }
     return w.finish();
   }
@@ -388,11 +516,11 @@ export class ChatMessage implements IChatMessage {
           break;
         }
         case 3: {
-          msg.seq = Number(r.uint64());
+          msg.seq = BigInt(r.uint64());
           break;
         }
         case 4: {
-          msg.timestamp = Number(r.uint64());
+          msg.timestamp = BigInt(r.uint64());
           break;
         }
         default:
@@ -400,6 +528,34 @@ export class ChatMessage implements IChatMessage {
           break;
       }
     }
+    return msg;
+  }
+
+  /** Serialize to a JSON-compatible plain object (proto3 JSON mapping). */
+  static toJSON(msg: IChatMessage): Record<string, unknown> {
+    const o: Record<string, unknown> = {};
+    if (msg.from !== '') {
+      o.from = msg.from;
+    }
+    if (msg.text !== '') {
+      o.text = msg.text;
+    }
+    if (msg.seq !== 0n) {
+      o.seq = msg.seq.toString();
+    }
+    if (msg.timestamp !== 0n) {
+      o.timestamp = msg.timestamp.toString();
+    }
+    return o;
+  }
+
+  /** Deserialize from a JSON-compatible plain object (proto3 JSON mapping). */
+  static fromJSON(o: Record<string, unknown>): ChatMessage {
+    const msg = new ChatMessage();
+    if (typeof o.from === 'string') msg.from = o.from as string;
+    if (typeof o.text === 'string') msg.text = o.text as string;
+    { const v = o.seq; if (typeof v === 'string') msg.seq = BigInt(v); else if (typeof v === 'number') msg.seq = BigInt(v); else if (typeof v === 'bigint') msg.seq = v; }
+    { const v = o.timestamp; if (typeof v === 'string') msg.timestamp = BigInt(v); else if (typeof v === 'number') msg.timestamp = BigInt(v); else if (typeof v === 'bigint') msg.timestamp = v; }
     return msg;
   }
 }

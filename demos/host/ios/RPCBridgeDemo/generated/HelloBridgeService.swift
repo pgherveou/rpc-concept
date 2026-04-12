@@ -44,6 +44,82 @@ public enum DemoHelloV1 {
             self.provider = provider
         }
 
+        /// Dispatch using JSON-encoded Data (proto3 JSON mapping).
+        /// SwiftProtobuf handles int64-as-string and bytes-as-base64 automatically.
+        public func dispatchJSON(
+            method: String,
+            messages: AsyncStream<Data>
+        ) async throws -> DispatchResult {
+            switch method {
+            case "demo.hello.v1.HelloBridgeService/SayHello":
+                var requestData: Data?
+                for await data in messages { requestData = data; break }
+                guard let requestData else { throw DispatchError.missingRequestData }
+                let request = try HelloRequest(jsonUTF8Data: requestData)
+                let response = try await provider.sayHello(request)
+                return .unary(try response.jsonUTF8Data())
+            case "demo.hello.v1.HelloBridgeService/WatchGreeting":
+                var requestData: Data?
+                for await data in messages { requestData = data; break }
+                guard let requestData else { throw DispatchError.missingRequestData }
+                let request = try GreetingStreamRequest(jsonUTF8Data: requestData)
+                let responseStream = provider.watchGreeting(request)
+                let mappedStream = AsyncThrowingStream<Data, Error> { continuation in
+                    Task {
+                        do {
+                            for try await response in responseStream {
+                                continuation.yield(try response.jsonUTF8Data())
+                            }
+                            continuation.finish()
+                        } catch {
+                            continuation.finish(throwing: error)
+                        }
+                    }
+                }
+                return .stream(mappedStream)
+            case "demo.hello.v1.HelloBridgeService/CollectNames":
+                let typedStream = AsyncStream<CollectNamesRequest> { continuation in
+                    Task {
+                        for await data in messages {
+                            if let msg = try? CollectNamesRequest(jsonUTF8Data: data) {
+                                continuation.yield(msg)
+                            }
+                        }
+                        continuation.finish()
+                    }
+                }
+                let response = try await provider.collectNames(typedStream)
+                return .unary(try response.jsonUTF8Data())
+            case "demo.hello.v1.HelloBridgeService/Chat":
+                let typedStream = AsyncStream<ChatMessage> { continuation in
+                    Task {
+                        for await data in messages {
+                            if let msg = try? ChatMessage(jsonUTF8Data: data) {
+                                continuation.yield(msg)
+                            }
+                        }
+                        continuation.finish()
+                    }
+                }
+                let responseStream = provider.chat(typedStream)
+                let mappedStream = AsyncThrowingStream<Data, Error> { continuation in
+                    Task {
+                        do {
+                            for try await response in responseStream {
+                                continuation.yield(try response.jsonUTF8Data())
+                            }
+                            continuation.finish()
+                        } catch {
+                            continuation.finish(throwing: error)
+                        }
+                    }
+                }
+                return .stream(mappedStream)
+            default:
+                throw DispatchError.unknownMethod(method)
+            }
+        }
+
         public func dispatch(
             method: String,
             messages: AsyncStream<Data>

@@ -84,7 +84,7 @@ export function useBidiChat(client: HelloBridgeServiceClient) {
   const sendMessage = useCallback((text: string) => {
     const s = state.current;
     s.seq++;
-    const msg = new ChatMessage({ from: 'user', text, seq: s.seq, timestamp: 0 });
+    const msg = new ChatMessage({ from: 'user', text, seq: BigInt(s.seq), timestamp: 0n });
     addChatEntry(`[you] ${text}`);
 
     if (s.resolve) {

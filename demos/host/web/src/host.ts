@@ -58,7 +58,7 @@ const handler: IHelloBridgeServiceHandler = {
 
     return new HelloResponse({
       message: greeting,
-      timestamp: Date.now(),
+      timestamp: BigInt(Date.now()),
       serverVersion: '0.1.0',
     });
   },
@@ -76,8 +76,8 @@ const handler: IHelloBridgeServiceHandler = {
       const greeting = greetings[(seq - 1) % greetings.length];
       yield new GreetingEvent({
         message: `${greeting}, ${request.name}! (update #${seq})`,
-        seq,
-        timestamp: Date.now(),
+        seq: BigInt(seq),
+        timestamp: BigInt(Date.now()),
       });
 
       if (seq < maxCount) {
@@ -98,8 +98,8 @@ const handler: IHelloBridgeServiceHandler = {
       yield new ChatMessage({
         from: 'bot',
         text: `You said: "${msg.text}" - that's interesting!`,
-        seq: responseSeq,
-        timestamp: Date.now(),
+        seq: BigInt(responseSeq),
+        timestamp: BigInt(Date.now()),
       });
 
       await delay(500);
@@ -107,8 +107,8 @@ const handler: IHelloBridgeServiceHandler = {
       yield new ChatMessage({
         from: 'bot',
         text: getFollowUp(msg.text),
-        seq: responseSeq,
-        timestamp: Date.now(),
+        seq: BigInt(responseSeq),
+        timestamp: BigInt(Date.now()),
       });
     }
 

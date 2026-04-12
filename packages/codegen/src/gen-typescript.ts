@@ -75,17 +75,18 @@ function resolveType(
     case 'int32':
       return { tsType: 'number', wireType: 0, protoType, isMessage: false, isEnum: false };
     case 'sint32':
-    case 'sint64':
       return { tsType: 'number', wireType: 0, protoType, isMessage: false, isEnum: false };
+    case 'sint64':
+      return { tsType: 'bigint', wireType: 0, protoType, isMessage: false, isEnum: false };
     case 'uint64':
     case 'int64':
-      return { tsType: 'number', wireType: 0, protoType, isMessage: false, isEnum: false };
+      return { tsType: 'bigint', wireType: 0, protoType, isMessage: false, isEnum: false };
     case 'fixed32':
     case 'sfixed32':
       return { tsType: 'number', wireType: 5, protoType, isMessage: false, isEnum: false };
     case 'fixed64':
     case 'sfixed64':
-      return { tsType: 'number', wireType: 1, protoType, isMessage: false, isEnum: false };
+      return { tsType: 'bigint', wireType: 1, protoType, isMessage: false, isEnum: false };
     case 'float':
       return { tsType: 'number', wireType: 5, protoType, isMessage: false, isEnum: false };
     case 'double':
@@ -99,6 +100,11 @@ function resolveType(
       return { tsType: protoType, wireType: 2, protoType, isMessage: true, isEnum: false };
   }
 }
+
+/** Set of proto types that map to TypeScript bigint. */
+const BIGINT_PROTO_TYPES = new Set([
+  'uint64', 'int64', 'sint64', 'fixed64', 'sfixed64',
+]);
 
 /** Determine the MethodType enum variant for a given MethodDef. */
 function methodTypeEnum(m: MethodDef): string {
@@ -137,6 +143,30 @@ export function generateMessages(proto: ProtoFile): string {
   lines.push('');
   lines.push("import { BinaryWriter, BinaryReader, WireType } from '@bufbuild/protobuf/wire';");
   lines.push('');
+
+  // --- Base64 helpers (for JSON serialization of bytes fields) ---
+  const hasBytes = proto.messages.some((m) =>
+    m.fields.some((f) => !f.deprecated && f.type === 'bytes'),
+  );
+  if (hasBytes) {
+    lines.push('// Base64 helpers for bytes field JSON serialization');
+    lines.push("function _toBase64(bytes: Uint8Array): string {");
+    lines.push("  let binary = '';");
+    lines.push("  for (let i = 0; i < bytes.length; i++) binary += String.fromCharCode(bytes[i]);");
+    lines.push("  return typeof btoa === 'function' ? btoa(binary) : Buffer.from(bytes).toString('base64');");
+    lines.push('}');
+    lines.push('');
+    lines.push('function _fromBase64(str: string): Uint8Array {');
+    lines.push("  if (typeof atob === 'function') {");
+    lines.push('    const binary = atob(str);');
+    lines.push('    const bytes = new Uint8Array(binary.length);');
+    lines.push('    for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);');
+    lines.push('    return bytes;');
+    lines.push('  }');
+    lines.push("  return new Uint8Array(Buffer.from(str, 'base64'));");
+    lines.push('}');
+    lines.push('');
+  }
 
   // --- Enums ---
   for (const enumDef of proto.enums) {
@@ -261,9 +291,139 @@ function generateMessageClass(
   lines.push('    }');
   lines.push('    return msg;');
   lines.push('  }');
+  lines.push('');
+
+  // --- toJSON ---
+  lines.push(`  /** Serialize to a JSON-compatible plain object (proto3 JSON mapping). */`);
+  lines.push(`  static toJSON(msg: I${msg.name}): Record<string, unknown> {`);
+  lines.push('    const o: Record<string, unknown> = {};');
+  for (const f of fields) {
+    const tm = resolveType(f.type, knownMessages, knownEnums);
+    const camel = snakeToCamel(f.name);
+    lines.push(generateToJsonField(f, tm, camel));
+  }
+  lines.push('    return o;');
+  lines.push('  }');
+  lines.push('');
+
+  // --- fromJSON ---
+  lines.push(`  /** Deserialize from a JSON-compatible plain object (proto3 JSON mapping). */`);
+  lines.push(`  static fromJSON(o: Record<string, unknown>): ${msg.name} {`);
+  lines.push(`    const msg = new ${msg.name}();`);
+  for (const f of fields) {
+    const tm = resolveType(f.type, knownMessages, knownEnums);
+    const camel = snakeToCamel(f.name);
+    lines.push(generateFromJsonField(f, tm, camel));
+  }
+  lines.push('    return msg;');
+  lines.push('  }');
 
   lines.push('}');
 
+  return lines.join('\n');
+}
+
+// --- JSON helpers ---
+
+function generateToJsonField(f: FieldDef, tm: TypeMapping, camel: string): string {
+  const lines: string[] = [];
+  const isBigInt = BIGINT_PROTO_TYPES.has(tm.protoType);
+  const isBytes = tm.protoType === 'bytes';
+
+  if (f.repeated) {
+    lines.push(`    if (msg.${camel}.length !== 0) {`);
+    if (tm.isMessage) {
+      lines.push(`      o.${camel} = msg.${camel}.map(v => ${tm.tsType}.toJSON(v));`);
+    } else if (isBigInt) {
+      lines.push(`      o.${camel} = msg.${camel}.map(v => v.toString());`);
+    } else if (isBytes) {
+      lines.push(`      o.${camel} = msg.${camel}.map(v => _toBase64(v));`);
+    } else if (tm.isEnum) {
+      lines.push(`      o.${camel} = msg.${camel}.map(v => v as number);`);
+    } else {
+      lines.push(`      o.${camel} = msg.${camel};`);
+    }
+    lines.push('    }');
+  } else if (f.optional) {
+    lines.push(`    if (msg.${camel} !== undefined && msg.${camel} !== null) {`);
+    if (tm.isMessage) {
+      lines.push(`      o.${camel} = ${tm.tsType}.toJSON(msg.${camel});`);
+    } else if (isBigInt) {
+      lines.push(`      o.${camel} = msg.${camel}.toString();`);
+    } else if (isBytes) {
+      lines.push(`      o.${camel} = _toBase64(msg.${camel});`);
+    } else if (tm.isEnum) {
+      lines.push(`      o.${camel} = msg.${camel} as number;`);
+    } else {
+      lines.push(`      o.${camel} = msg.${camel};`);
+    }
+    lines.push('    }');
+  } else {
+    // non-optional, non-repeated: skip default values
+    const guard = proto3ZeroGuard(f, tm, camel);
+    if (tm.isMessage) {
+      // Always emit message fields
+      lines.push(`    o.${camel} = ${tm.tsType}.toJSON(msg.${camel});`);
+    } else if (guard) {
+      lines.push(`    if (${guard}) {`);
+      if (isBigInt) {
+        lines.push(`      o.${camel} = msg.${camel}.toString();`);
+      } else if (isBytes) {
+        lines.push(`      o.${camel} = _toBase64(msg.${camel});`);
+      } else if (tm.isEnum) {
+        lines.push(`      o.${camel} = msg.${camel} as number;`);
+      } else {
+        lines.push(`      o.${camel} = msg.${camel};`);
+      }
+      lines.push('    }');
+    } else {
+      lines.push(`    o.${camel} = msg.${camel};`);
+    }
+  }
+  return lines.join('\n');
+}
+
+function generateFromJsonField(f: FieldDef, tm: TypeMapping, camel: string): string {
+  const lines: string[] = [];
+  const isBigInt = BIGINT_PROTO_TYPES.has(tm.protoType);
+  const isBytes = tm.protoType === 'bytes';
+
+  if (f.repeated) {
+    lines.push(`    if (Array.isArray(o.${camel})) {`);
+    if (tm.isMessage) {
+      lines.push(`      msg.${camel} = (o.${camel} as Record<string, unknown>[]).map(v => ${tm.tsType}.fromJSON(v));`);
+    } else if (isBigInt) {
+      lines.push(`      msg.${camel} = (o.${camel} as unknown[]).map(v => {`);
+      lines.push(`        if (typeof v === 'string') return BigInt(v);`);
+      lines.push(`        if (typeof v === 'number') return BigInt(v);`);
+      lines.push(`        if (typeof v === 'bigint') return v;`);
+      lines.push(`        return 0n;`);
+      lines.push(`      });`);
+    } else if (isBytes) {
+      lines.push(`      msg.${camel} = (o.${camel} as string[]).map(v => _fromBase64(v));`);
+    } else if (tm.isEnum) {
+      lines.push(`      msg.${camel} = (o.${camel} as number[]).map(v => v as ${tm.tsType});`);
+    } else {
+      lines.push(`      msg.${camel} = o.${camel} as ${tm.tsType}[];`);
+    }
+    lines.push('    }');
+  } else if (tm.isMessage) {
+    lines.push(`    if (o.${camel} != null) msg.${camel} = ${tm.tsType}.fromJSON(o.${camel} as Record<string, unknown>);`);
+  } else if (isBigInt) {
+    lines.push(`    { const v = o.${camel}; if (typeof v === 'string') msg.${camel} = BigInt(v); else if (typeof v === 'number') msg.${camel} = BigInt(v); else if (typeof v === 'bigint') msg.${camel} = v; }`);
+  } else if (isBytes) {
+    lines.push(`    if (typeof o.${camel} === 'string') msg.${camel} = _fromBase64(o.${camel} as string);`);
+  } else if (tm.isEnum) {
+    lines.push(`    if (typeof o.${camel} === 'number') msg.${camel} = o.${camel} as ${tm.tsType};`);
+  } else if (tm.tsType === 'boolean') {
+    lines.push(`    if (typeof o.${camel} === 'boolean') msg.${camel} = o.${camel} as boolean;`);
+  } else if (tm.tsType === 'number') {
+    lines.push(`    if (typeof o.${camel} === 'number') msg.${camel} = o.${camel} as number;`);
+  } else if (tm.tsType === 'string') {
+    lines.push(`    if (typeof o.${camel} === 'string') msg.${camel} = o.${camel} as string;`);
+  } else {
+    lines.push(`    if (o.${camel} != null) msg.${camel} = o.${camel} as ${tm.tsType};`);
+  }
   return lines.join('\n');
 }
 
@@ -315,21 +475,21 @@ function writeChain(fieldNumber: number, protoType: string, expr: string): strin
     case 'int32':
       return `w.tag(${fieldNumber}, WireType.Varint).int32(${expr})`;
     case 'uint64':
-      return `w.tag(${fieldNumber}, WireType.Varint).uint64(BigInt(${expr}))`;
+      return `w.tag(${fieldNumber}, WireType.Varint).uint64(${expr})`;
     case 'int64':
-      return `w.tag(${fieldNumber}, WireType.Varint).int64(BigInt(${expr}))`;
+      return `w.tag(${fieldNumber}, WireType.Varint).int64(${expr})`;
     case 'sint32':
       return `w.tag(${fieldNumber}, WireType.Varint).sint32(${expr})`;
     case 'sint64':
-      return `w.tag(${fieldNumber}, WireType.Varint).sint64(BigInt(${expr}))`;
+      return `w.tag(${fieldNumber}, WireType.Varint).sint64(${expr})`;
     case 'fixed32':
       return `w.tag(${fieldNumber}, WireType.Bit32).fixed32(${expr})`;
     case 'sfixed32':
       return `w.tag(${fieldNumber}, WireType.Bit32).sfixed32(${expr})`;
     case 'fixed64':
-      return `w.tag(${fieldNumber}, WireType.Bit64).fixed64(BigInt(${expr}))`;
+      return `w.tag(${fieldNumber}, WireType.Bit64).fixed64(${expr})`;
     case 'sfixed64':
-      return `w.tag(${fieldNumber}, WireType.Bit64).sfixed64(BigInt(${expr}))`;
+      return `w.tag(${fieldNumber}, WireType.Bit64).sfixed64(${expr})`;
     case 'float':
       return `w.tag(${fieldNumber}, WireType.Bit32).float(${expr})`;
     case 'double':
@@ -376,21 +536,21 @@ function generateReadExpression(tm: TypeMapping): string {
     case 'sfixed32':
       return 'r.sfixed32()';
     case 'fixed64':
-      return 'Number(r.fixed64())';
+      return 'BigInt(r.fixed64())';
     case 'sfixed64':
-      return 'Number(r.sfixed64())';
+      return 'BigInt(r.sfixed64())';
     case 'sint32':
       return 'r.sint32()';
     case 'sint64':
-      return 'Number(r.sint64())';
+      return 'BigInt(r.sint64())';
     case 'uint32':
       return 'r.uint32()';
     case 'int32':
       return 'r.int32()';
     case 'uint64':
-      return 'Number(r.uint64())';
+      return 'BigInt(r.uint64())';
     case 'int64':
-      return 'Number(r.int64())';
+      return 'BigInt(r.int64())';
     default:
       return `${tm.tsType}.decode(r.bytes())`;
   }
@@ -405,6 +565,8 @@ function fieldDefault(f: FieldDef, tm: TypeMapping): string {
       return "''";
     case 'number':
       return '0';
+    case 'bigint':
+      return '0n';
     case 'boolean':
       return 'false';
     case 'Uint8Array':
@@ -433,14 +595,15 @@ function proto3ZeroGuard(f: FieldDef, tm: TypeMapping, camel: string): string | 
     case 'sint32':
     case 'fixed32':
     case 'sfixed32':
+    case 'float':
+    case 'double':
+      return `msg.${camel} !== 0`;
     case 'uint64':
     case 'int64':
     case 'sint64':
     case 'fixed64':
     case 'sfixed64':
-    case 'float':
-    case 'double':
-      return `msg.${camel} !== 0`;
+      return `msg.${camel} !== 0n`;
     default:
       return null;
   }

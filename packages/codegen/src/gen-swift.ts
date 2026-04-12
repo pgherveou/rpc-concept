@@ -167,6 +167,96 @@ function generateDispatcher(svc: ServiceDef, proto: ProtoFile): string {
   lines.push('    }');
   lines.push('');
 
+  // JSON dispatch method
+  lines.push('    /// Dispatch using JSON-encoded Data (proto3 JSON mapping).');
+  lines.push('    /// SwiftProtobuf handles int64-as-string and bytes-as-base64 automatically.');
+  lines.push('    public func dispatchJSON(');
+  lines.push('        method: String,');
+  lines.push('        messages: AsyncStream<Data>');
+  lines.push('    ) async throws -> DispatchResult {');
+  lines.push('        switch method {');
+
+  for (const m of svc.methods) {
+    const inputType = resolveTypeName(m.inputType, proto);
+    const methodName = swiftMethodName(m.name);
+    const fullMethodName = `${fqServiceName}/${m.name}`;
+
+    lines.push(`        case "${fullMethodName}":`);
+
+    if (!m.clientStreaming && !m.serverStreaming) {
+      lines.push('            var requestData: Data?');
+      lines.push('            for await data in messages { requestData = data; break }');
+      lines.push('            guard let requestData else { throw DispatchError.missingRequestData }');
+      lines.push(`            let request = try ${inputType}(jsonUTF8Data: requestData)`);
+      lines.push(`            let response = try await provider.${methodName}(request)`);
+      lines.push('            return .unary(try response.jsonUTF8Data())');
+    } else if (!m.clientStreaming && m.serverStreaming) {
+      lines.push('            var requestData: Data?');
+      lines.push('            for await data in messages { requestData = data; break }');
+      lines.push('            guard let requestData else { throw DispatchError.missingRequestData }');
+      lines.push(`            let request = try ${inputType}(jsonUTF8Data: requestData)`);
+      lines.push(`            let responseStream = provider.${methodName}(request)`);
+      lines.push('            let mappedStream = AsyncThrowingStream<Data, Error> { continuation in');
+      lines.push('                Task {');
+      lines.push('                    do {');
+      lines.push('                        for try await response in responseStream {');
+      lines.push('                            continuation.yield(try response.jsonUTF8Data())');
+      lines.push('                        }');
+      lines.push('                        continuation.finish()');
+      lines.push('                    } catch {');
+      lines.push('                        continuation.finish(throwing: error)');
+      lines.push('                    }');
+      lines.push('                }');
+      lines.push('            }');
+      lines.push('            return .stream(mappedStream)');
+    } else if (m.clientStreaming && !m.serverStreaming) {
+      lines.push(`            let typedStream = AsyncStream<${inputType}> { continuation in`);
+      lines.push('                Task {');
+      lines.push('                    for await data in messages {');
+      lines.push(`                        if let msg = try? ${inputType}(jsonUTF8Data: data) {`);
+      lines.push('                            continuation.yield(msg)');
+      lines.push('                        }');
+      lines.push('                    }');
+      lines.push('                    continuation.finish()');
+      lines.push('                }');
+      lines.push('            }');
+      lines.push(`            let response = try await provider.${methodName}(typedStream)`);
+      lines.push('            return .unary(try response.jsonUTF8Data())');
+    } else {
+      lines.push(`            let typedStream = AsyncStream<${inputType}> { continuation in`);
+      lines.push('                Task {');
+      lines.push('                    for await data in messages {');
+      lines.push(`                        if let msg = try? ${inputType}(jsonUTF8Data: data) {`);
+      lines.push('                            continuation.yield(msg)');
+      lines.push('                        }');
+      lines.push('                    }');
+      lines.push('                    continuation.finish()');
+      lines.push('                }');
+      lines.push('            }');
+      lines.push(`            let responseStream = provider.${methodName}(typedStream)`);
+      lines.push('            let mappedStream = AsyncThrowingStream<Data, Error> { continuation in');
+      lines.push('                Task {');
+      lines.push('                    do {');
+      lines.push('                        for try await response in responseStream {');
+      lines.push('                            continuation.yield(try response.jsonUTF8Data())');
+      lines.push('                        }');
+      lines.push('                        continuation.finish()');
+      lines.push('                    } catch {');
+      lines.push('                        continuation.finish(throwing: error)');
+      lines.push('                    }');
+      lines.push('                }');
+      lines.push('            }');
+      lines.push('            return .stream(mappedStream)');
+    }
+  }
+
+  lines.push('        default:');
+  lines.push(`            throw DispatchError.unknownMethod(method)`);
+  lines.push('        }');
+  lines.push('    }');
+  lines.push('');
+
+  // Protobuf binary dispatch method (existing)
   lines.push('    public func dispatch(');
   lines.push('        method: String,');
   lines.push('        messages: AsyncStream<Data>');

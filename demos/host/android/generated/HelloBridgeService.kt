@@ -9,6 +9,7 @@
 
 package demo.hello.v1
 
+import android.util.Base64
 import com.rpcbridge.DispatchResult
 import com.rpcbridge.ServiceDispatcher
 import kotlinx.coroutines.flow.Flow
@@ -17,6 +18,8 @@ import kotlinx.coroutines.flow.map
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.protobuf.ProtoBuf
 import kotlinx.serialization.protobuf.ProtoNumber
+import org.json.JSONArray
+import org.json.JSONObject
 
 @Serializable
 data class HelloRequest(
@@ -26,8 +29,22 @@ data class HelloRequest(
 
     fun encode(): ByteArray = ProtoBuf.encodeToByteArray(this)
 
+    fun toJSON(): JSONObject {
+        val o = JSONObject()
+        if (name.isNotEmpty()) o.put("name", name)
+        if (language.isNotEmpty()) o.put("language", language)
+        return o
+    }
+
     companion object {
         fun decode(data: ByteArray): HelloRequest = ProtoBuf.decodeFromByteArray(data)
+
+        fun fromJSON(o: JSONObject): HelloRequest {
+            return HelloRequest(
+                name = o.optString("name", ""),
+                language = o.optString("language", "")
+            )
+        }
     }
 }
 
@@ -40,8 +57,24 @@ data class HelloResponse(
 
     fun encode(): ByteArray = ProtoBuf.encodeToByteArray(this)
 
+    fun toJSON(): JSONObject {
+        val o = JSONObject()
+        if (message.isNotEmpty()) o.put("message", message)
+        if (timestamp != 0uL) o.put("timestamp", timestamp.toString())
+        if (serverVersion.isNotEmpty()) o.put("serverVersion", serverVersion)
+        return o
+    }
+
     companion object {
         fun decode(data: ByteArray): HelloResponse = ProtoBuf.decodeFromByteArray(data)
+
+        fun fromJSON(o: JSONObject): HelloResponse {
+            return HelloResponse(
+                message = o.optString("message", ""),
+                timestamp = o.opt("timestamp")?.let { v -> when (v) { is String -> v.toULong(); is Number -> v.toLong().toULong(); else -> 0uL } } ?: 0uL,
+                serverVersion = o.optString("serverVersion", "")
+            )
+        }
     }
 }
 
@@ -54,8 +87,24 @@ data class GreetingStreamRequest(
 
     fun encode(): ByteArray = ProtoBuf.encodeToByteArray(this)
 
+    fun toJSON(): JSONObject {
+        val o = JSONObject()
+        if (name.isNotEmpty()) o.put("name", name)
+        if (maxCount != 0u) o.put("maxCount", maxCount)
+        if (intervalMs != 0u) o.put("intervalMs", intervalMs)
+        return o
+    }
+
     companion object {
         fun decode(data: ByteArray): GreetingStreamRequest = ProtoBuf.decodeFromByteArray(data)
+
+        fun fromJSON(o: JSONObject): GreetingStreamRequest {
+            return GreetingStreamRequest(
+                name = o.optString("name", ""),
+                maxCount = o.optInt("maxCount", 0).toUInt(),
+                intervalMs = o.optInt("intervalMs", 0).toUInt()
+            )
+        }
     }
 }
 
@@ -68,8 +117,24 @@ data class GreetingEvent(
 
     fun encode(): ByteArray = ProtoBuf.encodeToByteArray(this)
 
+    fun toJSON(): JSONObject {
+        val o = JSONObject()
+        if (message.isNotEmpty()) o.put("message", message)
+        if (seq != 0uL) o.put("seq", seq.toString())
+        if (timestamp != 0uL) o.put("timestamp", timestamp.toString())
+        return o
+    }
+
     companion object {
         fun decode(data: ByteArray): GreetingEvent = ProtoBuf.decodeFromByteArray(data)
+
+        fun fromJSON(o: JSONObject): GreetingEvent {
+            return GreetingEvent(
+                message = o.optString("message", ""),
+                seq = o.opt("seq")?.let { v -> when (v) { is String -> v.toULong(); is Number -> v.toLong().toULong(); else -> 0uL } } ?: 0uL,
+                timestamp = o.opt("timestamp")?.let { v -> when (v) { is String -> v.toULong(); is Number -> v.toLong().toULong(); else -> 0uL } } ?: 0uL
+            )
+        }
     }
 }
 
@@ -80,8 +145,20 @@ data class CollectNamesRequest(
 
     fun encode(): ByteArray = ProtoBuf.encodeToByteArray(this)
 
+    fun toJSON(): JSONObject {
+        val o = JSONObject()
+        if (name.isNotEmpty()) o.put("name", name)
+        return o
+    }
+
     companion object {
         fun decode(data: ByteArray): CollectNamesRequest = ProtoBuf.decodeFromByteArray(data)
+
+        fun fromJSON(o: JSONObject): CollectNamesRequest {
+            return CollectNamesRequest(
+                name = o.optString("name", "")
+            )
+        }
     }
 }
 
@@ -93,8 +170,22 @@ data class CollectNamesResponse(
 
     fun encode(): ByteArray = ProtoBuf.encodeToByteArray(this)
 
+    fun toJSON(): JSONObject {
+        val o = JSONObject()
+        if (message.isNotEmpty()) o.put("message", message)
+        if (count != 0u) o.put("count", count)
+        return o
+    }
+
     companion object {
         fun decode(data: ByteArray): CollectNamesResponse = ProtoBuf.decodeFromByteArray(data)
+
+        fun fromJSON(o: JSONObject): CollectNamesResponse {
+            return CollectNamesResponse(
+                message = o.optString("message", ""),
+                count = o.optInt("count", 0).toUInt()
+            )
+        }
     }
 }
 
@@ -108,8 +199,26 @@ data class ChatMessage(
 
     fun encode(): ByteArray = ProtoBuf.encodeToByteArray(this)
 
+    fun toJSON(): JSONObject {
+        val o = JSONObject()
+        if (from.isNotEmpty()) o.put("from", from)
+        if (text.isNotEmpty()) o.put("text", text)
+        if (seq != 0uL) o.put("seq", seq.toString())
+        if (timestamp != 0uL) o.put("timestamp", timestamp.toString())
+        return o
+    }
+
     companion object {
         fun decode(data: ByteArray): ChatMessage = ProtoBuf.decodeFromByteArray(data)
+
+        fun fromJSON(o: JSONObject): ChatMessage {
+            return ChatMessage(
+                from = o.optString("from", ""),
+                text = o.optString("text", ""),
+                seq = o.opt("seq")?.let { v -> when (v) { is String -> v.toULong(); is Number -> v.toLong().toULong(); else -> 0uL } } ?: 0uL,
+                timestamp = o.opt("timestamp")?.let { v -> when (v) { is String -> v.toULong(); is Number -> v.toLong().toULong(); else -> 0uL } } ?: 0uL
+            )
+        }
     }
 }
 
@@ -127,6 +236,33 @@ interface HelloBridgeService {
 class HelloBridgeServiceDispatcher(private val service: HelloBridgeService) : ServiceDispatcher {
 
     override val serviceName = "demo.hello.v1.HelloBridgeService"
+
+    /** Dispatch using JSON-encoded byte arrays (proto3 JSON mapping). */
+    suspend fun dispatchJSON(method: String, messages: Flow<ByteArray>): DispatchResult {
+        return when (method) {
+            "demo.hello.v1.HelloBridgeService/SayHello" -> {
+                val request = HelloRequest.fromJSON(JSONObject(String(messages.first())))
+                val response = service.sayHello(request)
+                DispatchResult.Unary(response.toJSON().toString().toByteArray())
+            }
+            "demo.hello.v1.HelloBridgeService/WatchGreeting" -> {
+                val request = GreetingStreamRequest.fromJSON(JSONObject(String(messages.first())))
+                val responseFlow = service.watchGreeting(request)
+                DispatchResult.Stream(responseFlow.map { it.toJSON().toString().toByteArray() })
+            }
+            "demo.hello.v1.HelloBridgeService/CollectNames" -> {
+                val typedStream = messages.map { CollectNamesRequest.fromJSON(JSONObject(String(it))) }
+                val response = service.collectNames(typedStream)
+                DispatchResult.Unary(response.toJSON().toString().toByteArray())
+            }
+            "demo.hello.v1.HelloBridgeService/Chat" -> {
+                val typedStream = messages.map { ChatMessage.fromJSON(JSONObject(String(it))) }
+                val responseFlow = service.chat(typedStream)
+                DispatchResult.Stream(responseFlow.map { it.toJSON().toString().toByteArray() })
+            }
+            else -> throw IllegalArgumentException("Unknown method: $method")
+        }
+    }
 
     override suspend fun dispatch(method: String, messages: Flow<ByteArray>): DispatchResult {
         return when (method) {
