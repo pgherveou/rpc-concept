@@ -21,7 +21,7 @@ import {
 } from './frame.js';
 import type { Transport } from './transport.js';
 import { Stream, StreamManager, StreamState } from './stream.js';
-import { RpcError, RpcStatusCode } from './errors.js';
+import { RpcError, StartupError, RpcStatusCode } from './errors.js';
 import { MethodType, type CallContext, type Logger, silentLogger } from './types.js';
 
 /** Handler function types for different RPC patterns. */
@@ -194,7 +194,9 @@ export class RpcServer {
     } catch (err) {
       if (stream.state === StreamState.CANCELLED) return;
 
-      if (err instanceof RpcError) {
+      if (err instanceof StartupError) {
+        this.sendError(streamId, err.code, err.message, err.details);
+      } else if (err instanceof RpcError) {
         this.sendError(streamId, err.code, err.message);
       } else {
         const message = err instanceof Error ? err.message : String(err);
@@ -294,10 +296,10 @@ export class RpcServer {
     };
   }
 
-  private sendError(streamId: number, code: RpcStatusCode, message: string): void {
+  private sendError(streamId: number, code: RpcStatusCode, message: string, details?: unknown): void {
     try {
       if (this.transport.isOpen) {
-        this.transport.send(createErrorFrame(streamId, code, message));
+        this.transport.send(createErrorFrame(streamId, code, message, details));
       }
     } catch {
       // Best effort

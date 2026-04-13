@@ -10,7 +10,9 @@ package truapi.v02;
 import "truapi/v02/common.proto";
 
 service PaymentService {
-  rpc BalanceSubscribe(PaymentBalanceRequest) returns (stream PaymentBalanceEvent);
+  rpc BalanceSubscribe(PaymentBalanceRequest) returns (stream PaymentBalance) {
+    option (startup_error) = "PaymentBalanceError";
+  }
   rpc TopUp(PaymentTopUpRequest) returns (PaymentTopUpResponse);
   rpc Request(PaymentRequestMsg) returns (PaymentRequestResponse);
   rpc StatusSubscribe(PaymentStatusRequest) returns (stream PaymentStatusEvent);

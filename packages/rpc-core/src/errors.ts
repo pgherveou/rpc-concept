@@ -16,11 +16,13 @@ export enum RpcStatusCode {
  */
 export class RpcError extends Error {
   public readonly code: RpcStatusCode;
+  public readonly details?: unknown;
 
-  constructor(code: RpcStatusCode, message: string) {
+  constructor(code: RpcStatusCode, message: string, details?: unknown) {
     super(message);
     this.name = 'RpcError';
     this.code = code;
+    if (details !== undefined) this.details = details;
     Object.setPrototypeOf(this, RpcError.prototype);
   }
 
@@ -32,9 +34,26 @@ export class RpcError extends Error {
     return `RpcError: [${this.codeName}] ${this.message}`;
   }
 
-  static fromFrame(errorCode: number, errorMessage: string): RpcError {
+  static fromFrame(errorCode: number, errorMessage: string, details?: unknown): RpcError {
     const code = errorCode in RpcStatusCode ? errorCode as RpcStatusCode : RpcStatusCode.INTERNAL;
-    return new RpcError(code, errorMessage);
+    return new RpcError(code, errorMessage, details);
+  }
+}
+
+/**
+ * Typed startup error for streaming RPCs.
+ *
+ * Throw this from a streaming handler before the first yield to send a typed
+ * error to the client via the ERROR frame's `details` field.
+ */
+export class StartupError<T = unknown> extends RpcError {
+  public override readonly details: T;
+
+  constructor(details: T, message = 'Startup error') {
+    super(RpcStatusCode.INVALID_ARGUMENT, message);
+    this.name = 'StartupError';
+    this.details = details;
+    Object.setPrototypeOf(this, StartupError.prototype);
   }
 }
 

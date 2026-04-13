@@ -24,6 +24,11 @@ import { Stream, StreamManager, StreamState } from './stream.js';
 import { RpcError, RpcStatusCode, CancelledError, DeadlineExceededError } from './errors.js';
 import { type CallOptions, type Logger, silentLogger } from './types.js';
 
+/** Result type for streaming RPCs with startup_error. */
+export type Subscription<T, E> =
+  | { ok: true; events: AsyncGenerator<T, void, undefined> }
+  | { ok: false; error: E };
+
 export interface RpcClientOptions {
   transport: Transport;
   logger?: Logger;
@@ -115,6 +120,82 @@ export class RpcClient {
       cleanup();
       this.streams.removeStream(stream.streamId);
     }
+  }
+
+  /**
+   * Server-streaming RPC that may fail with a typed startup error.
+   *
+   * Opens the stream and waits for the first frame:
+   * - MESSAGE: resolves { ok: true, events } (first message is included)
+   * - ERROR with details: resolves { ok: false, error: details }
+   * - ERROR without details: throws RpcError (transport/protocol error)
+   * - CLOSE: resolves { ok: true, events: empty }
+   */
+  async serverStreamWithStartupError<T = unknown, E = unknown>(
+    method: string,
+    request: unknown,
+    options?: CallOptions,
+  ): Promise<Subscription<T, E>> {
+    this.ensureOpen();
+
+    const stream = this.streams.createStream();
+    const deadlineMs = options?.deadlineMs ?? this.defaultDeadlineMs;
+    const cleanup = this.setupCancellation(stream, options?.signal, deadlineMs);
+
+    this.transport.send(createOpenFrame(stream.streamId, method));
+    stream.open();
+
+    this.transport.send(createMessageFrame(stream.streamId, request));
+
+    this.transport.send(createHalfCloseFrame(stream.streamId));
+    stream.setState(StreamState.HALF_CLOSED_LOCAL);
+
+    // Wait for the first frame to discriminate startup error vs success.
+    const gen = stream.messages();
+    let first: IteratorResult<unknown>;
+    try {
+      first = await gen.next();
+    } catch (err) {
+      cleanup();
+      this.cancelStream(stream);
+      this.streams.removeStream(stream.streamId);
+
+      if (err instanceof RpcError && err.details !== undefined) {
+        return { ok: false, error: err.details as E };
+      }
+      throw err;
+    }
+
+    // Stream closed immediately with no messages (empty stream).
+    if (first.done) {
+      cleanup();
+      this.streams.removeStream(stream.streamId);
+      return {
+        ok: true,
+        events: (async function* () {})() as AsyncGenerator<T, void, undefined>,
+      };
+    }
+
+    // First message received, return generator that yields it then the rest.
+    const self = this;
+    const events = (async function* () {
+      try {
+        yield first.value as T;
+        for (;;) {
+          const next = await gen.next();
+          if (next.done) break;
+          yield next.value as T;
+        }
+      } catch (err) {
+        self.cancelStream(stream);
+        throw err;
+      } finally {
+        cleanup();
+        self.streams.removeStream(stream.streamId);
+      }
+    })();
+
+    return { ok: true, events: events as AsyncGenerator<T, void, undefined> };
   }
 
   async clientStream(
@@ -222,7 +303,7 @@ export class RpcClient {
     } else if (isErrorFrame(frame)) {
       stream.setState(StreamState.ERROR);
       stream.pushError(
-        RpcError.fromFrame(frame.error.errorCode, frame.error.errorMessage),
+        RpcError.fromFrame(frame.error.errorCode, frame.error.errorMessage, frame.error.details),
       );
     } else if (isHalfCloseFrame(frame)) {
       if (stream.state === StreamState.HALF_CLOSED_LOCAL) {

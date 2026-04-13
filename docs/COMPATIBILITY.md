@@ -17,7 +17,7 @@ The protocol is designed so that older implementations can safely handle message
 | Change | Mechanism |
 |--------|-----------|
 | Adding new `oneof` body variants | Unknown keys are ignored; frame is skipped |
-| Adding new fields to body messages | Extra JSON keys are silently ignored by decoders |
+| Adding new fields to body messages | Extra JSON keys are silently ignored by decoders (e.g., `details` on `ErrorBody`) |
 | Adding new error codes | Unknown codes are treated as INTERNAL |
 
 ### Unknown Body Variant Tolerance
@@ -81,6 +81,13 @@ When an old decoder (v1) receives a v2 message with new fields, unknown JSON key
 ### What a New Decoder Sees
 
 When a new decoder receives an old message missing new fields, those fields take their defaults (0, empty string, false, null). The new decoder gets sensible defaults.
+
+## ErrorBody `details` Field
+
+The `details` field on `ErrorBody` is a forward-compatible addition. It carries typed startup error payloads for streaming RPCs with the `startup_error` method option.
+
+- **Old client, new server**: the client ignores the unknown `details` key in the JSON and surfaces a generic `RpcError`. The typed payload is lost, but no crash occurs.
+- **New client, old server**: the server never sets `details`, so the client sees `undefined` and throws the RpcError as a transport error (the `Subscription` path requires `details` to resolve `{ ok: false }`).
 
 ## Transport Disconnection
 

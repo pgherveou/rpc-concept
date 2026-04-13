@@ -93,18 +93,21 @@ public struct CancelBody: Codable, Sendable {
 public struct ErrorBody: Codable, Sendable {
     public var errorCode: UInt32 = 0
     public var errorMessage: String = ""
+    public var details: AnyCodable? = nil
 
     public init() {}
 
     enum CodingKeys: String, CodingKey {
         case errorCode
         case errorMessage
+        case details
     }
 
     public init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         self.errorCode = (try? container.decode(UInt32.self, forKey: .errorCode)) ?? 0
         self.errorMessage = (try? container.decode(String.self, forKey: .errorMessage)) ?? ""
+        self.details = try? container.decode(AnyCodable.self, forKey: .details)
     }
 
     public init(jsonUTF8Data data: Data) throws {

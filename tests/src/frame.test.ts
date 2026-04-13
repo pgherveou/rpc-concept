@@ -88,6 +88,19 @@ describe('Frame JSON Serialization', () => {
     assert.equal(decoded.error.errorMessage, 'Internal server error');
   });
 
+  it('should round-trip ERROR frames with details', () => {
+    const details = { reason: 'expired', paymentId: 'pay-123' };
+    const frame = createErrorFrame(13, 3, 'Startup error', details);
+    const json = frameToJSON(frame);
+    const decoded = frameFromJSON(json);
+
+    assert.ok(isErrorFrame(decoded));
+    assert.equal(decoded.streamId, 13);
+    assert.equal(decoded.error.errorCode, 3);
+    assert.equal(decoded.error.errorMessage, 'Startup error');
+    assert.deepStrictEqual(decoded.error.details, details);
+  });
+
   it('should handle large stream IDs', () => {
     const frame = createMessageFrame(65535, { data: 1 });
     const json = frameToJSON(frame);

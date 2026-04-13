@@ -276,6 +276,37 @@ interface HelloServiceHandler {
 
 A dispatcher class routing JSON payloads to typed interface methods, analogous to the Swift dispatcher.
 
+## Method Options
+
+### `startup_error`
+
+The `startup_error` method option is supported on server-streaming RPCs. It declares a typed error that the handler may throw before yielding the first message.
+
+```proto
+service PaymentService {
+  rpc StatusSubscribe(PaymentStatusRequest) returns (stream PaymentStatusEvent) {
+    option (startup_error) = "PaymentStatusError";
+  }
+}
+```
+
+The value must name a message type in the same proto package. The parser reads it from `method.options['(startup_error)']` and stores it as `MethodDef.startupErrorType`.
+
+**Generated client method:**
+
+```typescript
+async statusSubscribe(
+  request: PaymentStatusRequest,
+  options?: CallOptions,
+): Promise<Subscription<PaymentStatusEvent, PaymentStatusError>>
+```
+
+The `Subscription<T, E>` type (from `@rpc-bridge/core`) is either `{ ok: true; events: AsyncGenerator<T> }` or `{ ok: false; error: E }`. The client calls `serverStreamWithStartupError` which waits for the first frame to discriminate.
+
+**Server handler interface:** unchanged. The handler returns `AsyncIterable<T>` and throws `StartupError<E>` before the first yield to signal a typed startup error.
+
+**Server dispatcher:** when `json: true`, encodes the `StartupError.details` using the error type's JSON codec before the runtime sends it on the ERROR frame.
+
 ## CLI Usage
 
 The code generator is invoked via the CLI:

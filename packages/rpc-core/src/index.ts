@@ -58,6 +58,7 @@ export {
 export {
   RpcClient,
   type RpcClientOptions,
+  type Subscription,
 } from './client.js';
 
 // Server
@@ -76,6 +77,7 @@ export {
 export {
   RpcStatusCode,
   RpcError,
+  StartupError,
   DeadlineExceededError,
   CancelledError,
 } from './errors.js';

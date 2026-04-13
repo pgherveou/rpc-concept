@@ -23,7 +23,7 @@ message MessageBody   { bytes payload = 1; }
 message HalfCloseBody {}
 message CloseBody     {}
 message CancelBody    {}
-message ErrorBody     { uint32 error_code = 1; string error_message = 2; }
+message ErrorBody     { uint32 error_code = 1; string error_message = 2; bytes details = 3; }
 
 message RpcFrame {
   uint32 stream_id = 1;
@@ -51,6 +51,7 @@ Frames are serialized as JSON objects. The `oneof` variant appears as a key alon
 {"streamId":1, "close":{}}
 {"streamId":1, "cancel":{}}
 {"streamId":1, "error":{"errorCode":13,"errorMessage":"fail"}}
+{"streamId":1, "error":{"errorCode":3,"errorMessage":"Startup error","details":{"reason":"expired"}}}
 ```
 
 For `message` frames, the `payload` field carries the application message as a nested JSON object (not raw bytes), since the wire encoding uses JSON/structured clone rather than protobuf binary.
@@ -126,6 +127,7 @@ Signals an error on the stream. Terminates the stream immediately.
 | `stream_id` | Yes | Stream that errored |
 | `error.error_code` | Yes | Error code (see Error Codes below) |
 | `error.error_message` | Recommended | Human-readable error description |
+| `error.details` | Optional | Typed error payload (JSON object). Used by streaming RPCs with `startup_error` to carry a typed error before the first message. Old clients ignore this field. |
 
 ## Stream Lifecycle
 

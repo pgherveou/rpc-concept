@@ -22,6 +22,7 @@ export type CancelBody = Record<string, never>;
 export interface ErrorBody {
   errorCode: number;
   errorMessage: string;
+  details?: unknown;
 }
 
 // --- Discriminated union ---
@@ -97,8 +98,11 @@ export function createErrorFrame(
   streamId: number,
   errorCode: number,
   errorMessage: string,
+  details?: unknown,
 ): RpcFrame {
-  return { streamId, error: { errorCode, errorMessage } };
+  const error: ErrorBody = { errorCode, errorMessage };
+  if (details !== undefined) error.details = details;
+  return { streamId, error };
 }
 
 // --- JSON serialization ---

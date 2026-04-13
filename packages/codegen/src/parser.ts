@@ -59,6 +59,8 @@ export interface MethodDef {
   outputType: string;
   clientStreaming: boolean;
   serverStreaming: boolean;
+  /** Error type name from (startup_error) method option, if present. */
+  startupErrorType?: string;
 }
 
 /** Parse a .proto file from disk. includePaths are searched when resolving imports. */
@@ -191,13 +193,18 @@ function extractEnum(enumType: protobuf.Enum): EnumDef {
 function extractService(service: protobuf.Service): ServiceDef {
   const methods: MethodDef[] = [];
   for (const method of service.methodsArray) {
-    methods.push({
+    const def: MethodDef = {
       name: method.name,
       inputType: stripPackagePrefix(method.requestType),
       outputType: stripPackagePrefix(method.responseType),
       clientStreaming: !!method.requestStream,
       serverStreaming: !!method.responseStream,
-    });
+    };
+    const startupError = method.options?.['(startup_error)'];
+    if (startupError) {
+      def.startupErrorType = stripPackagePrefix(startupError);
+    }
+    methods.push(def);
   }
   return { name: service.name, methods };
 }

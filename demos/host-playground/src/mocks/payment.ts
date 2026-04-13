@@ -1,14 +1,14 @@
 import type { IPaymentServiceHandler } from '../../../proto/generated/server.js';
 import type {
-  PaymentBalanceEvent,
+  PaymentBalance,
   PaymentTopUpResponse,
   PaymentRequestResponse,
   PaymentStatusEvent,
 } from '../../../proto/generated/messages.js';
 
 export const paymentHandler: IPaymentServiceHandler = {
-  async *balanceSubscribe(): AsyncGenerator<PaymentBalanceEvent> {
-    yield { result: { case: 'balance', value: { available: '1000000000000', pending: '0' } } };
+  async *balanceSubscribe(): AsyncGenerator<PaymentBalance> {
+    yield { available: '1000000000000', pending: '0' };
   },
   async topUp(): Promise<PaymentTopUpResponse> {
     return { result: { case: 'ok' } };
