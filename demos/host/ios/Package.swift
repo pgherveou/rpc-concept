@@ -10,14 +10,12 @@ let package = Package(
     ],
     dependencies: [
         .package(path: "../../../packages/rpc-core-swift"),
-        .package(url: "https://github.com/apple/swift-protobuf.git", from: "1.28.0"),
     ],
     targets: [
         .executableTarget(
             name: "RPCBridgeDemo",
             dependencies: [
                 .product(name: "RpcBridge", package: "rpc-core-swift"),
-                .product(name: "SwiftProtobuf", package: "swift-protobuf"),
             ],
             path: "RPCBridgeDemo",
             sources: ["Sources", "generated"],

@@ -3,23 +3,22 @@
 // -----------------------------------------------------------------
 
 /** Message: HelloRequest */
-export interface IHelloRequest {
+export interface HelloRequest {
   name: string;
   language: string;
 }
 
-export class HelloRequest implements IHelloRequest {
-  name: string = '';
-  language: string = '';
+export function createHelloRequest(init?: Partial<HelloRequest>): HelloRequest {
+  return {
+    name: '',
+    language: '',
+    ...init,
+  };
+}
 
-  constructor(init?: Partial<IHelloRequest>) {
-    if (init) {
-      Object.assign(this, init);
-    }
-  }
-
-  /** Serialize to a JSON-compatible plain object (proto3 JSON mapping). */
-  static toJSON(msg: IHelloRequest): Record<string, unknown> {
+/** JSON codec for HelloRequest (proto3 JSON mapping). */
+export const HelloRequestJSON = {
+  encode(msg: HelloRequest): Record<string, unknown> {
     const o: Record<string, unknown> = {};
     if (msg.name !== '') {
       o.name = msg.name;
@@ -28,37 +27,34 @@ export class HelloRequest implements IHelloRequest {
       o.language = msg.language;
     }
     return o;
-  }
-
-  /** Deserialize from a JSON-compatible plain object (proto3 JSON mapping). */
-  static fromJSON(o: Record<string, unknown>): HelloRequest {
-    const msg = new HelloRequest();
+  },
+  decode(o: Record<string, unknown>): HelloRequest {
+    const msg = createHelloRequest();
     if (typeof o.name === 'string') msg.name = o.name as string;
     if (typeof o.language === 'string') msg.language = o.language as string;
     return msg;
-  }
-}
+  },
+};
 
 /** Message: HelloResponse */
-export interface IHelloResponse {
+export interface HelloResponse {
   message: string;
   timestamp: bigint;
   serverVersion: string;
 }
 
-export class HelloResponse implements IHelloResponse {
-  message: string = '';
-  timestamp: bigint = 0n;
-  serverVersion: string = '';
+export function createHelloResponse(init?: Partial<HelloResponse>): HelloResponse {
+  return {
+    message: '',
+    timestamp: 0n,
+    serverVersion: '',
+    ...init,
+  };
+}
 
-  constructor(init?: Partial<IHelloResponse>) {
-    if (init) {
-      Object.assign(this, init);
-    }
-  }
-
-  /** Serialize to a JSON-compatible plain object (proto3 JSON mapping). */
-  static toJSON(msg: IHelloResponse): Record<string, unknown> {
+/** JSON codec for HelloResponse (proto3 JSON mapping). */
+export const HelloResponseJSON = {
+  encode(msg: HelloResponse): Record<string, unknown> {
     const o: Record<string, unknown> = {};
     if (msg.message !== '') {
       o.message = msg.message;
@@ -70,38 +66,35 @@ export class HelloResponse implements IHelloResponse {
       o.serverVersion = msg.serverVersion;
     }
     return o;
-  }
-
-  /** Deserialize from a JSON-compatible plain object (proto3 JSON mapping). */
-  static fromJSON(o: Record<string, unknown>): HelloResponse {
-    const msg = new HelloResponse();
+  },
+  decode(o: Record<string, unknown>): HelloResponse {
+    const msg = createHelloResponse();
     if (typeof o.message === 'string') msg.message = o.message as string;
     { const v = o.timestamp; if (typeof v === 'string') msg.timestamp = BigInt(v); else if (typeof v === 'number') msg.timestamp = BigInt(v); else if (typeof v === 'bigint') msg.timestamp = v; }
     if (typeof o.serverVersion === 'string') msg.serverVersion = o.serverVersion as string;
     return msg;
-  }
-}
+  },
+};
 
 /** Message: GreetingStreamRequest */
-export interface IGreetingStreamRequest {
+export interface GreetingStreamRequest {
   name: string;
   maxCount: number;
   intervalMs: number;
 }
 
-export class GreetingStreamRequest implements IGreetingStreamRequest {
-  name: string = '';
-  maxCount: number = 0;
-  intervalMs: number = 0;
+export function createGreetingStreamRequest(init?: Partial<GreetingStreamRequest>): GreetingStreamRequest {
+  return {
+    name: '',
+    maxCount: 0,
+    intervalMs: 0,
+    ...init,
+  };
+}
 
-  constructor(init?: Partial<IGreetingStreamRequest>) {
-    if (init) {
-      Object.assign(this, init);
-    }
-  }
-
-  /** Serialize to a JSON-compatible plain object (proto3 JSON mapping). */
-  static toJSON(msg: IGreetingStreamRequest): Record<string, unknown> {
+/** JSON codec for GreetingStreamRequest (proto3 JSON mapping). */
+export const GreetingStreamRequestJSON = {
+  encode(msg: GreetingStreamRequest): Record<string, unknown> {
     const o: Record<string, unknown> = {};
     if (msg.name !== '') {
       o.name = msg.name;
@@ -113,38 +106,35 @@ export class GreetingStreamRequest implements IGreetingStreamRequest {
       o.intervalMs = msg.intervalMs;
     }
     return o;
-  }
-
-  /** Deserialize from a JSON-compatible plain object (proto3 JSON mapping). */
-  static fromJSON(o: Record<string, unknown>): GreetingStreamRequest {
-    const msg = new GreetingStreamRequest();
+  },
+  decode(o: Record<string, unknown>): GreetingStreamRequest {
+    const msg = createGreetingStreamRequest();
     if (typeof o.name === 'string') msg.name = o.name as string;
     if (typeof o.maxCount === 'number') msg.maxCount = o.maxCount as number;
     if (typeof o.intervalMs === 'number') msg.intervalMs = o.intervalMs as number;
     return msg;
-  }
-}
+  },
+};
 
 /** Message: GreetingEvent */
-export interface IGreetingEvent {
+export interface GreetingEvent {
   message: string;
   seq: bigint;
   timestamp: bigint;
 }
 
-export class GreetingEvent implements IGreetingEvent {
-  message: string = '';
-  seq: bigint = 0n;
-  timestamp: bigint = 0n;
+export function createGreetingEvent(init?: Partial<GreetingEvent>): GreetingEvent {
+  return {
+    message: '',
+    seq: 0n,
+    timestamp: 0n,
+    ...init,
+  };
+}
 
-  constructor(init?: Partial<IGreetingEvent>) {
-    if (init) {
-      Object.assign(this, init);
-    }
-  }
-
-  /** Serialize to a JSON-compatible plain object (proto3 JSON mapping). */
-  static toJSON(msg: IGreetingEvent): Record<string, unknown> {
+/** JSON codec for GreetingEvent (proto3 JSON mapping). */
+export const GreetingEventJSON = {
+  encode(msg: GreetingEvent): Record<string, unknown> {
     const o: Record<string, unknown> = {};
     if (msg.message !== '') {
       o.message = msg.message;
@@ -156,67 +146,61 @@ export class GreetingEvent implements IGreetingEvent {
       o.timestamp = msg.timestamp.toString();
     }
     return o;
-  }
-
-  /** Deserialize from a JSON-compatible plain object (proto3 JSON mapping). */
-  static fromJSON(o: Record<string, unknown>): GreetingEvent {
-    const msg = new GreetingEvent();
+  },
+  decode(o: Record<string, unknown>): GreetingEvent {
+    const msg = createGreetingEvent();
     if (typeof o.message === 'string') msg.message = o.message as string;
     { const v = o.seq; if (typeof v === 'string') msg.seq = BigInt(v); else if (typeof v === 'number') msg.seq = BigInt(v); else if (typeof v === 'bigint') msg.seq = v; }
     { const v = o.timestamp; if (typeof v === 'string') msg.timestamp = BigInt(v); else if (typeof v === 'number') msg.timestamp = BigInt(v); else if (typeof v === 'bigint') msg.timestamp = v; }
     return msg;
-  }
-}
+  },
+};
 
 /** Message: CollectNamesRequest */
-export interface ICollectNamesRequest {
+export interface CollectNamesRequest {
   name: string;
 }
 
-export class CollectNamesRequest implements ICollectNamesRequest {
-  name: string = '';
+export function createCollectNamesRequest(init?: Partial<CollectNamesRequest>): CollectNamesRequest {
+  return {
+    name: '',
+    ...init,
+  };
+}
 
-  constructor(init?: Partial<ICollectNamesRequest>) {
-    if (init) {
-      Object.assign(this, init);
-    }
-  }
-
-  /** Serialize to a JSON-compatible plain object (proto3 JSON mapping). */
-  static toJSON(msg: ICollectNamesRequest): Record<string, unknown> {
+/** JSON codec for CollectNamesRequest (proto3 JSON mapping). */
+export const CollectNamesRequestJSON = {
+  encode(msg: CollectNamesRequest): Record<string, unknown> {
     const o: Record<string, unknown> = {};
     if (msg.name !== '') {
       o.name = msg.name;
     }
     return o;
-  }
-
-  /** Deserialize from a JSON-compatible plain object (proto3 JSON mapping). */
-  static fromJSON(o: Record<string, unknown>): CollectNamesRequest {
-    const msg = new CollectNamesRequest();
+  },
+  decode(o: Record<string, unknown>): CollectNamesRequest {
+    const msg = createCollectNamesRequest();
     if (typeof o.name === 'string') msg.name = o.name as string;
     return msg;
-  }
-}
+  },
+};
 
 /** Message: CollectNamesResponse */
-export interface ICollectNamesResponse {
+export interface CollectNamesResponse {
   message: string;
   count: number;
 }
 
-export class CollectNamesResponse implements ICollectNamesResponse {
-  message: string = '';
-  count: number = 0;
+export function createCollectNamesResponse(init?: Partial<CollectNamesResponse>): CollectNamesResponse {
+  return {
+    message: '',
+    count: 0,
+    ...init,
+  };
+}
 
-  constructor(init?: Partial<ICollectNamesResponse>) {
-    if (init) {
-      Object.assign(this, init);
-    }
-  }
-
-  /** Serialize to a JSON-compatible plain object (proto3 JSON mapping). */
-  static toJSON(msg: ICollectNamesResponse): Record<string, unknown> {
+/** JSON codec for CollectNamesResponse (proto3 JSON mapping). */
+export const CollectNamesResponseJSON = {
+  encode(msg: CollectNamesResponse): Record<string, unknown> {
     const o: Record<string, unknown> = {};
     if (msg.message !== '') {
       o.message = msg.message;
@@ -225,39 +209,36 @@ export class CollectNamesResponse implements ICollectNamesResponse {
       o.count = msg.count;
     }
     return o;
-  }
-
-  /** Deserialize from a JSON-compatible plain object (proto3 JSON mapping). */
-  static fromJSON(o: Record<string, unknown>): CollectNamesResponse {
-    const msg = new CollectNamesResponse();
+  },
+  decode(o: Record<string, unknown>): CollectNamesResponse {
+    const msg = createCollectNamesResponse();
     if (typeof o.message === 'string') msg.message = o.message as string;
     if (typeof o.count === 'number') msg.count = o.count as number;
     return msg;
-  }
-}
+  },
+};
 
 /** Message: ChatMessage */
-export interface IChatMessage {
+export interface ChatMessage {
   from: string;
   text: string;
   seq: bigint;
   timestamp: bigint;
 }
 
-export class ChatMessage implements IChatMessage {
-  from: string = '';
-  text: string = '';
-  seq: bigint = 0n;
-  timestamp: bigint = 0n;
+export function createChatMessage(init?: Partial<ChatMessage>): ChatMessage {
+  return {
+    from: '',
+    text: '',
+    seq: 0n,
+    timestamp: 0n,
+    ...init,
+  };
+}
 
-  constructor(init?: Partial<IChatMessage>) {
-    if (init) {
-      Object.assign(this, init);
-    }
-  }
-
-  /** Serialize to a JSON-compatible plain object (proto3 JSON mapping). */
-  static toJSON(msg: IChatMessage): Record<string, unknown> {
+/** JSON codec for ChatMessage (proto3 JSON mapping). */
+export const ChatMessageJSON = {
+  encode(msg: ChatMessage): Record<string, unknown> {
     const o: Record<string, unknown> = {};
     if (msg.from !== '') {
       o.from = msg.from;
@@ -272,15 +253,13 @@ export class ChatMessage implements IChatMessage {
       o.timestamp = msg.timestamp.toString();
     }
     return o;
-  }
-
-  /** Deserialize from a JSON-compatible plain object (proto3 JSON mapping). */
-  static fromJSON(o: Record<string, unknown>): ChatMessage {
-    const msg = new ChatMessage();
+  },
+  decode(o: Record<string, unknown>): ChatMessage {
+    const msg = createChatMessage();
     if (typeof o.from === 'string') msg.from = o.from as string;
     if (typeof o.text === 'string') msg.text = o.text as string;
     { const v = o.seq; if (typeof v === 'string') msg.seq = BigInt(v); else if (typeof v === 'number') msg.seq = BigInt(v); else if (typeof v === 'bigint') msg.seq = v; }
     { const v = o.timestamp; if (typeof v === 'string') msg.timestamp = BigInt(v); else if (typeof v === 'number') msg.timestamp = BigInt(v); else if (typeof v === 'bigint') msg.timestamp = v; }
     return msg;
-  }
-}
+  },
+};

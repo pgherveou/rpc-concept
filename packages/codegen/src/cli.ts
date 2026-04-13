@@ -66,7 +66,7 @@ function main(): void {
     mkdirSync(swiftDir, { recursive: true });
 
     const swift = generateSwift(proto);
-    const fileName = proto.services[0]?.name ?? 'Service';
+    const fileName = proto.services[0]?.name ?? swiftNamespaceFromPkg(proto.package);
     writeFile(resolve(swiftDir, `${fileName}.swift`), swift);
 
     console.log(`Swift generated in: ${swiftDir}`);
@@ -85,6 +85,10 @@ function main(): void {
   }
 
   console.log('Code generation complete.');
+}
+
+function swiftNamespaceFromPkg(pkg: string): string {
+  return pkg.split('.').map((s) => s.charAt(0).toUpperCase() + s.slice(1)).join('');
 }
 
 function writeFile(path: string, content: string): void {

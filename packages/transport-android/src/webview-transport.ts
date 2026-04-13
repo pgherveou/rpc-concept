@@ -16,7 +16,7 @@
  *   To send to JS: webView.evaluateJavascript("window.__rpcBridgeReceive('...')", null)
  */
 
-import { MessageTransportBase, FrameEncoding, type Logger } from '@rpc-bridge/core';
+import { MessageTransportBase, FrameEncoding, type Logger, type RpcFrame } from '@rpc-bridge/core';
 
 declare global {
   interface Window {
@@ -42,7 +42,7 @@ export class AndroidWebViewTransport extends MessageTransportBase {
   private readonly callbackName: string;
 
   constructor(options: AndroidWebViewTransportOptions = {}) {
-    super(FrameEncoding.BASE64, options.logger);
+    super(FrameEncoding.JSON, options.logger);
     this.interfaceName = options.interfaceName ?? DEFAULT_INTERFACE_NAME;
     this.callbackName = options.callbackName ?? DEFAULT_CALLBACK_NAME;
 
@@ -61,9 +61,9 @@ export class AndroidWebViewTransport extends MessageTransportBase {
     }
   }
 
-  protected sendRaw(data: Uint8Array | string | object): void {
+  protected sendRaw(data: string | RpcFrame): void {
     if (typeof data !== 'string') {
-      throw new Error('Expected base64 string but received binary data');
+      throw new Error('Expected JSON string but received non-string data');
     }
     const bridge = window[this.interfaceName] as Record<string, unknown> | undefined;
     if (!bridge || typeof bridge.sendFrame !== 'function') {

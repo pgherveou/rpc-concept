@@ -1,5 +1,5 @@
 import { createContext, useContext } from 'react';
-import type { HelloBridgeServiceClient } from '../../generated/client.js';
+import type { HelloBridgeServiceClient } from '../../proto/generated/client.js';
 
 export const ClientContext = createContext<HelloBridgeServiceClient | null>(null);
 

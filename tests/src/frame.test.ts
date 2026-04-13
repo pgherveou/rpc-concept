@@ -4,14 +4,13 @@
  * Validates:
  * - Round-trip serialization for all frame types via frameToJSON/frameFromJSON
  * - Field preservation
- * - Forward compatibility (unknown fields are preserved in JSON)
+ * - Forward compatibility (unknown body types are silently ignored)
  * - Edge cases (minimal frames, fully populated frames)
  */
 
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  FrameType,
   frameToJSON,
   frameFromJSON,
   createOpenFrame,
@@ -20,29 +19,24 @@ import {
   createCloseFrame,
   createCancelFrame,
   createErrorFrame,
+  isOpenFrame,
+  isMessageFrame,
+  isHalfCloseFrame,
+  isCloseFrame,
+  isCancelFrame,
+  isErrorFrame,
   type RpcFrame,
 } from '@rpc-bridge/core';
 
 describe('Frame JSON Serialization', () => {
-  it('should round-trip a minimal frame', () => {
-    const frame: RpcFrame = {
-      type: FrameType.UNSPECIFIED,
-      streamId: 0,
-    };
-    const json = frameToJSON(frame);
-    const decoded = frameFromJSON(json);
-    assert.equal(decoded.type, FrameType.UNSPECIFIED);
-    assert.equal(decoded.streamId, 0);
-  });
-
   it('should round-trip OPEN frames', () => {
     const frame = createOpenFrame(1, 'demo.hello.v1.HelloBridgeService/SayHello');
     const json = frameToJSON(frame);
     const decoded = frameFromJSON(json);
 
-    assert.equal(decoded.type, FrameType.OPEN);
+    assert.ok(isOpenFrame(decoded));
     assert.equal(decoded.streamId, 1);
-    assert.equal(decoded.method, 'demo.hello.v1.HelloBridgeService/SayHello');
+    assert.equal(decoded.open.method, 'demo.hello.v1.HelloBridgeService/SayHello');
   });
 
   it('should round-trip MESSAGE frames with payload', () => {
@@ -51,9 +45,9 @@ describe('Frame JSON Serialization', () => {
     const json = frameToJSON(frame);
     const decoded = frameFromJSON(json);
 
-    assert.equal(decoded.type, FrameType.MESSAGE);
+    assert.ok(isMessageFrame(decoded));
     assert.equal(decoded.streamId, 3);
-    assert.deepEqual(decoded.payload, payload);
+    assert.deepEqual(decoded.message.payload, payload);
   });
 
   it('should round-trip HALF_CLOSE frames', () => {
@@ -61,7 +55,7 @@ describe('Frame JSON Serialization', () => {
     const json = frameToJSON(frame);
     const decoded = frameFromJSON(json);
 
-    assert.equal(decoded.type, FrameType.HALF_CLOSE);
+    assert.ok(isHalfCloseFrame(decoded));
     assert.equal(decoded.streamId, 5);
   });
 
@@ -70,7 +64,7 @@ describe('Frame JSON Serialization', () => {
     const json = frameToJSON(frame);
     const decoded = frameFromJSON(json);
 
-    assert.equal(decoded.type, FrameType.CLOSE);
+    assert.ok(isCloseFrame(decoded));
     assert.equal(decoded.streamId, 7);
   });
 
@@ -79,7 +73,7 @@ describe('Frame JSON Serialization', () => {
     const json = frameToJSON(frame);
     const decoded = frameFromJSON(json);
 
-    assert.equal(decoded.type, FrameType.CANCEL);
+    assert.ok(isCancelFrame(decoded));
     assert.equal(decoded.streamId, 9);
   });
 
@@ -88,10 +82,10 @@ describe('Frame JSON Serialization', () => {
     const json = frameToJSON(frame);
     const decoded = frameFromJSON(json);
 
-    assert.equal(decoded.type, FrameType.ERROR);
+    assert.ok(isErrorFrame(decoded));
     assert.equal(decoded.streamId, 11);
-    assert.equal(decoded.errorCode, 13);
-    assert.equal(decoded.errorMessage, 'Internal server error');
+    assert.equal(decoded.error.errorCode, 13);
+    assert.equal(decoded.error.errorMessage, 'Internal server error');
   });
 
   it('should handle large stream IDs', () => {
@@ -105,14 +99,16 @@ describe('Frame JSON Serialization', () => {
     const frame = createMessageFrame(1, null);
     const json = frameToJSON(frame);
     const decoded = frameFromJSON(json);
-    assert.equal(decoded.payload, null);
+    assert.ok(isMessageFrame(decoded));
+    assert.equal(decoded.message.payload, null);
   });
 
   it('should handle string payload', () => {
     const frame = createMessageFrame(1, 'hello world');
     const json = frameToJSON(frame);
     const decoded = frameFromJSON(json);
-    assert.equal(decoded.payload, 'hello world');
+    assert.ok(isMessageFrame(decoded));
+    assert.equal(decoded.message.payload, 'hello world');
   });
 
   it('should preserve unknown fields in JSON (forward compatibility)', () => {
@@ -120,49 +116,32 @@ describe('Frame JSON Serialization', () => {
     const json = frameToJSON(frame);
     const parsed = JSON.parse(json);
 
-    // Simulate a newer protocol version adding fields
-    parsed.newField = 'future';
-    parsed.anotherField = 99;
+    // Simulate a newer protocol version adding a new body type
+    parsed.newBodyType = { data: 'future' };
 
     const decoded = frameFromJSON(JSON.stringify(parsed));
-    assert.equal(decoded.type, FrameType.MESSAGE);
+    // The existing body is still recognized
+    assert.ok(isMessageFrame(decoded));
     assert.equal(decoded.streamId, 1);
-    assert.deepEqual(decoded.payload, { msg: 'test' });
-    // Unknown fields naturally preserved
-    assert.equal((decoded as unknown as Record<string, unknown>)['newField'], 'future');
-    assert.equal((decoded as unknown as Record<string, unknown>)['anotherField'], 99);
+    assert.deepEqual(decoded.message.payload, { msg: 'test' });
   });
 });
 
 describe('Frame JSON edge cases', () => {
-  it('should produce valid JSON for a minimal frame', () => {
-    const frame: RpcFrame = {
-      type: FrameType.UNSPECIFIED,
-      streamId: 0,
-    };
+  it('should produce correct JSON shape for an open frame', () => {
+    const frame = createOpenFrame(1, 'pkg.Svc/Method');
     const json = frameToJSON(frame);
     const parsed = JSON.parse(json);
-    assert.equal(parsed.type, 0);
-    assert.equal(parsed.streamId, 0);
+    assert.equal(parsed.streamId, 1);
+    assert.deepEqual(parsed.open, { method: 'pkg.Svc/Method' });
+    assert.equal(parsed.type, undefined);
   });
 
-  it('should round-trip a fully populated frame', () => {
-    const frame: RpcFrame = {
-      type: FrameType.ERROR,
-      streamId: 999,
-      payload: { some: 'data' },
-      method: 'pkg.Svc/Method',
-      errorCode: 13,
-      errorMessage: 'fail',
-    };
+  it('should produce correct JSON shape for an error frame', () => {
+    const frame = createErrorFrame(999, 13, 'fail');
     const json = frameToJSON(frame);
-    const decoded = frameFromJSON(json);
-
-    assert.equal(decoded.type, frame.type);
-    assert.equal(decoded.streamId, frame.streamId);
-    assert.deepEqual(decoded.payload, frame.payload);
-    assert.equal(decoded.method, frame.method);
-    assert.equal(decoded.errorCode, frame.errorCode);
-    assert.equal(decoded.errorMessage, frame.errorMessage);
+    const parsed = JSON.parse(json);
+    assert.equal(parsed.streamId, 999);
+    assert.deepEqual(parsed.error, { errorCode: 13, errorMessage: 'fail' });
   });
 });

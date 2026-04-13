@@ -21,8 +21,8 @@ interface Transport {
 
 `MessageTransportBase` is the abstract base class that all platform transports extend. It provides:
 
-- **Frame serialization**: Encodes `RpcFrame` objects via `encodeFrame()` and decodes incoming raw data via `decodeFrame()`.
-- **Encoding strategy**: Selects between binary (`Uint8Array`) or base64 (`string`) encoding based on what the platform supports.
+- **Frame serialization**: Serializes `RpcFrame` objects to JSON and deserializes incoming data back to frames.
+- **Encoding strategy**: Uses structured clone (plain objects) on platforms that support it, or JSON strings on string-only bridges.
 - **Handler management**: Maintains lists of frame, error, and close handlers.
 - **Error handling**: Catches decode errors and routes them to error handlers.
 
@@ -31,35 +31,28 @@ Subclasses only need to implement two things:
 ```typescript
 abstract class MessageTransportBase {
   // Subclass implements: send raw data over the platform bridge
-  protected abstract sendRaw(data: Uint8Array | string): void;
+  protected abstract sendRaw(data: unknown): void;
 
   // Subclass calls: when raw data arrives from the peer
-  protected handleRawMessage(data: Uint8Array | string | ArrayBuffer): void;
+  protected handleRawMessage(data: unknown): void;
 }
 ```
 
 ### Frame Encoding Strategies
 
-```typescript
-enum FrameEncoding {
-  BINARY = 'binary',   // Uint8Array - most efficient
-  BASE64 = 'base64',   // string - for platforms that only support strings
-}
-```
-
-| Platform | Encoding | Reason |
-|----------|----------|--------|
-| Web (MessagePort) | Binary | MessagePort supports transferable ArrayBuffers |
-| Web (postMessage) | Base64 | Cross-origin postMessage is safer with structured data |
-| iOS (WKWebView) | Base64 | `webkit.messageHandlers` only supports JSON-compatible types |
-| Android (WebView) | Base64 | `@JavascriptInterface` only supports primitive types (String, int, etc.) |
-| Electron (MessagePort) | Binary | Electron MessagePort supports ArrayBuffer transfer |
+| Platform | Format | Reason |
+|----------|--------|--------|
+| Web (MessagePort) | Structured clone (object) | MessagePort supports structured clone natively |
+| Web (postMessage) | JSON string | Cross-origin postMessage wraps frames in an envelope |
+| iOS (WKWebView) | JSON string | `webkit.messageHandlers` only supports JSON-compatible types |
+| Android (WebView) | JSON string | `@JavascriptInterface` only supports primitive types (String, int, etc.) |
+| Electron (MessagePort) | Structured clone (object) | Electron MessagePort supports structured clone |
 
 ## Web: MessagePort Transport (Preferred)
 
 **Package**: `@rpc-bridge/transport-web`
 **Class**: `MessagePortTransport`
-**Encoding**: Binary
+**Encoding**: Structured clone (plain object)
 
 ### Architecture
 
@@ -82,28 +75,20 @@ Host Page                              Sandboxed Iframe
 3. Host transfers `port2` to the iframe via `iframe.contentWindow.postMessage(msg, origin, [port2])`.
 4. Iframe receives `port2` in the `message` event's `ports` array and wraps it in its own `MessagePortTransport`.
 
-### Zero-Copy Transfer
+### Structured Clone Transfer
 
-MessagePort supports transferable objects. When sending a `Uint8Array`:
+MessagePort uses the structured clone algorithm, so `RpcFrame` objects (plain JSON-compatible objects) are passed directly without manual serialization:
 
 ```typescript
-protected sendRaw(data: Uint8Array | string): void {
-  if (data instanceof Uint8Array) {
-    // Transfer the ArrayBuffer - zero-copy!
-    const buffer = data.buffer.slice(data.byteOffset, data.byteOffset + data.byteLength);
-    this.port.postMessage(buffer, [buffer]);
-  } else {
-    this.port.postMessage(data);
-  }
+protected sendRaw(data: unknown): void {
+  this.port.postMessage(data);
 }
 ```
-
-The `[buffer]` transfer list moves ownership of the ArrayBuffer to the receiving side without copying the bytes.
 
 ### Why MessagePort is Preferred
 
 - **Dedicated channel**: No need to filter messages from other sources.
-- **Transferable support**: Binary data moves without copying.
+- **Structured clone**: Frame objects are cloned natively by the browser, no JSON.stringify/parse needed.
 - **Bidirectional**: Both sides can send and receive.
 - **Works with iframes and workers**: Same API for both.
 
@@ -111,7 +96,7 @@ The `[buffer]` transfer list moves ownership of the ArrayBuffer to the receiving
 
 **Package**: `@rpc-bridge/transport-web`
 **Class**: `PostMessageTransport`
-**Encoding**: Base64
+**Encoding**: JSON string (inside postMessage envelope)
 
 ### Architecture
 
@@ -131,7 +116,7 @@ Uses `window.postMessage` for cross-origin communication. Messages are wrapped i
 ```json
 {
   "channel": "rpc-bridge",
-  "frame": "<base64-encoded-frame>"
+  "frame": {"streamId":1, "open":{"method":"pkg.Svc/Method"}}
 }
 ```
 
@@ -172,7 +157,7 @@ Use `PostMessageTransport` when:
 
 **Package**: `@rpc-bridge/transport-ios`
 **Class**: `WKWebViewTransport` (JS side)
-**Encoding**: Base64
+**Encoding**: JSON string
 
 ### Architecture
 
@@ -181,13 +166,13 @@ WKWebView (JS)                          Native (Swift)
 +--------------------------+             +--------------------------+
 | WKWebViewTransport       |             | WKScriptMessageHandler   |
 |                          |             |                          |
-| sendRaw(base64) --------+--- pM ----->| userContentController     |
+| sendRaw(json) ----------+--- pM ----->| userContentController     |
 |   webkit.messageHandlers |             |   .didReceive(message)   |
 |   .rpcBridge.postMessage |             |                          |
 |                          |             |                          |
-| __rpcBridgeReceive(b64) <+--- eval ---| evaluateJavaScript(      |
+| __rpcBridgeReceive(json)<+--- eval ---| evaluateJavaScript(      |
 |   (global callback)     |             |   "window.__rpcBridge... |
-+--------------------------+             |   Receive('<base64>')")  |
++--------------------------+             |   Receive(<json>)")      |
                                          +--------------------------+
 ```
 
@@ -196,8 +181,8 @@ WKWebView (JS)                          Native (Swift)
 The JS side calls the WKWebView message handler:
 
 ```typescript
-protected sendRaw(data: Uint8Array | string): void {
-  window.webkit.messageHandlers.rpcBridge.postMessage(base64String);
+protected sendRaw(data: unknown): void {
+  window.webkit.messageHandlers.rpcBridge.postMessage(jsonString);
 }
 ```
 
@@ -206,8 +191,8 @@ On the Swift side, a `WKScriptMessageHandler` receives the message:
 ```swift
 func userContentController(_ controller: WKUserContentController,
                            didReceive message: WKScriptMessage) {
-    guard let base64 = message.body as? String else { return }
-    let frame = decodeFrameFromBase64(base64)
+    guard let json = message.body as? String else { return }
+    let frame = try JSONDecoder().decode(RpcFrame.self, from: json.data(using: .utf8)!)
     server.handleFrame(frame)
 }
 ```
@@ -218,8 +203,8 @@ The Swift side evaluates JavaScript in the WebView:
 
 ```swift
 func sendToWebView(frame: RpcFrame) {
-    let base64 = encodeFrameToBase64(frame)
-    let js = "window.__rpcBridgeReceive('\(base64)')"
+    let json = String(data: try! JSONEncoder().encode(frame), encoding: .utf8)!
+    let js = "window.__rpcBridgeReceive(\(json))"
     webView.evaluateJavaScript(js, completionHandler: nil)
 }
 ```
@@ -227,14 +212,14 @@ func sendToWebView(frame: RpcFrame) {
 The JS side receives via the global callback:
 
 ```typescript
-window.__rpcBridgeReceive = (base64Frame: string) => {
-  this.handleRawMessage(base64Frame);
+window.__rpcBridgeReceive = (jsonFrame: string) => {
+  this.handleRawMessage(jsonFrame);
 };
 ```
 
-### Why Base64
+### Why JSON Strings
 
-WKWebView's `WKScriptMessageHandler` only supports JSON-compatible types (strings, numbers, arrays, dictionaries). Binary data must be base64-encoded to pass through this interface.
+WKWebView's `WKScriptMessageHandler` only supports JSON-compatible types (strings, numbers, arrays, dictionaries). Frames are serialized as JSON strings to pass through this interface.
 
 ### Security Considerations
 
@@ -246,7 +231,7 @@ WKWebView's `WKScriptMessageHandler` only supports JSON-compatible types (string
 
 **Package**: `@rpc-bridge/transport-android`
 **Class**: `AndroidWebViewTransport` (JS side)
-**Encoding**: Base64
+**Encoding**: JSON string
 
 ### Architecture
 
@@ -255,11 +240,11 @@ WebView (JS)                             Native (Kotlin)
 +--------------------------+             +--------------------------+
 | AndroidWebViewTransport  |             | NativeBridgeTransport    |
 |                          |             |                          |
-| sendRaw(base64) --------+--- JI ----->| @JavascriptInterface     |
-|   window.RpcBridge       |             |   fun sendFrame(base64)  |
-|   .sendFrame(base64)    |             |     -> onReceiveFromWeb() |
+| sendRaw(json) ----------+--- JI ----->| @JavascriptInterface     |
+|   window.RpcBridge       |             |   fun sendFrame(json)    |
+|   .sendFrame(json)      |             |     -> onReceiveFromWeb() |
 |                          |             |                          |
-| __rpcBridgeReceive(b64) <+--- eval ---| sendToWebView(frame)     |
+| __rpcBridgeReceive(json)<+--- eval ---| sendToWebView(frame)     |
 |   (global callback)     |             |   -> evaluateJavascript( |
 +--------------------------+             |      "window.__rpc..."   |
                                          +--------------------------+
@@ -270,8 +255,8 @@ WebView (JS)                             Native (Kotlin)
 The JS side calls the injected `@JavascriptInterface` object:
 
 ```typescript
-protected sendRaw(data: Uint8Array | string): void {
-  window.RpcBridge.sendFrame(base64String);
+protected sendRaw(data: unknown): void {
+  window.RpcBridge.sendFrame(jsonString);
 }
 ```
 
@@ -280,8 +265,8 @@ On the Kotlin side:
 ```kotlin
 class WebViewBridge(private val transport: NativeBridgeTransport) {
     @JavascriptInterface
-    fun sendFrame(base64: String) {
-        transport.onReceiveFromWebView(base64)
+    fun sendFrame(json: String) {
+        transport.onReceiveFromWebView(json)
     }
 }
 
@@ -295,8 +280,8 @@ The Kotlin side evaluates JavaScript:
 
 ```kotlin
 fun sendToWebView(frame: RpcFrame) {
-    val base64 = encodeFrameToBase64(frame)
-    val js = "window.$callbackName('$base64')"
+    val json = Json.encodeToString(frame)
+    val js = "window.$callbackName($json)"
 
     // Must run on main thread
     mainHandler.post {
@@ -323,7 +308,7 @@ Android WebView has specific threading requirements:
 
 **Package**: `@rpc-bridge/transport-electron`
 **Classes**: `ElectronMainTransport` (main process), `ElectronPreloadTransport` (renderer)
-**Encoding**: Binary
+**Encoding**: Structured clone (plain object)
 
 ### Architecture
 
@@ -380,25 +365,15 @@ Main Process                             Renderer Process
    const transport = new ElectronPreloadTransport({ port });
    ```
 
-### Binary Transport
+### Structured Clone Transport
 
-Electron's MessagePort API (on both the main process `MessagePortMain` and renderer-side DOM `MessagePort`) supports binary data transfer:
+Electron's MessagePort API (on both the main process `MessagePortMain` and renderer-side DOM `MessagePort`) supports the structured clone algorithm. Frame objects are passed directly as plain objects:
 
-- **Main to renderer**: Sends `Buffer` objects:
-  ```typescript
-  protected sendRaw(data: Uint8Array | string): void {
-    const buffer = Buffer.from(data.buffer, data.byteOffset, data.byteLength);
-    this.port.postMessage(buffer);
-  }
-  ```
-
-- **Renderer to main**: Transfers `ArrayBuffer` objects (zero-copy):
-  ```typescript
-  protected sendRaw(data: Uint8Array | string): void {
-    const buffer = data.buffer.slice(data.byteOffset, data.byteOffset + data.byteLength);
-    this.port.postMessage(buffer, [buffer]);
-  }
-  ```
+```typescript
+protected sendRaw(data: unknown): void {
+  this.port.postMessage(data);
+}
+```
 
 ### Duck-Typed MessagePortMain
 
@@ -432,29 +407,25 @@ The renderer has **no access** to Node.js APIs, Electron APIs, or the file syste
 ## Encoding Strategy Summary
 
 ```
-                    +-- Binary (Uint8Array) --+-- MessagePort (Web)
-                    |                         +-- Electron MessagePort
-RpcFrame --encode-->|
-                    |                         +-- WKWebView (iOS)
-                    +-- Base64 (string) ------+-- Android WebView
-                                              +-- postMessage (Web)
+                         +-- Structured clone ---+-- MessagePort (Web)
+                         |   (plain object)      +-- Electron MessagePort
+RpcFrame --serialize---->|
+                         |                       +-- WKWebView (iOS)
+                         +-- JSON string --------+-- Android WebView
+                                                 +-- postMessage (Web)
 ```
 
-### Binary Advantages
+### Structured Clone Advantages
 
-- No encoding overhead (raw protobuf bytes)
-- Supports zero-copy transfer via transferable ArrayBuffers
-- Smaller payload size
+- No manual serialization/deserialization in JS (the browser handles it)
+- Supports nested objects natively
+- Efficient for same-process communication
 
-### Base64 Advantages
+### JSON String Advantages
 
 - Works with string-only APIs (WKWebView message handlers, Android `@JavascriptInterface`)
-- Safe for embedding in JavaScript strings (no special character escaping needed)
+- Human-readable on the wire, easy to debug
 - Compatible with older/restricted environments
-
-### Base64 Overhead
-
-Base64 encoding increases payload size by approximately 33% (3 bytes become 4 characters). For most RPC payloads (small to medium messages), this overhead is negligible compared to the latency of the bridge itself.
 
 ## Loopback Transport (Testing)
 

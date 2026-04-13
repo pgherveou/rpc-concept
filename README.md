@@ -15,7 +15,7 @@ A cross-platform RPC framework for type-safe, streaming-capable communication be
 ```
 rpc-concept/
   proto/
-    rpc/bridge/v1/frame.proto         Wire protocol (RpcFrame, FrameType)
+    rpc/bridge/v1/frame.proto         Wire protocol (RpcFrame, oneof body)
 
   packages/                           Framework code only
     rpc-core/                           Core runtime (frame, client, server, stream)

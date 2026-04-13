@@ -19,17 +19,17 @@ This framework is designed exclusively for local IPC between a guest app (web co
 
 The code generator uses `protobufjs` as a dev dependency solely for parsing `.proto` files. This handles the full proto3 spec including imports, maps, oneofs, and nested messages. `protobufjs` is not used at runtime.
 
-## Protobuf Encoding Strategy
+## Encoding Strategy
 
-All protobuf encoding and decoding uses established libraries rather than hand-rolled implementations:
+All wire communication uses JSON serialization. Proto definitions are used for code generation only, not runtime encoding.
 
-| Platform | Library | Usage |
-|----------|---------|-------|
-| TypeScript | [`@bufbuild/protobuf`](https://github.com/bufbuild/protobuf-es) | `BinaryWriter`/`BinaryReader` from `@bufbuild/protobuf/wire` for both frame encoding and generated message code |
-| Swift | [`SwiftProtobuf`](https://github.com/apple/swift-protobuf) | `protoc-gen-swift` generates message types, `serializedData()`/`init(serializedBytes:)` for encoding |
-| Kotlin | [`kotlinx-serialization-protobuf`](https://github.com/Kotlin/kotlinx.serialization) | `@Serializable` + `@ProtoNumber` annotations, `ProtoBuf.encodeToByteArray()`/`decodeFromByteArray()` |
+| Platform | Wire Format | Serialization |
+|----------|-------------|---------------|
+| TypeScript | JSON (plain objects) | Native `JSON.stringify`/`JSON.parse`, or structured clone on MessagePort |
+| Swift | JSON | `Codable` with `JSONEncoder`/`JSONDecoder` |
+| Kotlin | JSON | `kotlinx.serialization.json` with `@Serializable` data classes |
 
-This gives us reliable, battle-tested protobuf encoding with zero hand-rolled wire format code. The trade-off is a runtime dependency on each platform, but these are small, well-maintained libraries.
+This eliminates the need for protobuf binary encoding libraries at runtime. The trade-off is slightly larger payloads compared to binary protobuf, but for local IPC this is negligible.
 
 ### Platform Codec Selection
 
@@ -37,12 +37,12 @@ Different platforms have different optimal encodings for the transport layer:
 
 | Platform | Frame Encoding | Why |
 |----------|---------------|-----|
-| Web (MessagePort) | Structured cloning | MessagePort transfers objects natively, no serialization needed |
-| Electron (MessagePort) | Structured cloning | Same as web |
-| iOS (WKWebView) | Base64 protobuf | `webkit.messageHandlers` only accepts JSON-compatible types |
-| Android (WebView) | Base64 protobuf | `@JavascriptInterface` only accepts primitive types and strings |
+| Web (MessagePort) | Structured clone (object) | MessagePort transfers objects natively, no serialization needed |
+| Electron (MessagePort) | Structured clone (object) | Same as web |
+| iOS (WKWebView) | JSON string | `webkit.messageHandlers` only accepts JSON-compatible types |
+| Android (WebView) | JSON string | `@JavascriptInterface` only accepts primitive types and strings |
 
-The codec is selected per-transport at construction time. On platforms that support structured cloning, frames are passed as plain objects, avoiding encode/decode overhead entirely. On platforms requiring string transport, frames are protobuf-encoded then base64-encoded.
+The encoding is selected per-transport at construction time. On platforms that support structured cloning, frames are passed as plain objects. On platforms requiring string transport, frames are JSON-serialized to strings.
 
 ## Performance Considerations
 
@@ -50,13 +50,10 @@ The codec is selected per-transport at construction time. On platforms that supp
 
 | Encoding | Overhead | Suitable For |
 |----------|----------|-------------|
-| Binary protobuf | Minimal (~5-10 bytes header per frame) | MessagePort, Electron |
-| Base64 protobuf | ~33% size increase | WKWebView, Android WebView |
+| Structured clone | Minimal (native browser cloning) | MessagePort, Electron |
+| JSON string | Small (JSON key overhead) | WKWebView, Android WebView |
 
-For a typical unary RPC with a 100-byte request and 200-byte response, the total overhead is approximately:
-
-- **Binary**: 3 client frames (OPEN + MESSAGE + HALF_CLOSE) + 2 server frames (MESSAGE + CLOSE) = ~30 bytes overhead
-- **Base64**: Same frame count, but each frame is 33% larger
+JSON encoding adds key-name overhead compared to binary protobuf, but for local IPC with small-to-medium payloads, the difference is negligible compared to bridge latency.
 
 ### Async Message Delivery
 
@@ -103,4 +100,4 @@ This could be implemented as a well-known service (e.g., `rpc.bridge.v1.Reflecti
 | Feature | Mechanism | Status |
 |---------|-----------|--------|
 | Server-initiated streams | Even stream IDs | Reserved |
-| Future standard fields | Field numbers 50-99 | Reserved |
+| Future body variants | New `oneof body` alternatives | Additive, forward-compatible |

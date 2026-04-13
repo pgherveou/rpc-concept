@@ -4,63 +4,88 @@ This document specifies the wire protocol used by the RPC Bridge framework. The 
 
 ## Overview
 
-All communication between client and server is expressed as a sequence of **RpcFrame** messages. Each frame is a protobuf-encoded binary blob. The protocol supports multiplexed, bidirectional streams over a single transport connection.
+All communication between client and server is expressed as a sequence of **RpcFrame** messages. Each frame is a JSON-encoded object. The protocol supports multiplexed, bidirectional streams over a single transport connection.
 
 Key properties:
 
-- **Protobuf-compatible**: Frames use standard protobuf wire format. Native platforms (Swift, Kotlin) can decode frames using their protobuf libraries; TypeScript uses a hand-rolled encoder/decoder for zero-dependency operation.
-- **Forward-compatible**: Unknown fields are silently skipped. Unknown frame types are ignored.
+- **Protobuf-defined, JSON-encoded**: Frame structure is defined in `frame.proto` using a `oneof body` discriminator. On the wire, frames are serialized as JSON with structured clone semantics.
+- **Forward-compatible**: Unknown body variants are silently skipped. If no recognized key is present, the frame is ignored.
 - **Stream-oriented**: Multiple concurrent streams share a single transport, identified by stream IDs.
 - **Local IPC only**: Designed for collocated guest/host communication. No handshake, no version negotiation, no network-oriented complexity.
 
 ## Frame Format
 
-Every frame is an `RpcFrame` protobuf message:
+Every frame is an `RpcFrame` protobuf message with a `oneof body` that determines the frame type:
 
 ```protobuf
+message OpenBody      { string method = 1; }
+message MessageBody   { bytes payload = 1; }
+message HalfCloseBody {}
+message CloseBody     {}
+message CancelBody    {}
+message ErrorBody     { uint32 error_code = 1; string error_message = 2; }
+
 message RpcFrame {
-  FrameType type    = 1;   // Frame type discriminator
-  uint32 stream_id  = 2;   // Logical stream identifier
-  bytes payload     = 4;   // Message payload (MESSAGE frames)
-  string method     = 15;  // Fully qualified method name (OPEN frames)
-  uint32 error_code = 20;  // Error code (ERROR frames)
-  string error_message = 21; // Error description (ERROR frames)
+  uint32 stream_id = 1;
+  oneof body {
+    OpenBody      open       = 2;
+    MessageBody   message    = 3;
+    HalfCloseBody half_close = 4;
+    CloseBody     close      = 5;
+    CancelBody    cancel     = 6;
+    ErrorBody     error      = 7;
+  }
 }
 ```
 
-### Binary Wire Format
+The frame type is determined by which `oneof` variant is set. There is no separate enum discriminator.
 
-The frame uses standard protobuf binary encoding:
+### JSON Wire Format
 
-- Each field is encoded as a **tag** (field number + wire type) followed by the value.
-- **Varint fields** (type, stream_id, error_code): Tag wire type 0.
-- **Length-delimited fields** (payload, method, error_message): Tag wire type 2.
+Frames are serialized as JSON objects. The `oneof` variant appears as a key alongside `streamId`:
 
-Fields set to their default value (0 for integers, empty string, empty bytes) are omitted per proto3 semantics.
+```json
+{"streamId":1, "open":{"method":"pkg.Svc/Method"}}
+{"streamId":1, "message":{"payload":{"name":"alice"}}}
+{"streamId":1, "halfClose":{}}
+{"streamId":1, "close":{}}
+{"streamId":1, "cancel":{}}
+{"streamId":1, "error":{"errorCode":13,"errorMessage":"fail"}}
+```
+
+For `message` frames, the `payload` field carries the application message as a nested JSON object (not raw bytes), since the wire encoding uses JSON/structured clone rather than protobuf binary.
+
+### Platform Type Mappings
+
+Each platform maps the `oneof body` to its native discriminated-union idiom:
+
+- **TypeScript**: Discriminated union with type guard functions (`isOpenFrame`, `isMessageFrame`, etc.)
+- **Swift**: `RpcFrameBody` enum with associated values (`.open(OpenBody)`, `.message(MessageBody)`, etc.)
+- **Kotlin**: `FrameBody` sealed class with data-class variants
 
 ## Frame Types
 
-### OPEN (type = 2)
+### OPEN
 
 Opens a new logical RPC stream. Sent by the client to initiate an RPC call.
 
 | Field | Required | Description |
 |-------|----------|-------------|
 | `stream_id` | Yes | Unique stream identifier (odd for client-initiated) |
-| `method` | Yes | Fully qualified method name: `"package.ServiceName/MethodName"` |
+| `open.method` | Yes | Fully qualified method name: `"package.ServiceName/MethodName"` |
 
-### MESSAGE (type = 3)
+### MESSAGE
 
-Carries a protobuf-encoded message payload. Used in both directions.
+Carries a message payload. Used in both directions.
 
 | Field | Required | Description |
 |-------|----------|-------------|
 | `stream_id` | Yes | Stream this message belongs to |
-| `payload` | Yes | Protobuf-encoded message bytes |
+| `message.payload` | Yes | Application message (JSON object) |
 
-### HALF_CLOSE (type = 4)
+### HALF_CLOSE
 
-Signals that the sender will not send any more MESSAGE frames on this stream.
+Signals that the sender will not send any more MESSAGE frames on this stream. The body is an empty object (`halfClose: {}`).
 
 | Field | Required | Description |
 |-------|----------|-------------|
@@ -72,9 +97,9 @@ Usage by pattern:
 - **Client-streaming**: Client sends HALF_CLOSE after the last request MESSAGE.
 - **Bidi-streaming**: Either side sends HALF_CLOSE when done sending messages.
 
-### CLOSE (type = 5)
+### CLOSE
 
-Signals successful completion of the stream. Sent by the server after all response messages have been sent.
+Signals successful completion of the stream. Sent by the server after all response messages have been sent. The body is an empty object (`close: {}`).
 
 | Field | Required | Description |
 |-------|----------|-------------|
@@ -82,9 +107,9 @@ Signals successful completion of the stream. Sent by the server after all respon
 
 After CLOSE is sent, no more frames should be sent on this stream by either side.
 
-### CANCEL (type = 6)
+### CANCEL
 
-Requests cancellation of an active stream. Can be sent by either side.
+Requests cancellation of an active stream. Can be sent by either side. The body is an empty object (`cancel: {}`).
 
 | Field | Required | Description |
 |-------|----------|-------------|
@@ -92,15 +117,15 @@ Requests cancellation of an active stream. Can be sent by either side.
 
 The recipient SHOULD stop processing and clean up resources for the stream. No response is expected.
 
-### ERROR (type = 7)
+### ERROR
 
 Signals an error on the stream. Terminates the stream immediately.
 
 | Field | Required | Description |
 |-------|----------|-------------|
 | `stream_id` | Yes | Stream that errored |
-| `error_code` | Yes | Error code (see Error Codes below) |
-| `error_message` | Recommended | Human-readable error description |
+| `error.error_code` | Yes | Error code (see Error Codes below) |
+| `error.error_message` | Recommended | Human-readable error description |
 
 ## Stream Lifecycle
 

@@ -13,7 +13,7 @@
   ],
   "scripts": {
     "build": "tsc",
-    "generate": "node dist/cli.js --proto ../../demos/proto/hello.proto --ts-out ../../demos/generated --swift-out ../../demos/host/ios/RPCBridgeDemo/generated --kotlin-out ../../demos/host/android/generated",
+    "generate": "node dist/cli.js --proto ../../proto/rpc/bridge/v1/frame.proto --swift-out ../../packages/rpc-core-swift/Sources/RpcBridge/Generated && node dist/cli.js --proto ../../demos/proto/hello.proto --ts-out ../../demos/proto/generated --swift-out ../../demos/host/ios/RPCBridgeDemo/generated --kotlin-out ../../demos/host/android/generated",
     "clean": "rm -rf dist"
   },
   "devDependencies": {

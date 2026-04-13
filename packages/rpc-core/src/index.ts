@@ -12,8 +12,20 @@
 
 // Frame types and serialization
 export {
-  FrameType,
   type RpcFrame,
+  type OpenBody,
+  type MessageBody,
+  type HalfCloseBody,
+  type CloseBody,
+  type CancelBody,
+  type ErrorBody,
+  isOpenFrame,
+  isMessageFrame,
+  isHalfCloseFrame,
+  isCloseFrame,
+  isCancelFrame,
+  isErrorFrame,
+  frameType,
   frameToJSON,
   frameFromJSON,
   createOpenFrame,

@@ -11,15 +11,9 @@ let package = Package(
     products: [
         .library(name: "RpcBridge", targets: ["RpcBridge"]),
     ],
-    dependencies: [
-        .package(url: "https://github.com/apple/swift-protobuf.git", from: "1.28.0"),
-    ],
     targets: [
         .target(
             name: "RpcBridge",
-            dependencies: [
-                .product(name: "SwiftProtobuf", package: "swift-protobuf"),
-            ],
             path: "Sources/RpcBridge"
         ),
     ]

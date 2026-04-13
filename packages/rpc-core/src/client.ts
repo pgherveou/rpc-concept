@@ -8,8 +8,12 @@
  */
 
 import {
-  FrameType,
   type RpcFrame,
+  isMessageFrame,
+  isCloseFrame,
+  isErrorFrame,
+  isHalfCloseFrame,
+  isCancelFrame,
   createOpenFrame,
   createMessageFrame,
   createHalfCloseFrame,
@@ -204,45 +208,30 @@ export class RpcClient {
   private handleFrame(frame: RpcFrame): void {
     const stream = this.streams.getStream(frame.streamId);
     if (!stream) {
-      this.logger.warn(`Received frame for unknown stream ${frame.streamId}, type=${frame.type}`);
+      this.logger.warn(`Received frame for unknown stream ${frame.streamId}`);
       return;
     }
 
-    switch (frame.type) {
-      case FrameType.MESSAGE:
-        stream.pushMessage(frame.payload);
-        break;
-
-      case FrameType.CLOSE:
-        stream.setState(StreamState.CLOSED);
-        stream.pushEnd();
-        break;
-
-      case FrameType.ERROR:
-        stream.setState(StreamState.ERROR);
-        stream.pushError(
-          RpcError.fromFrame(
-            frame.errorCode ?? RpcStatusCode.INTERNAL,
-            frame.errorMessage ?? 'Unknown error',
-          ),
-        );
-        break;
-
-      case FrameType.HALF_CLOSE:
-        if (stream.state === StreamState.HALF_CLOSED_LOCAL) {
-          stream.setState(StreamState.HALF_CLOSED_BOTH);
-        } else {
-          stream.setState(StreamState.HALF_CLOSED_REMOTE);
-        }
-        break;
-
-      case FrameType.CANCEL:
-        stream.cancel('Cancelled by server');
-        break;
-
-      default:
-        this.logger.debug(`Ignoring unknown frame type ${frame.type} on stream ${frame.streamId}`);
-        break;
+    if (isMessageFrame(frame)) {
+      stream.pushMessage(frame.message.payload);
+    } else if (isCloseFrame(frame)) {
+      stream.setState(StreamState.CLOSED);
+      stream.pushEnd();
+    } else if (isErrorFrame(frame)) {
+      stream.setState(StreamState.ERROR);
+      stream.pushError(
+        RpcError.fromFrame(frame.error.errorCode, frame.error.errorMessage),
+      );
+    } else if (isHalfCloseFrame(frame)) {
+      if (stream.state === StreamState.HALF_CLOSED_LOCAL) {
+        stream.setState(StreamState.HALF_CLOSED_BOTH);
+      } else {
+        stream.setState(StreamState.HALF_CLOSED_REMOTE);
+      }
+    } else if (isCancelFrame(frame)) {
+      stream.cancel('Cancelled by server');
+    } else {
+      this.logger.debug(`Ignoring unknown frame on stream ${frame.streamId}`);
     }
   }
 

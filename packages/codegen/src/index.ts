@@ -8,7 +8,7 @@
  * - Kotlin service interfaces and dispatchers
  */
 
-export { parseProto, parseProtoFile, type ProtoFile, type ServiceDef, type MethodDef, type MessageDef, type FieldDef } from './parser.js';
+export { parseProto, parseProtoFile, type ProtoFile, type ServiceDef, type MethodDef, type MessageDef, type OneOfDef, type FieldDef } from './parser.js';
 export { generateMessages, generateClient, generateServer } from './gen-typescript.js';
 export { generateSwift } from './gen-swift.js';
 export { generateKotlin } from './gen-kotlin.js';

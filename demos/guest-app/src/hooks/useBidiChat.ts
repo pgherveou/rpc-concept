@@ -1,6 +1,6 @@
 import { useRef, useState, useCallback } from 'react';
-import type { HelloBridgeServiceClient } from '../../../generated/client.js';
-import { ChatMessage } from '../../../generated/messages.js';
+import type { HelloBridgeServiceClient } from '../../../proto/generated/client.js';
+import type { ChatMessage } from '../../../proto/generated/messages.js';
 
 export interface ChatEntry {
   id: number;
@@ -84,7 +84,7 @@ export function useBidiChat(client: HelloBridgeServiceClient) {
   const sendMessage = useCallback((text: string) => {
     const s = state.current;
     s.seq++;
-    const msg = new ChatMessage({ from: 'user', text, seq: BigInt(s.seq), timestamp: 0n });
+    const msg: ChatMessage = { from: 'user', text, seq: BigInt(s.seq), timestamp: 0n };
     addChatEntry(`[you] ${text}`);
 
     if (s.resolve) {

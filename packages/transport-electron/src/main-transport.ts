@@ -56,7 +56,7 @@ export class ElectronMainTransport extends MessageTransportBase {
     this.port.start();
   }
 
-  protected sendRaw(data: Uint8Array | string | RpcFrame): void {
+  protected sendRaw(data: string | RpcFrame): void {
     this.port.postMessage(data);
   }
 

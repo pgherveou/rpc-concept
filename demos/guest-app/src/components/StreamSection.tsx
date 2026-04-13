@@ -1,5 +1,4 @@
 import { useRef } from 'react';
-import { GreetingStreamRequest } from '../../../generated/messages.js';
 import { useClient } from '../context.js';
 
 interface StreamSectionProps {
@@ -19,7 +18,7 @@ export function StreamSection({ addLog }: StreamSectionProps) {
 
     try {
       const stream = client.watchGreeting(
-        new GreetingStreamRequest({ name, maxCount: 20, intervalMs: 1000 }),
+        { name, maxCount: 20, intervalMs: 1000 },
       );
       for await (const event of stream) {
         if (abortRef.current.signal.aborted) break;

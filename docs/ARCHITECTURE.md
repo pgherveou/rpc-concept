@@ -69,8 +69,8 @@ The system is organized into six layers, each building on the one below:
 |  Electron MessageChannelMain / PreloadTransport                    |
 +===================================================================+
 |                      TRANSPORT LAYER                               |
-|  Transport interface  |  MessageTransportBase  |  FrameEncoding   |
-|  Binary (Uint8Array) or Base64 (string) encoding                  |
+|  Transport interface  |  MessageTransportBase                      |
+|  Structured clone (object) or JSON string encoding                 |
 +===================================================================+
 |                       RUNTIME LAYER                                |
 |  RpcClient  |  RpcServer  |  Stream  |  StreamManager             |
@@ -89,7 +89,7 @@ The system is organized into six layers, each building on the one below:
 
 The `.proto` files are the single source of truth. Two categories:
 
-- **`proto/rpc/bridge/v1/frame.proto`** -- Defines `RpcFrame`, the fundamental unit of communication. All frame types (OPEN, MESSAGE, HALF_CLOSE, CLOSE, CANCEL, ERROR) and their fields are defined here. This is the wire protocol specification.
+- **`proto/rpc/bridge/v1/frame.proto`** -- Defines `RpcFrame`, the fundamental unit of communication. Uses a `oneof body` with typed variants (OpenBody, MessageBody, HalfCloseBody, CloseBody, CancelBody, ErrorBody) to discriminate frame types. This is the wire protocol specification.
 
 - **`demos/proto/hello.proto`** -- Defines the demo service (`HelloBridgeService`) with all four RPC patterns: unary, server-streaming, client-streaming, and bidi-streaming. Application developers write files like this.
 
@@ -97,15 +97,15 @@ The `.proto` files are the single source of truth. Two categories:
 
 A hand-rolled proto parser reads `.proto` files and generates platform-specific code:
 
-- **TypeScript**: `messages.ts` (classes with `encode`/`decode` using `@bufbuild/protobuf`), `client.ts` (typed client stubs wrapping `RpcClient`), `server.ts` (handler interfaces + dispatcher factory)
-- **Swift**: typealiases to `protoc-gen-swift` generated types, service protocols, dispatcher classes using `SwiftProtobuf` serialization
-- **Kotlin**: `@Serializable` data classes with `@ProtoNumber` annotations using `kotlinx-serialization-protobuf`, service interfaces, dispatcher classes
+- **TypeScript**: `messages.ts` (interfaces and factory functions for JSON serialization), `client.ts` (typed client stubs wrapping `RpcClient`), `server.ts` (handler interfaces + dispatcher factory)
+- **Swift**: `Codable` structs with `CodingKeys` for JSON serialization, service protocols, dispatcher classes
+- **Kotlin**: `@Serializable` data classes using `kotlinx.serialization.json`, service interfaces, dispatcher classes
 
 ### Layer 3: Runtime (`packages/rpc-core`)
 
 The core runtime handles the RPC lifecycle:
 
-- **`frame.ts`** -- Protobuf encoder/decoder for `RpcFrame` using `BinaryWriter`/`BinaryReader` from `@bufbuild/protobuf/wire`.
+- **`frame.ts`** -- Frame type definitions and type guards for `RpcFrame`. The frame uses a `oneof body` discriminated union, with helper functions (`isOpenFrame`, `isMessageFrame`, etc.) for type-safe dispatch.
 - **`client.ts`** -- `RpcClient` manages outgoing calls: stream creation, frame dispatch, deadlines, cancellation.
 - **`server.ts`** -- `RpcServer` dispatches incoming calls to registered service handlers. Supports all four RPC patterns.
 - **`stream.ts`** -- `Stream` manages a single logical stream's lifecycle and message buffering. `StreamManager` tracks all active streams per connection.
@@ -127,7 +127,7 @@ interface Transport {
 }
 ```
 
-`MessageTransportBase` provides the common logic for encoding frames (binary or base64), decoding incoming raw data, and managing handler registration. Platform adapters only need to implement `sendRaw()` and call `handleRawMessage()`.
+`MessageTransportBase` provides the common logic for serializing frames (structured clone or JSON string), deserializing incoming data, and managing handler registration. Platform adapters only need to implement `sendRaw()` and call `handleRawMessage()`.
 
 ### Layer 5: Platform Adapters
 
@@ -135,11 +135,11 @@ Each platform has a transport adapter that bridges the `Transport` interface to 
 
 | Package | Platform | Mechanism | Encoding |
 |---------|----------|-----------|----------|
-| `transport-web` | Browser | `MessagePort` | Binary (with transferable `ArrayBuffer`) |
-| `transport-web` | Browser | `postMessage` | Base64 (string) |
-| `transport-ios` | iOS WKWebView | `webkit.messageHandlers` + `evaluateJavaScript` | Base64 |
-| `transport-android` | Android WebView | `@JavascriptInterface` + `evaluateJavascript` | Base64 |
-| `transport-electron` | Electron | `MessagePort` / `MessageChannelMain` | Binary |
+| `transport-web` | Browser | `MessagePort` | Structured clone (object) |
+| `transport-web` | Browser | `postMessage` | JSON string |
+| `transport-ios` | iOS WKWebView | `webkit.messageHandlers` + `evaluateJavaScript` | JSON string |
+| `transport-android` | Android WebView | `@JavascriptInterface` + `evaluateJavascript` | JSON string |
+| `transport-electron` | Electron | `MessagePort` / `MessageChannelMain` | Structured clone (object) |
 
 ### Layer 6: Demo Applications
 
@@ -190,12 +190,12 @@ rpc-concept/
 1. **Application code** calls a typed method on a generated client stub (e.g., `client.sayHello(request)`).
 2. The **generated client** encodes the request message using the generated `encode()` function and delegates to `RpcClient.unary()`.
 3. `RpcClient` creates a new `Stream`, sends OPEN + MESSAGE + HALF_CLOSE frames via the `Transport`.
-4. The **transport adapter** serializes each `RpcFrame` to protobuf binary (via `encodeFrame()`), optionally base64-encodes it, and sends it through the platform-specific channel.
-5. On the other side, the **transport adapter** receives the raw data, decodes it back to `RpcFrame`, and dispatches to the `RpcServer`.
+4. The **transport adapter** serializes each `RpcFrame` to JSON and sends it through the platform-specific channel (structured clone for MessagePort, JSON string for WebView bridges).
+5. On the other side, the **transport adapter** receives the data, deserializes it back to an `RpcFrame`, and dispatches to the `RpcServer`.
 6. `RpcServer` parses the method name from the OPEN frame, looks up the registered service, creates a server-side `Stream`, and dispatches to the handler.
-7. The **generated dispatcher** decodes the request bytes into a typed message, calls the application's handler implementation, and encodes the response.
+7. The **generated dispatcher** deserializes the request into a typed message, calls the application's handler implementation, and serializes the response.
 8. `RpcServer` sends the response MESSAGE + CLOSE frames back through the transport.
-9. `RpcClient` receives the response, resolves the promise, and the generated client decodes the response bytes into a typed message.
+9. `RpcClient` receives the response, resolves the promise, and the generated client deserializes the response into a typed message.
 
 ## Design Decisions and Rationale
 
@@ -209,26 +209,26 @@ gRPC was the inspiration for this protocol's design (streaming patterns, status 
 
 3. **Sandboxing requirements**: The web content runs in sandboxed iframes or WebViews with no network access. Communication must happen through the platform's native bridge API, not over HTTP.
 
-4. **Binary efficiency**: On platforms that support binary transfer (MessagePort with transferable ArrayBuffers, Electron MessageChannelMain), we achieve zero-copy frame delivery.
+4. **Structured clone efficiency**: On platforms that support structured clone (MessagePort, Electron MessageChannelMain), frames are passed as plain objects without serialization overhead.
 
-5. **Minimal footprint**: Protobuf encoding uses lightweight, well-established libraries (`@bufbuild/protobuf`, `SwiftProtobuf`, `kotlinx-serialization-protobuf`).
+5. **Minimal footprint**: JSON encoding requires no additional libraries. Proto definitions are used for code generation only, not runtime encoding.
 
 ### The Proto-First Philosophy
 
 The `.proto` file is the contract between client and server:
 
-- **Messages** define the data shapes with field numbers that enable binary compatibility.
+- **Messages** define the data shapes, generating typed structs/classes for every platform.
 - **Services** define the RPC methods with their streaming patterns.
 - **Code generation** produces typed, safe code for every target platform.
-- **Wire compatibility** is guaranteed because all platforms use the same protobuf binary encoding for both frames and messages.
+- **Wire compatibility** is guaranteed because all platforms use JSON serialization with the same schema derived from the proto definitions.
 
 ### Frame Protocol Design
 
 The frame protocol is intentionally minimal for local IPC:
 
-- A single `RpcFrame` protobuf message type carries all frame types via a `FrameType` discriminator.
-- Only 6 fields: type, stream_id, payload, method, error_code, error_message.
-- Unknown fields and frame types are silently ignored, enabling forward compatibility.
+- A single `RpcFrame` message uses a `oneof body` to discriminate between frame types (open, message, half_close, close, cancel, error).
+- Each body variant carries only the fields relevant to its frame type, enforced by the type system on every platform.
+- Unknown body variants are silently ignored, enabling forward compatibility.
 - No handshake, no sequence numbers, no metadata, no flow control. Guest and host are built together and communicate within the same process.
 
 ## Message Flow by RPC Pattern

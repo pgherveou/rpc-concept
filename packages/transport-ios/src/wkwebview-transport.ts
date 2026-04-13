@@ -12,7 +12,7 @@
  * we use base64 encoding for frame data.
  */
 
-import { MessageTransportBase, FrameEncoding, type Logger } from '@rpc-bridge/core';
+import { MessageTransportBase, FrameEncoding, type Logger, type RpcFrame } from '@rpc-bridge/core';
 
 /** Global type declarations for WKWebView bridge */
 declare global {
@@ -43,7 +43,7 @@ export class WKWebViewTransport extends MessageTransportBase {
   private readonly callbackName: string;
 
   constructor(options: WKWebViewTransportOptions = {}) {
-    super(FrameEncoding.BASE64, options.logger);
+    super(FrameEncoding.JSON, options.logger);
     this.handlerName = options.handlerName ?? DEFAULT_HANDLER_NAME;
     this.callbackName = options.callbackName ?? DEFAULT_CALLBACK_NAME;
 
@@ -61,9 +61,9 @@ export class WKWebViewTransport extends MessageTransportBase {
     }
   }
 
-  protected sendRaw(data: Uint8Array | string | object): void {
+  protected sendRaw(data: string | RpcFrame): void {
     if (typeof data !== 'string') {
-      throw new Error('Expected base64 string but received binary data');
+      throw new Error('Expected JSON string but received non-string data');
     }
     const handler = window.webkit?.messageHandlers[this.handlerName];
     if (!handler) {

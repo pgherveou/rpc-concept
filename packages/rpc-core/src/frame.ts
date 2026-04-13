@@ -1,103 +1,96 @@
 /**
  * Frame types and serialization for the RPC bridge protocol.
  *
- * Simplified for local IPC: no handshake, no sequence numbers, no metadata,
- * no trailers, no extensions. The wire format uses structured clone (web/Electron)
- * or JSON (iOS/Android). Proto files remain the API contract but no protobuf
- * binary runtime is used.
+ * RpcFrame is a discriminated union keyed by the body field name,
+ * matching the proto3 JSON mapping of the `oneof body` in frame.proto.
  */
 
-// --- Frame type enum ---
+// --- Body types ---
 
-export enum FrameType {
-  UNSPECIFIED = 0,
-  OPEN = 2,
-  MESSAGE = 3,
-  HALF_CLOSE = 4,
-  CLOSE = 5,
-  CANCEL = 6,
-  ERROR = 7,
+export interface OpenBody {
+  method: string;
 }
 
-// --- RpcFrame interface ---
-
-export interface RpcFrame {
-  type: FrameType;
-  streamId: number;
-
-  // OPEN
-  method?: string;
-
-  // MESSAGE
-  payload?: unknown;
-
-  // ERROR
-  errorCode?: number;
-  errorMessage?: string;
+export interface MessageBody {
+  payload: unknown;
 }
 
-// --- JSON serialization ---
+export type HalfCloseBody = Record<string, never>;
+export type CloseBody = Record<string, never>;
+export type CancelBody = Record<string, never>;
 
-/**
- * Serialize an RpcFrame to a JSON string for iOS/Android bridges.
- * Handles bigint values by converting them to strings.
- */
-export function frameToJSON(frame: RpcFrame): string {
-  return JSON.stringify(frame, (_key, value) =>
-    typeof value === 'bigint' ? value.toString() : value,
-  );
+export interface ErrorBody {
+  errorCode: number;
+  errorMessage: string;
 }
 
-/**
- * Parse a JSON string back to an RpcFrame.
- */
-export function frameFromJSON(json: string): RpcFrame {
-  return JSON.parse(json) as RpcFrame;
+// --- Discriminated union ---
+
+export type RpcFrame =
+  | { streamId: number; open: OpenBody }
+  | { streamId: number; message: MessageBody }
+  | { streamId: number; halfClose: HalfCloseBody }
+  | { streamId: number; close: CloseBody }
+  | { streamId: number; cancel: CancelBody }
+  | { streamId: number; error: ErrorBody };
+
+// --- Type guards ---
+
+export function isOpenFrame(f: RpcFrame): f is { streamId: number; open: OpenBody } {
+  return 'open' in f;
 }
 
-// --- Helper: create specific frame types ---
-
-export function createOpenFrame(
-  streamId: number,
-  method: string,
-): RpcFrame {
-  return {
-    type: FrameType.OPEN,
-    streamId,
-    method,
-  };
+export function isMessageFrame(f: RpcFrame): f is { streamId: number; message: MessageBody } {
+  return 'message' in f;
 }
 
-export function createMessageFrame(
-  streamId: number,
-  payload: unknown,
-): RpcFrame {
-  return {
-    type: FrameType.MESSAGE,
-    streamId,
-    payload,
-  };
+export function isHalfCloseFrame(f: RpcFrame): f is { streamId: number; halfClose: HalfCloseBody } {
+  return 'halfClose' in f;
+}
+
+export function isCloseFrame(f: RpcFrame): f is { streamId: number; close: CloseBody } {
+  return 'close' in f;
+}
+
+export function isCancelFrame(f: RpcFrame): f is { streamId: number; cancel: CancelBody } {
+  return 'cancel' in f;
+}
+
+export function isErrorFrame(f: RpcFrame): f is { streamId: number; error: ErrorBody } {
+  return 'error' in f;
+}
+
+/** Return the body type name for logging. */
+export function frameType(frame: RpcFrame): string {
+  if ('open' in frame) return 'open';
+  if ('message' in frame) return 'message';
+  if ('halfClose' in frame) return 'halfClose';
+  if ('close' in frame) return 'close';
+  if ('cancel' in frame) return 'cancel';
+  if ('error' in frame) return 'error';
+  return 'unknown';
+}
+
+// --- Factory functions ---
+
+export function createOpenFrame(streamId: number, method: string): RpcFrame {
+  return { streamId, open: { method } };
+}
+
+export function createMessageFrame(streamId: number, payload: unknown): RpcFrame {
+  return { streamId, message: { payload } };
 }
 
 export function createHalfCloseFrame(streamId: number): RpcFrame {
-  return {
-    type: FrameType.HALF_CLOSE,
-    streamId,
-  };
+  return { streamId, halfClose: {} };
 }
 
 export function createCloseFrame(streamId: number): RpcFrame {
-  return {
-    type: FrameType.CLOSE,
-    streamId,
-  };
+  return { streamId, close: {} };
 }
 
 export function createCancelFrame(streamId: number): RpcFrame {
-  return {
-    type: FrameType.CANCEL,
-    streamId,
-  };
+  return { streamId, cancel: {} };
 }
 
 export function createErrorFrame(
@@ -105,10 +98,17 @@ export function createErrorFrame(
   errorCode: number,
   errorMessage: string,
 ): RpcFrame {
-  return {
-    type: FrameType.ERROR,
-    streamId,
-    errorCode,
-    errorMessage,
-  };
+  return { streamId, error: { errorCode, errorMessage } };
+}
+
+// --- JSON serialization ---
+
+export function frameToJSON(frame: RpcFrame): string {
+  return JSON.stringify(frame, (_key, value) =>
+    typeof value === 'bigint' ? value.toString() : value,
+  );
+}
+
+export function frameFromJSON(json: string): RpcFrame {
+  return JSON.parse(json) as RpcFrame;
 }

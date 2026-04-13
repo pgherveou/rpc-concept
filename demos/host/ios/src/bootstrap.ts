@@ -15,4 +15,4 @@ const client = new RpcClient({
   logger: createConsoleLogger('Guest-Client'),
 });
 
-(window as any).__rpcBridgeBoot(client);
+(window as any).__rpcBridgeBoot(client, { json: true });

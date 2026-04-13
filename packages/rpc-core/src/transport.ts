@@ -8,7 +8,7 @@
  * Platform-specific adapters implement this interface.
  */
 
-import { type RpcFrame, frameToJSON, frameFromJSON } from './frame.js';
+import { type RpcFrame, frameToJSON, frameFromJSON, frameType, isOpenFrame } from './frame.js';
 import type { Logger } from './types.js';
 import { silentLogger } from './types.js';
 
@@ -83,11 +83,12 @@ export abstract class MessageTransportBase implements Transport {
       throw new Error('Transport is closed');
     }
 
+    const method = isOpenFrame(frame) ? frame.open.method : '-';
     if (this.encoding === FrameEncoding.STRUCTURED_CLONE) {
-      this.logger.debug(`TX frame type=${frame.type} stream=${frame.streamId} method=${frame.method ?? '-'} (structured clone)`);
+      this.logger.debug(`TX frame ${frameType(frame)} stream=${frame.streamId} method=${method} (structured clone)`);
       this.sendRaw(frame);
     } else {
-      this.logger.debug(`TX frame type=${frame.type} stream=${frame.streamId} method=${frame.method ?? '-'} (json)`);
+      this.logger.debug(`TX frame ${frameType(frame)} stream=${frame.streamId} method=${method} (json)`);
       this.sendRaw(frameToJSON(frame));
     }
   }
@@ -100,11 +101,13 @@ export abstract class MessageTransportBase implements Transport {
     try {
       if (this.encoding === FrameEncoding.STRUCTURED_CLONE) {
         const frame = data as RpcFrame;
-        this.logger.debug(`RX frame type=${frame.type} stream=${frame.streamId} method=${frame.method ?? '-'} (structured clone)`);
+        const method = isOpenFrame(frame) ? frame.open.method : '-';
+        this.logger.debug(`RX frame ${frameType(frame)} stream=${frame.streamId} method=${method} (structured clone)`);
         this.dispatchFrame(frame);
       } else {
         const frame = frameFromJSON(data as string);
-        this.logger.debug(`RX frame type=${frame.type} stream=${frame.streamId} method=${frame.method ?? '-'} (json)`);
+        const method = isOpenFrame(frame) ? frame.open.method : '-';
+        this.logger.debug(`RX frame ${frameType(frame)} stream=${frame.streamId} method=${method} (json)`);
         this.dispatchFrame(frame);
       }
     } catch (err) {

@@ -1,61 +1,103 @@
 // Frame.swift
 // RpcBridge
 //
-// Typealiases and helpers for the RPC bridge frame protocol.
-// Wire encoding/decoding is handled by SwiftProtobuf generated types.
+// Helper functions for the RPC bridge frame protocol.
+// The body types and RpcFrame struct are generated from frame.proto
+// in Generated/RpcBridgeV1.swift.
 
 import Foundation
-import SwiftProtobuf
 
-// MARK: - Type Aliases to Generated Types
+// MARK: - AnyCodable
 
-public typealias FrameType = Rpc_Bridge_V1_FrameType
-public typealias RpcFrame = Rpc_Bridge_V1_RpcFrame
+/// Type-erased Codable wrapper for arbitrary JSON values.
+/// Used by MessageBody.payload to carry inline message JSON.
+public struct AnyCodable: Codable, Sendable {
+    public let value: Any & Sendable
 
-// MARK: - Base64 Helpers
-
-public func dataToBase64(_ data: Data) -> String {
-    return data.base64EncodedString()
-}
-
-public func base64ToData(_ base64: String) -> Data? {
-    return Data(base64Encoded: base64)
-}
-
-// MARK: - RpcFrame Convenience Extensions
-
-extension RpcFrame {
-    public func encode() -> Data {
-        return (try? serializedData()) ?? Data()
+    public init(_ value: Any & Sendable) {
+        self.value = value
     }
 
-    public static func decode(from data: Data) -> RpcFrame {
-        return (try? RpcFrame(serializedBytes: data)) ?? RpcFrame()
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.singleValueContainer()
+
+        if container.decodeNil() {
+            self.value = NSNull()
+        } else if let bool = try? container.decode(Bool.self) {
+            self.value = bool
+        } else if let int = try? container.decode(Int.self) {
+            self.value = int
+        } else if let double = try? container.decode(Double.self) {
+            self.value = double
+        } else if let string = try? container.decode(String.self) {
+            self.value = string
+        } else if let array = try? container.decode([AnyCodable].self) {
+            self.value = array.map { $0.value }
+        } else if let dict = try? container.decode([String: AnyCodable].self) {
+            self.value = dict.mapValues { $0.value }
+        } else {
+            throw DecodingError.dataCorruptedError(in: container, debugDescription: "Unsupported JSON value")
+        }
     }
+
+    public func encode(to encoder: Encoder) throws {
+        var container = encoder.singleValueContainer()
+
+        switch value {
+        case is NSNull:
+            try container.encodeNil()
+        case let bool as Bool:
+            try container.encode(bool)
+        case let int as Int:
+            try container.encode(int)
+        case let double as Double:
+            try container.encode(double)
+        case let string as String:
+            try container.encode(string)
+        case let array as [Any]:
+            try container.encode(array.map { AnyCodable($0 as any Sendable) })
+        case let dict as [String: Any]:
+            try container.encode(dict.mapValues { AnyCodable($0 as any Sendable) })
+        default:
+            throw EncodingError.invalidValue(value, .init(codingPath: encoder.codingPath, debugDescription: "Unsupported type"))
+        }
+    }
+}
+
+// MARK: - JSON Serialization
+
+public func frameToJSON(_ frame: RpcFrame) throws -> String {
+    let data = try JSONEncoder().encode(frame)
+    return String(data: data, encoding: .utf8)!
+}
+
+public func frameFromJSON(_ json: String) throws -> RpcFrame {
+    let data = json.data(using: .utf8)!
+    return try JSONDecoder().decode(RpcFrame.self, from: data)
+}
+
+/// Extract the payload as JSON Data from a MessageBody.
+public func payloadToJSONData(_ payload: AnyCodable?) throws -> Data {
+    guard let payload else { return Data() }
+    return try JSONEncoder().encode(payload)
 }
 
 // MARK: - Frame Factory Functions
 
 public func createMessageFrame(streamId: UInt32, payload: Data) -> RpcFrame {
-    var frame = RpcFrame()
-    frame.type = .message
-    frame.streamID = streamId
-    frame.payload = payload
-    return frame
+    let jsonObject = try? JSONSerialization.jsonObject(with: payload)
+    let anyCodable = jsonObject.map { AnyCodable($0 as any Sendable) }
+    var body = MessageBody()
+    body.payload = anyCodable
+    return RpcFrame(streamId: streamId, body: .message(body))
 }
 
 public func createHalfCloseFrame(streamId: UInt32) -> RpcFrame {
-    var frame = RpcFrame()
-    frame.type = .halfClose
-    frame.streamID = streamId
-    return frame
+    RpcFrame(streamId: streamId, body: .halfClose)
 }
 
 public func createCloseFrame(streamId: UInt32) -> RpcFrame {
-    var frame = RpcFrame()
-    frame.type = .close
-    frame.streamID = streamId
-    return frame
+    RpcFrame(streamId: streamId, body: .close)
 }
 
 public func createErrorFrame(
@@ -63,12 +105,23 @@ public func createErrorFrame(
     errorCode: UInt32,
     errorMessage: String
 ) -> RpcFrame {
-    var frame = RpcFrame()
-    frame.type = .error
-    frame.streamID = streamId
-    frame.errorCode = errorCode
-    frame.errorMessage = errorMessage
-    return frame
+    var err = ErrorBody()
+    err.errorCode = errorCode
+    err.errorMessage = errorMessage
+    return RpcFrame(streamId: streamId, body: .error(err))
+}
+
+/// Return a human-readable name for the frame's body type, for logging.
+public func frameTypeName(_ frame: RpcFrame) -> String {
+    switch frame.body {
+    case .open: return "open"
+    case .message: return "message"
+    case .halfClose: return "halfClose"
+    case .close: return "close"
+    case .cancel: return "cancel"
+    case .error: return "error"
+    case .unknown: return "unknown"
+    }
 }
 
 // MARK: - RPC Status Codes

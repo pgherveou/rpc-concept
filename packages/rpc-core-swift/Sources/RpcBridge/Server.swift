@@ -17,16 +17,15 @@ public enum DispatchResult: Sendable {
     case stream(AsyncThrowingStream<Data, Error>)
 }
 
-/// Protocol for service dispatchers that route raw bytes to typed handlers.
+/// Protocol for service dispatchers that route JSON data to typed handlers.
 /// Generated code produces concrete implementations of this protocol.
 public protocol ServiceDispatcher: Sendable {
     /// Fully qualified service name (e.g. "demo.hello.v1.HelloBridgeService").
     var serviceName: String { get }
 
     /// Dispatch an RPC call. The full method string (e.g.
-    /// "demo.hello.v1.HelloBridgeService/SayHello") and the raw message
-    /// stream are passed in. The dispatcher reads messages as needed
-    /// for the RPC pattern (first message for unary, full stream for streaming).
+    /// "demo.hello.v1.HelloBridgeService/SayHello") and the JSON-encoded
+    /// message stream are passed in.
     func dispatch(method: String, messages: AsyncStream<Data>) async throws -> DispatchResult
 }
 
@@ -100,13 +99,6 @@ public typealias FrameSender = @Sendable (RpcFrame) -> Void
 
 // MARK: - RpcBridgeServer
 
-/// Generic server runtime that receives frames from the web client, dispatches
-/// RPC calls to registered service dispatchers, and sends response frames back.
-///
-/// Usage:
-/// 1. Create the server with a frame sender callback
-/// 2. Register one or more ServiceDispatcher implementations
-/// 3. Feed incoming frames via `handleFrame(_:)`
 public final class RpcBridgeServer: @unchecked Sendable {
 
     private let sendFrame: FrameSender
@@ -124,8 +116,6 @@ public final class RpcBridgeServer: @unchecked Sendable {
 
     // MARK: - Service Registration
 
-    /// Register a service dispatcher. The dispatcher's serviceName is used
-    /// to match incoming OPEN frames to the correct handler.
     public func registerDispatcher(_ dispatcher: any ServiceDispatcher) {
         dispatchers[dispatcher.serviceName] = dispatcher
     }
@@ -133,50 +123,50 @@ public final class RpcBridgeServer: @unchecked Sendable {
     // MARK: - Frame Handling
 
     public func handleFrame(_ frame: RpcFrame) {
-        switch frame.type {
-        case .open:
-            handleOpen(frame)
-        case .message:
-            handleMessage(frame)
+        let streamId = frame.streamId
+        switch frame.body {
+        case .open(let body):
+            handleOpen(streamId: streamId, method: body.method)
+        case .message(let body):
+            handleMessage(streamId: streamId, payload: body.payload)
         case .halfClose:
-            handleHalfClose(frame)
+            handleHalfClose(streamId: streamId)
         case .cancel:
-            handleCancel(frame)
-        case .error:
-            handleClientError(frame)
-        case .close, .unspecified, .UNRECOGNIZED:
-            log?("[Server] Ignoring frame type: \(frame.type) on stream \(frame.streamID)")
+            handleCancel(streamId: streamId)
+        case .error(let body):
+            handleClientError(streamId: streamId, errorCode: body.errorCode, errorMessage: body.errorMessage)
+        case .close, .unknown:
+            log?("[Server] Ignoring frame \(frameTypeName(frame)) on stream \(streamId)")
         }
     }
 
     // MARK: - Stream Open
 
-    private func handleOpen(_ frame: RpcFrame) {
-        let method = frame.method
+    private func handleOpen(streamId: UInt32, method: String) {
         guard !method.isEmpty else {
-            sendError(streamId: frame.streamID, code: RpcStatusCode.invalidArgument, message: "Missing method name")
+            sendError(streamId: streamId, code: RpcStatusCode.invalidArgument, message: "Missing method name")
             return
         }
 
         guard let slashIdx = method.lastIndex(of: "/") else {
-            sendError(streamId: frame.streamID, code: RpcStatusCode.invalidArgument, message: "Invalid method format: \(method)")
+            sendError(streamId: streamId, code: RpcStatusCode.invalidArgument, message: "Invalid method format: \(method)")
             return
         }
 
         let svcName = String(method[method.startIndex..<slashIdx])
 
         guard let dispatcher = dispatchers[svcName] else {
-            sendError(streamId: frame.streamID, code: RpcStatusCode.unimplemented, message: "Unknown service: \(svcName)")
+            sendError(streamId: streamId, code: RpcStatusCode.unimplemented, message: "Unknown service: \(svcName)")
             return
         }
 
-        let stream = ServerStream(streamId: frame.streamID)
+        let stream = ServerStream(streamId: streamId)
         stream.open()
         lock.lock()
-        streams[frame.streamID] = stream
+        streams[streamId] = stream
         lock.unlock()
 
-        log?("[Server] Stream \(frame.streamID) opened for method: \(method)")
+        log?("[Server] Stream \(streamId) opened for method: \(method)")
 
         let task = Task { [weak self] in
             guard let self else { return }
@@ -222,59 +212,64 @@ public final class RpcBridgeServer: @unchecked Sendable {
 
     // MARK: - Message/HalfClose/Cancel/Error Handlers
 
-    private func handleMessage(_ frame: RpcFrame) {
+    private func handleMessage(streamId: UInt32, payload: AnyCodable?) {
         lock.lock()
-        let stream = streams[frame.streamID]
+        let stream = streams[streamId]
         lock.unlock()
 
         guard let stream else {
-            log?("[Server] Received MESSAGE for unknown stream \(frame.streamID)")
+            log?("[Server] Received MESSAGE for unknown stream \(streamId)")
             return
         }
 
-        stream.pushMessage(frame.payload)
+        do {
+            let data = try payloadToJSONData(payload)
+            stream.pushMessage(data)
+        } catch {
+            log?("[Server] Failed to serialize payload for stream \(streamId): \(error)")
+        }
     }
 
-    private func handleHalfClose(_ frame: RpcFrame) {
+    private func handleHalfClose(streamId: UInt32) {
         lock.lock()
-        let stream = streams[frame.streamID]
+        let stream = streams[streamId]
         lock.unlock()
 
         guard let stream else {
-            log?("[Server] Received HALF_CLOSE for unknown stream \(frame.streamID)")
+            log?("[Server] Received HALF_CLOSE for unknown stream \(streamId)")
             return
         }
 
         stream.pushEnd()
-        log?("[Server] Stream \(frame.streamID) half-closed by client")
+        log?("[Server] Stream \(streamId) half-closed by client")
     }
 
-    private func handleCancel(_ frame: RpcFrame) {
+    private func handleCancel(streamId: UInt32) {
         lock.lock()
-        let stream = streams[frame.streamID]
+        let stream = streams[streamId]
         lock.unlock()
 
         guard let stream else {
-            log?("[Server] Received CANCEL for unknown stream \(frame.streamID)")
+            log?("[Server] Received CANCEL for unknown stream \(streamId)")
             return
         }
 
         stream.cancel()
-        removeStream(frame.streamID)
-        log?("[Server] Stream \(frame.streamID) cancelled by client")
+        removeStream(streamId)
+        log?("[Server] Stream \(streamId) cancelled by client")
     }
 
-    private func handleClientError(_ frame: RpcFrame) {
+    private func handleClientError(streamId: UInt32, errorCode: UInt32, errorMessage: String) {
         lock.lock()
-        let stream = streams[frame.streamID]
+        let stream = streams[streamId]
         lock.unlock()
 
         guard let stream else { return }
 
-        let msg = frame.errorMessage.isEmpty ? "unknown" : frame.errorMessage
-        log?("[Server] Client error on stream \(frame.streamID): \(msg)")
+        let msg = errorMessage.isEmpty ? "unknown" : errorMessage
+        log?("[Server] Client error on stream \(streamId): \(msg)")
         stream.pushError()
-        removeStream(frame.streamID)
+        removeStream(streamId)
     }
 
     // MARK: - Helpers

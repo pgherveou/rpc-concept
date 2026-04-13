@@ -6,10 +6,10 @@
 // packages/transport-ios/src/wkwebview-transport.ts.
 //
 // Communication flow:
-// - JS -> Native: WKScriptMessageHandler receives base64 strings via
-//   window.webkit.messageHandlers.rpcBridge.postMessage(base64)
+// - JS -> Native: WKScriptMessageHandler receives JSON strings via
+//   window.webkit.messageHandlers.rpcBridge.postMessage(jsonString)
 // - Native -> JS: evaluateJavaScript calls the global callback
-//   window.__rpcBridgeReceive(base64)
+//   window.__rpcBridgeReceive(jsonString)
 
 import Foundation
 import WebKit
@@ -41,15 +41,24 @@ public final class NativeBridgeTransport: NSObject, WKScriptMessageHandler, @unc
     // MARK: - Sending Frames to JavaScript
 
     public func sendFrameToJS(_ frame: RpcFrame) {
-        let encoded = frame.encode()
-        let base64 = dataToBase64(encoded)
+        guard let json = try? frameToJSON(frame) else {
+            log?("[Transport] Failed to encode frame to JSON")
+            return
+        }
 
-        log?("[Transport] TX frame type=\(frame.type) stream=\(frame.streamID) (\(encoded.count) bytes)")
+        log?("[Transport] TX frame \(frameTypeName(frame)) stream=\(frame.streamId)")
 
         Task { @MainActor [weak self] in
             guard let self, let webView = self.webView else { return }
 
-            let js = "window.\(self.callbackName)('\(base64)')"
+            // Escape the JSON string for embedding in JS
+            let escaped = json
+                .replacingOccurrences(of: "\\", with: "\\\\")
+                .replacingOccurrences(of: "'", with: "\\'")
+                .replacingOccurrences(of: "\n", with: "\\n")
+                .replacingOccurrences(of: "\r", with: "\\r")
+
+            let js = "window.\(self.callbackName)('\(escaped)')"
 
             webView.evaluateJavaScript(js) { _, error in
                 if let error {
@@ -65,19 +74,17 @@ public final class NativeBridgeTransport: NSObject, WKScriptMessageHandler, @unc
         _ userContentController: WKUserContentController,
         didReceive message: WKScriptMessage
     ) {
-        guard let base64String = message.body as? String else {
+        guard let jsonString = message.body as? String else {
             log?("[Transport] Received non-string message from JS, ignoring")
             return
         }
 
-        guard let data = base64ToData(base64String) else {
-            log?("[Transport] Failed to decode base64 from JS")
+        guard let frame = try? frameFromJSON(jsonString) else {
+            log?("[Transport] Failed to decode JSON frame from JS")
             return
         }
 
-        let frame = RpcFrame.decode(from: data)
-
-        log?("[Transport] RX frame type=\(frame.type) stream=\(frame.streamID) (\(data.count) bytes)")
+        log?("[Transport] RX frame \(frameTypeName(frame)) stream=\(frame.streamId)")
 
         server?.handleFrame(frame)
     }

@@ -3,26 +3,225 @@
 // Any manual changes will be overwritten on the next generation run.
 
 import Foundation
-import SwiftProtobuf
 import RpcBridge
 
 // MARK: - DemoHelloV1
 
 public enum DemoHelloV1 {
 
-    public typealias HelloRequest = Demo_Hello_V1_HelloRequest
+    public struct HelloRequest: Codable, Sendable {
+        public var name: String = ""
+        public var language: String = ""
 
-    public typealias HelloResponse = Demo_Hello_V1_HelloResponse
+        public init() {}
 
-    public typealias GreetingStreamRequest = Demo_Hello_V1_GreetingStreamRequest
+        enum CodingKeys: String, CodingKey {
+            case name
+            case language
+        }
 
-    public typealias GreetingEvent = Demo_Hello_V1_GreetingEvent
+        public init(from decoder: Decoder) throws {
+            let container = try decoder.container(keyedBy: CodingKeys.self)
+            self.name = (try? container.decode(String.self, forKey: .name)) ?? ""
+            self.language = (try? container.decode(String.self, forKey: .language)) ?? ""
+        }
 
-    public typealias CollectNamesRequest = Demo_Hello_V1_CollectNamesRequest
+        public init(jsonUTF8Data data: Data) throws {
+            self = try JSONDecoder().decode(Self.self, from: data)
+        }
 
-    public typealias CollectNamesResponse = Demo_Hello_V1_CollectNamesResponse
+        public func jsonUTF8Data() throws -> Data {
+            return try JSONEncoder().encode(self)
+        }
+    }
 
-    public typealias ChatMessage = Demo_Hello_V1_ChatMessage
+    public struct HelloResponse: Codable, Sendable {
+        public var message: String = ""
+        public var timestamp: UInt64 = 0
+        public var serverVersion: String = ""
+
+        public init() {}
+
+        enum CodingKeys: String, CodingKey {
+            case message
+            case timestamp
+            case serverVersion
+        }
+
+        public init(from decoder: Decoder) throws {
+            let container = try decoder.container(keyedBy: CodingKeys.self)
+            self.message = (try? container.decode(String.self, forKey: .message)) ?? ""
+            if let v = try? container.decode(UInt64.self, forKey: .timestamp) {
+                self.timestamp = v
+            } else if let s = try? container.decode(String.self, forKey: .timestamp), let v = UInt64(s) {
+                self.timestamp = v
+            }
+            self.serverVersion = (try? container.decode(String.self, forKey: .serverVersion)) ?? ""
+        }
+
+        public init(jsonUTF8Data data: Data) throws {
+            self = try JSONDecoder().decode(Self.self, from: data)
+        }
+
+        public func jsonUTF8Data() throws -> Data {
+            return try JSONEncoder().encode(self)
+        }
+    }
+
+    public struct GreetingStreamRequest: Codable, Sendable {
+        public var name: String = ""
+        public var maxCount: UInt32 = 0
+        public var intervalMs: UInt32 = 0
+
+        public init() {}
+
+        enum CodingKeys: String, CodingKey {
+            case name
+            case maxCount
+            case intervalMs
+        }
+
+        public init(from decoder: Decoder) throws {
+            let container = try decoder.container(keyedBy: CodingKeys.self)
+            self.name = (try? container.decode(String.self, forKey: .name)) ?? ""
+            self.maxCount = (try? container.decode(UInt32.self, forKey: .maxCount)) ?? 0
+            self.intervalMs = (try? container.decode(UInt32.self, forKey: .intervalMs)) ?? 0
+        }
+
+        public init(jsonUTF8Data data: Data) throws {
+            self = try JSONDecoder().decode(Self.self, from: data)
+        }
+
+        public func jsonUTF8Data() throws -> Data {
+            return try JSONEncoder().encode(self)
+        }
+    }
+
+    public struct GreetingEvent: Codable, Sendable {
+        public var message: String = ""
+        public var seq: UInt64 = 0
+        public var timestamp: UInt64 = 0
+
+        public init() {}
+
+        enum CodingKeys: String, CodingKey {
+            case message
+            case seq
+            case timestamp
+        }
+
+        public init(from decoder: Decoder) throws {
+            let container = try decoder.container(keyedBy: CodingKeys.self)
+            self.message = (try? container.decode(String.self, forKey: .message)) ?? ""
+            if let v = try? container.decode(UInt64.self, forKey: .seq) {
+                self.seq = v
+            } else if let s = try? container.decode(String.self, forKey: .seq), let v = UInt64(s) {
+                self.seq = v
+            }
+            if let v = try? container.decode(UInt64.self, forKey: .timestamp) {
+                self.timestamp = v
+            } else if let s = try? container.decode(String.self, forKey: .timestamp), let v = UInt64(s) {
+                self.timestamp = v
+            }
+        }
+
+        public init(jsonUTF8Data data: Data) throws {
+            self = try JSONDecoder().decode(Self.self, from: data)
+        }
+
+        public func jsonUTF8Data() throws -> Data {
+            return try JSONEncoder().encode(self)
+        }
+    }
+
+    public struct CollectNamesRequest: Codable, Sendable {
+        public var name: String = ""
+
+        public init() {}
+
+        enum CodingKeys: String, CodingKey {
+            case name
+        }
+
+        public init(from decoder: Decoder) throws {
+            let container = try decoder.container(keyedBy: CodingKeys.self)
+            self.name = (try? container.decode(String.self, forKey: .name)) ?? ""
+        }
+
+        public init(jsonUTF8Data data: Data) throws {
+            self = try JSONDecoder().decode(Self.self, from: data)
+        }
+
+        public func jsonUTF8Data() throws -> Data {
+            return try JSONEncoder().encode(self)
+        }
+    }
+
+    public struct CollectNamesResponse: Codable, Sendable {
+        public var message: String = ""
+        public var count: UInt32 = 0
+
+        public init() {}
+
+        enum CodingKeys: String, CodingKey {
+            case message
+            case count
+        }
+
+        public init(from decoder: Decoder) throws {
+            let container = try decoder.container(keyedBy: CodingKeys.self)
+            self.message = (try? container.decode(String.self, forKey: .message)) ?? ""
+            self.count = (try? container.decode(UInt32.self, forKey: .count)) ?? 0
+        }
+
+        public init(jsonUTF8Data data: Data) throws {
+            self = try JSONDecoder().decode(Self.self, from: data)
+        }
+
+        public func jsonUTF8Data() throws -> Data {
+            return try JSONEncoder().encode(self)
+        }
+    }
+
+    public struct ChatMessage: Codable, Sendable {
+        public var from: String = ""
+        public var text: String = ""
+        public var seq: UInt64 = 0
+        public var timestamp: UInt64 = 0
+
+        public init() {}
+
+        enum CodingKeys: String, CodingKey {
+            case from
+            case text
+            case seq
+            case timestamp
+        }
+
+        public init(from decoder: Decoder) throws {
+            let container = try decoder.container(keyedBy: CodingKeys.self)
+            self.from = (try? container.decode(String.self, forKey: .from)) ?? ""
+            self.text = (try? container.decode(String.self, forKey: .text)) ?? ""
+            if let v = try? container.decode(UInt64.self, forKey: .seq) {
+                self.seq = v
+            } else if let s = try? container.decode(String.self, forKey: .seq), let v = UInt64(s) {
+                self.seq = v
+            }
+            if let v = try? container.decode(UInt64.self, forKey: .timestamp) {
+                self.timestamp = v
+            } else if let s = try? container.decode(String.self, forKey: .timestamp), let v = UInt64(s) {
+                self.timestamp = v
+            }
+        }
+
+        public init(jsonUTF8Data data: Data) throws {
+            self = try JSONDecoder().decode(Self.self, from: data)
+        }
+
+        public func jsonUTF8Data() throws -> Data {
+            return try JSONEncoder().encode(self)
+        }
+    }
 
     public enum DispatchError: Error, Sendable {
         case unknownMethod(String)
@@ -44,9 +243,7 @@ public enum DemoHelloV1 {
             self.provider = provider
         }
 
-        /// Dispatch using JSON-encoded Data (proto3 JSON mapping).
-        /// SwiftProtobuf handles int64-as-string and bytes-as-base64 automatically.
-        public func dispatchJSON(
+        public func dispatch(
             method: String,
             messages: AsyncStream<Data>
         ) async throws -> DispatchResult {
@@ -120,78 +317,5 @@ public enum DemoHelloV1 {
             }
         }
 
-        public func dispatch(
-            method: String,
-            messages: AsyncStream<Data>
-        ) async throws -> DispatchResult {
-            switch method {
-            case "demo.hello.v1.HelloBridgeService/SayHello":
-                var requestData: Data?
-                for await data in messages { requestData = data; break }
-                guard let requestData else { throw DispatchError.missingRequestData }
-                let request = try HelloRequest(serializedBytes: requestData)
-                let response = try await provider.sayHello(request)
-                return .unary(try response.serializedData())
-            case "demo.hello.v1.HelloBridgeService/WatchGreeting":
-                var requestData: Data?
-                for await data in messages { requestData = data; break }
-                guard let requestData else { throw DispatchError.missingRequestData }
-                let request = try GreetingStreamRequest(serializedBytes: requestData)
-                let responseStream = provider.watchGreeting(request)
-                let mappedStream = AsyncThrowingStream<Data, Error> { continuation in
-                    Task {
-                        do {
-                            for try await response in responseStream {
-                                continuation.yield(try response.serializedData())
-                            }
-                            continuation.finish()
-                        } catch {
-                            continuation.finish(throwing: error)
-                        }
-                    }
-                }
-                return .stream(mappedStream)
-            case "demo.hello.v1.HelloBridgeService/CollectNames":
-                let typedStream = AsyncStream<CollectNamesRequest> { continuation in
-                    Task {
-                        for await data in messages {
-                            if let msg = try? CollectNamesRequest(serializedBytes: data) {
-                                continuation.yield(msg)
-                            }
-                        }
-                        continuation.finish()
-                    }
-                }
-                let response = try await provider.collectNames(typedStream)
-                return .unary(try response.serializedData())
-            case "demo.hello.v1.HelloBridgeService/Chat":
-                let typedStream = AsyncStream<ChatMessage> { continuation in
-                    Task {
-                        for await data in messages {
-                            if let msg = try? ChatMessage(serializedBytes: data) {
-                                continuation.yield(msg)
-                            }
-                        }
-                        continuation.finish()
-                    }
-                }
-                let responseStream = provider.chat(typedStream)
-                let mappedStream = AsyncThrowingStream<Data, Error> { continuation in
-                    Task {
-                        do {
-                            for try await response in responseStream {
-                                continuation.yield(try response.serializedData())
-                            }
-                            continuation.finish()
-                        } catch {
-                            continuation.finish(throwing: error)
-                        }
-                    }
-                }
-                return .stream(mappedStream)
-            default:
-                throw DispatchError.unknownMethod(method)
-            }
-        }
     }
 }

@@ -18,13 +18,7 @@ import {
   createConsoleLogger,
 } from '@rpc-bridge/core';
 import { MessagePortTransport } from '@rpc-bridge/transport-web';
-import { registerHelloBridgeService, type IHelloBridgeServiceHandler } from '../../../generated/server.js';
-import {
-  HelloResponse,
-  GreetingEvent,
-  ChatMessage,
-  CollectNamesResponse,
-} from '../../../generated/messages.js';
+import { registerHelloBridgeService, type IHelloBridgeServiceHandler } from '../../../proto/generated/server.js';
 
 const logger = createConsoleLogger('Host');
 
@@ -56,11 +50,11 @@ const handler: IHelloBridgeServiceHandler = {
       : request.language === 'fr' ? `Bonjour, ${request.name}!`
       : `Hello, ${request.name}!`;
 
-    return new HelloResponse({
+    return {
       message: greeting,
       timestamp: BigInt(Date.now()),
       serverVersion: '0.1.0',
-    });
+    };
   },
 
   async *watchGreeting(request, context) {
@@ -74,11 +68,11 @@ const handler: IHelloBridgeServiceHandler = {
       if (context.signal.aborted) break;
 
       const greeting = greetings[(seq - 1) % greetings.length];
-      yield new GreetingEvent({
+      yield {
         message: `${greeting}, ${request.name}! (update #${seq})`,
         seq: BigInt(seq),
         timestamp: BigInt(Date.now()),
-      });
+      };
 
       if (seq < maxCount) {
         await delay(interval, context.signal);
@@ -95,21 +89,21 @@ const handler: IHelloBridgeServiceHandler = {
       logger.info(`Chat message from ${msg.from}: ${msg.text}`);
 
       responseSeq++;
-      yield new ChatMessage({
+      yield {
         from: 'bot',
         text: `You said: "${msg.text}" - that's interesting!`,
         seq: BigInt(responseSeq),
         timestamp: BigInt(Date.now()),
-      });
+      };
 
       await delay(500);
       responseSeq++;
-      yield new ChatMessage({
+      yield {
         from: 'bot',
         text: getFollowUp(msg.text),
         seq: BigInt(responseSeq),
         timestamp: BigInt(Date.now()),
-      });
+      };
     }
 
     logger.info('Chat stream ended');
@@ -120,10 +114,10 @@ const handler: IHelloBridgeServiceHandler = {
     for await (const req of requests) {
       if (req.name) names.push(req.name);
     }
-    return new CollectNamesResponse({
+    return {
       message: `Collected ${names.length} names: ${names.join(', ')}`,
       count: names.length,
-    });
+    };
   },
 };
 

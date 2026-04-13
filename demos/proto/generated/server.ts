@@ -8,7 +8,7 @@ import {
   type ServiceRegistration,
   type MethodHandler,
 } from '@rpc-bridge/core';
-import { ChatMessage, CollectNamesRequest, CollectNamesResponse, GreetingEvent, GreetingStreamRequest, HelloRequest, HelloResponse } from './messages.js';
+import { ChatMessage, ChatMessageJSON, CollectNamesRequest, CollectNamesRequestJSON, CollectNamesResponse, CollectNamesResponseJSON, GreetingEvent, GreetingEventJSON, GreetingStreamRequest, GreetingStreamRequestJSON, HelloRequest, HelloRequestJSON, HelloResponse, HelloResponseJSON } from './messages.js';
 
 /**
  * Server-side handler interface for HelloBridgeService.
@@ -30,20 +30,20 @@ export interface IHelloBridgeServiceHandler {
 /**
  * Create a ServiceRegistration for HelloBridgeService.
  *
- * The returned registration decodes incoming request bytes,
- * delegates to the typed handler, and encodes response bytes.
- * Pass the result to `RpcServer.registerService()`.
+ * When `json` is true, incoming/outgoing messages are decoded/encoded
+ * via JSON codecs (required for native bridges). Defaults to false.
  */
-export function registerHelloBridgeService(handler: IHelloBridgeServiceHandler): ServiceRegistration {
+export function registerHelloBridgeService(handler: IHelloBridgeServiceHandler, options?: { json?: boolean }): ServiceRegistration {
+  const json = options?.json ?? false;
   const methods: Record<string, MethodHandler> = {};
 
   // SayHello
   methods['SayHello'] = {
     type: MethodType.UNARY,
     handler: async (data: unknown, context: CallContext): Promise<unknown> => {
-      const request = HelloRequest.fromJSON(data as Record<string, unknown>);
+      const request = (json ? HelloRequestJSON.decode(data as Record<string, unknown>) : data) as HelloRequest;
       const response = await handler.sayHello(request, context);
-      return HelloResponse.toJSON(response);
+      return json ? HelloResponseJSON.encode(response) : response;
     },
   };
 
@@ -51,10 +51,10 @@ export function registerHelloBridgeService(handler: IHelloBridgeServiceHandler):
   methods['WatchGreeting'] = {
     type: MethodType.SERVER_STREAMING,
     handler: (data: unknown, context: CallContext): AsyncIterable<unknown> => {
-      const request = GreetingStreamRequest.fromJSON(data as Record<string, unknown>);
+      const request = (json ? GreetingStreamRequestJSON.decode(data as Record<string, unknown>) : data) as GreetingStreamRequest;
       const responses = handler.watchGreeting(request, context);
       return (async function* () {
-        for await (const resp of responses) yield GreetingEvent.toJSON(resp);
+        for await (const resp of responses) yield json ? GreetingEventJSON.encode(resp) : resp;
       })();
     },
   };
@@ -64,10 +64,10 @@ export function registerHelloBridgeService(handler: IHelloBridgeServiceHandler):
     type: MethodType.CLIENT_STREAMING,
     handler: async (requests: AsyncIterable<unknown>, context: CallContext): Promise<unknown> => {
       const decoded = (async function* () {
-        for await (const d of requests) yield CollectNamesRequest.fromJSON(d as Record<string, unknown>);
+        for await (const d of requests) yield (json ? CollectNamesRequestJSON.decode(d as Record<string, unknown>) : d) as CollectNamesRequest;
       })();
       const response = await handler.collectNames(decoded, context);
-      return CollectNamesResponse.toJSON(response);
+      return json ? CollectNamesResponseJSON.encode(response) : response;
     },
   };
 
@@ -76,11 +76,11 @@ export function registerHelloBridgeService(handler: IHelloBridgeServiceHandler):
     type: MethodType.BIDI_STREAMING,
     handler: (requests: AsyncIterable<unknown>, context: CallContext): AsyncIterable<unknown> => {
       const decoded = (async function* () {
-        for await (const d of requests) yield ChatMessage.fromJSON(d as Record<string, unknown>);
+        for await (const d of requests) yield (json ? ChatMessageJSON.decode(d as Record<string, unknown>) : d) as ChatMessage;
       })();
       const responses = handler.chat(decoded, context);
       return (async function* () {
-        for await (const resp of responses) yield ChatMessage.toJSON(resp);
+        for await (const resp of responses) yield json ? ChatMessageJSON.encode(resp) : resp;
       })();
     },
   };

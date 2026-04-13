@@ -1,60 +1,36 @@
-@file:OptIn(kotlinx.serialization.ExperimentalSerializationApi::class)
-
 package com.rpcbridge
 
 import android.util.Base64
-import kotlinx.serialization.Serializable
-import kotlinx.serialization.protobuf.ProtoBuf
-import kotlinx.serialization.protobuf.ProtoNumber
+import org.json.JSONObject
 
 // ---------------------------------------------------------------------------
-// Frame type constants (mirrors FrameType in frame.proto)
+// Frame body (sealed class mirroring the oneof body in frame.proto)
 // ---------------------------------------------------------------------------
 
-object FrameType {
-    const val UNSPECIFIED = 0
-    const val OPEN = 2
-    const val MESSAGE = 3
-    const val HALF_CLOSE = 4
-    const val CLOSE = 5
-    const val CANCEL = 6
-    const val ERROR = 7
+sealed class FrameBody {
+    data class Open(val method: String) : FrameBody()
+    data class Message(val payload: ByteArray?) : FrameBody() {
+        override fun equals(other: Any?): Boolean {
+            if (this === other) return true
+            if (other !is Message) return false
+            return payload.contentEqualsNullable(other.payload)
+        }
+        override fun hashCode(): Int = payload?.contentHashCode() ?: 0
+    }
+    data object HalfClose : FrameBody()
+    data object Close : FrameBody()
+    data object Cancel : FrameBody()
+    data class Error(val errorCode: Int, val errorMessage: String) : FrameBody()
 }
 
 // ---------------------------------------------------------------------------
-// RpcFrame data class (mirrors the proto RpcFrame message)
+// RpcFrame
 // ---------------------------------------------------------------------------
 
-@Serializable
 data class RpcFrame(
-    @ProtoNumber(1) val type: Int = FrameType.UNSPECIFIED,
-    @ProtoNumber(2) val streamId: Int = 0,
-    @ProtoNumber(4) val payload: ByteArray? = null,
-    @ProtoNumber(15) val method: String? = null,
-    @ProtoNumber(20) val errorCode: Int = 0,
-    @ProtoNumber(21) val errorMessage: String? = null,
-) {
-    override fun equals(other: Any?): Boolean {
-        if (this === other) return true
-        if (other !is RpcFrame) return false
-        return type == other.type &&
-            streamId == other.streamId &&
-            payload.contentEqualsNullable(other.payload) &&
-            method == other.method &&
-            errorCode == other.errorCode &&
-            errorMessage == other.errorMessage
-    }
-
-    override fun hashCode(): Int {
-        var result = type
-        result = 31 * result + streamId
-        result = 31 * result + (payload?.contentHashCode() ?: 0)
-        result = 31 * result + (method?.hashCode() ?: 0)
-        result = 31 * result + errorCode
-        result = 31 * result + (errorMessage?.hashCode() ?: 0)
-        return result
-    }
-}
+    val streamId: Int,
+    val body: FrameBody,
+)
 
 private fun ByteArray?.contentEqualsNullable(other: ByteArray?): Boolean {
     if (this == null && other == null) return true
@@ -63,64 +39,108 @@ private fun ByteArray?.contentEqualsNullable(other: ByteArray?): Boolean {
 }
 
 // ---------------------------------------------------------------------------
-// Frame encoding / decoding
+// JSON encoding / decoding
 // ---------------------------------------------------------------------------
 
-fun encodeFrame(frame: RpcFrame): ByteArray =
-    ProtoBuf.encodeToByteArray(RpcFrame.serializer(), frame)
+fun encodeFrameToJSON(frame: RpcFrame): String = frameToJSONObject(frame).toString()
 
-fun decodeFrame(data: ByteArray): RpcFrame =
-    ProtoBuf.decodeFromByteArray(RpcFrame.serializer(), data)
+fun decodeFrameFromJSON(json: String): RpcFrame = frameFromJSONObject(JSONObject(json))
+
+private fun frameToJSONObject(frame: RpcFrame): JSONObject {
+    val o = JSONObject()
+    o.put("streamId", frame.streamId)
+    when (val b = frame.body) {
+        is FrameBody.Open -> o.put("open", JSONObject().apply { put("method", b.method) })
+        is FrameBody.Message -> {
+            val msgObj = JSONObject()
+            if (b.payload != null) {
+                // Payload is inline JSON, decode and nest
+                val payloadStr = String(b.payload, Charsets.UTF_8)
+                msgObj.put("payload", JSONObject(payloadStr))
+            }
+            o.put("message", msgObj)
+        }
+        is FrameBody.HalfClose -> o.put("halfClose", JSONObject())
+        is FrameBody.Close -> o.put("close", JSONObject())
+        is FrameBody.Cancel -> o.put("cancel", JSONObject())
+        is FrameBody.Error -> o.put("error", JSONObject().apply {
+            put("errorCode", b.errorCode)
+            put("errorMessage", b.errorMessage)
+        })
+    }
+    return o
+}
+
+private fun frameFromJSONObject(o: JSONObject): RpcFrame {
+    val streamId = o.optInt("streamId", 0)
+    val body = when {
+        o.has("open") -> {
+            val b = o.getJSONObject("open")
+            FrameBody.Open(method = b.optString("method", ""))
+        }
+        o.has("message") -> {
+            val b = o.getJSONObject("message")
+            val payload = if (b.has("payload")) {
+                b.getJSONObject("payload").toString().toByteArray(Charsets.UTF_8)
+            } else {
+                null
+            }
+            FrameBody.Message(payload = payload)
+        }
+        o.has("halfClose") -> FrameBody.HalfClose
+        o.has("close") -> FrameBody.Close
+        o.has("cancel") -> FrameBody.Cancel
+        o.has("error") -> {
+            val b = o.getJSONObject("error")
+            FrameBody.Error(
+                errorCode = b.optInt("errorCode", 0),
+                errorMessage = b.optString("errorMessage", ""),
+            )
+        }
+        else -> FrameBody.Cancel // unknown body type, treat as no-op
+    }
+    return RpcFrame(streamId, body)
+}
 
 // ---------------------------------------------------------------------------
-// Base64 helpers (using android.util.Base64)
+// Base64 helpers (JSON string encoded as base64 for WebView bridge)
 // ---------------------------------------------------------------------------
 
-fun encodeBase64(data: ByteArray): String =
-    Base64.encodeToString(data, Base64.NO_WRAP)
+fun encodeFrameToBase64(frame: RpcFrame): String {
+    val json = encodeFrameToJSON(frame)
+    return Base64.encodeToString(json.toByteArray(Charsets.UTF_8), Base64.NO_WRAP)
+}
 
-fun decodeBase64(base64: String): ByteArray =
-    Base64.decode(base64, Base64.NO_WRAP)
-
-fun encodeFrameToBase64(frame: RpcFrame): String =
-    encodeBase64(encodeFrame(frame))
-
-fun decodeFrameFromBase64(base64: String): RpcFrame =
-    decodeFrame(decodeBase64(base64))
+fun decodeFrameFromBase64(base64: String): RpcFrame {
+    val json = String(Base64.decode(base64, Base64.NO_WRAP), Charsets.UTF_8)
+    return decodeFrameFromJSON(json)
+}
 
 // ---------------------------------------------------------------------------
 // Frame factory helpers
 // ---------------------------------------------------------------------------
 
-fun createMessageFrame(
-    streamId: Int,
-    payload: ByteArray,
-): RpcFrame = RpcFrame(
-    type = FrameType.MESSAGE,
-    streamId = streamId,
-    payload = payload,
-)
+fun createMessageFrame(streamId: Int, payload: ByteArray): RpcFrame =
+    RpcFrame(streamId = streamId, body = FrameBody.Message(payload = payload))
 
-fun createCloseFrame(streamId: Int): RpcFrame = RpcFrame(
-    type = FrameType.CLOSE,
-    streamId = streamId,
-)
+fun createCloseFrame(streamId: Int): RpcFrame =
+    RpcFrame(streamId = streamId, body = FrameBody.Close)
 
-fun createHalfCloseFrame(streamId: Int): RpcFrame = RpcFrame(
-    type = FrameType.HALF_CLOSE,
-    streamId = streamId,
-)
+fun createHalfCloseFrame(streamId: Int): RpcFrame =
+    RpcFrame(streamId = streamId, body = FrameBody.HalfClose)
 
-fun createErrorFrame(
-    streamId: Int,
-    errorCode: Int,
-    errorMessage: String,
-): RpcFrame = RpcFrame(
-    type = FrameType.ERROR,
-    streamId = streamId,
-    errorCode = errorCode,
-    errorMessage = errorMessage,
-)
+fun createErrorFrame(streamId: Int, errorCode: Int, errorMessage: String): RpcFrame =
+    RpcFrame(streamId = streamId, body = FrameBody.Error(errorCode = errorCode, errorMessage = errorMessage))
+
+/** Return a human-readable name for the frame's body type, for logging. */
+fun frameTypeName(frame: RpcFrame): String = when (frame.body) {
+    is FrameBody.Open -> "open"
+    is FrameBody.Message -> "message"
+    is FrameBody.HalfClose -> "halfClose"
+    is FrameBody.Close -> "close"
+    is FrameBody.Cancel -> "cancel"
+    is FrameBody.Error -> "error"
+}
 
 // ---------------------------------------------------------------------------
 // Error codes (subset of gRPC status codes)

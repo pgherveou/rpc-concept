@@ -9,7 +9,7 @@
  * For security, always specify the target origin.
  */
 
-import { MessageTransportBase, FrameEncoding, type Logger } from '@rpc-bridge/core';
+import { MessageTransportBase, FrameEncoding, type Logger, type RpcFrame } from '@rpc-bridge/core';
 
 export interface PostMessageTransportOptions {
   /** Window or Worker to send messages to. */
@@ -38,7 +38,7 @@ export class PostMessageTransport extends MessageTransportBase {
 
   constructor(options: PostMessageTransportOptions) {
     // Use base64 encoding for postMessage (safer than transferring binary)
-    super(FrameEncoding.BASE64, options.logger);
+    super(FrameEncoding.JSON, options.logger);
     this.target = options.target;
     this.targetOrigin = options.targetOrigin;
     this.expectedOrigin = options.expectedOrigin;
@@ -73,9 +73,9 @@ export class PostMessageTransport extends MessageTransportBase {
     (this.source as EventTarget).addEventListener('message', this.messageListener as EventListener);
   }
 
-  protected sendRaw(data: Uint8Array | string): void {
+  protected sendRaw(data: string | RpcFrame): void {
     if (typeof data !== 'string') {
-      throw new Error('PostMessageTransport expects base64 string data');
+      throw new Error('PostMessageTransport expects JSON string data');
     }
     const message = {
       channel: this.channelId,

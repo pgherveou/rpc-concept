@@ -32,7 +32,7 @@ packages/                       # Framework code only
 
 demos/                          # Demo application code
   proto/hello.proto               Demo service proto definition (shared by guest + host)
-  generated/                      Generated TS messages, client stubs, server interfaces
+  proto/generated/                Generated TS messages, client stubs, server interfaces
   guest-app/                      Shared guest web client (React, embedded in all platform hosts)
     src/main.ts                     Registers __rpcBridgeBoot callback (no transport knowledge)
     src/App.tsx                     Root React component

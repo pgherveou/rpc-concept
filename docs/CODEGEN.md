@@ -15,11 +15,11 @@ The code generator (`packages/codegen`) reads `.proto` files and produces platfo
 | Concern | Generated | Runtime |
 |---------|-----------|---------|
 | Message structs/classes | Yes | No |
-| Message encode/decode | Yes | `@bufbuild/protobuf` (TS), `SwiftProtobuf` (Swift), `kotlinx-serialization-protobuf` (Kotlin) |
+| Message encode/decode | Yes | Native JSON (TS), `Codable` (Swift), `kotlinx.serialization.json` (Kotlin) |
 | Client stub methods | Yes | Delegates to runtime `RpcClient` |
 | Server handler interfaces | Yes | No |
 | Server dispatcher | Yes | Registers with runtime `RpcServer` |
-| Frame encode/decode | No | `@rpc-bridge/core` (frame.ts) |
+| Frame types/guards | No | `@rpc-bridge/core` (frame.ts) |
 | Stream management | No | `@rpc-bridge/core` (stream.ts) |
 | Transport | No | Platform adapter packages |
 
@@ -63,11 +63,7 @@ The TypeScript generator (`src/gen-typescript.ts`) produces three files per prot
 For each message, generates:
 
 1. An **interface** (`IHelloRequest`) defining the plain-object shape
-2. A **class** (`HelloRequest`) implementing the interface with:
-   - Fields with proto3 default values
-   - Constructor accepting `Partial<IHelloRequest>`
-   - Static `encode(msg)` method returning `Uint8Array`
-   - Static `decode(data)` method returning the class instance
+2. A **factory function** (`createHelloRequest(init)`) for constructing instances with defaults
 
 ```typescript
 export interface IHelloRequest {
@@ -75,38 +71,16 @@ export interface IHelloRequest {
   language: string;
 }
 
-export class HelloRequest implements IHelloRequest {
-  name: string = '';
-  language: string = '';
-
-  constructor(init?: Partial<IHelloRequest>) {
-    if (init) { Object.assign(this, init); }
-  }
-
-  static encode(msg: IHelloRequest): Uint8Array {
-    const w = new BinaryWriter();
-    if (msg.name.length) w.tag(1, WireType.LengthDelimited).string(msg.name);
-    if (msg.language.length) w.tag(2, WireType.LengthDelimited).string(msg.language);
-    return w.finish();
-  }
-
-  static decode(data: Uint8Array): HelloRequest {
-    const r = new BinaryReader(data);
-    const msg = new HelloRequest();
-    while (r.pos < r.len) {
-      const [fieldNumber, wireType] = r.tag();
-      switch (fieldNumber) {
-        case 1: msg.name = r.string(); break;
-        case 2: msg.language = r.string(); break;
-        default: r.skip(wireType); break;
-      }
-    }
-    return msg;
-  }
+export function createHelloRequest(init?: Partial<IHelloRequest>): IHelloRequest {
+  return {
+    name: '',
+    language: '',
+    ...init,
+  };
 }
 ```
 
-The `encode`/`decode` methods use `BinaryWriter`/`BinaryReader` from `@bufbuild/protobuf/wire`, producing standard protobuf binary output.
+Messages are plain JSON-compatible objects. No encode/decode step is needed since the wire format is JSON.
 
 For enums, generates TypeScript `enum` declarations:
 
@@ -133,42 +107,26 @@ export class HelloBridgeServiceClient {
   }
 
   // Unary RPC
-  async sayHello(request: HelloRequest, options?: CallOptions): Promise<HelloResponse> {
-    const requestBytes = HelloRequest.encode(request);
-    const responseBytes = await this.client.unary(`${this.service}/SayHello`, requestBytes, options);
-    return HelloResponse.decode(responseBytes);
+  async sayHello(request: IHelloRequest, options?: CallOptions): Promise<IHelloResponse> {
+    return await this.client.unary(`${this.service}/SayHello`, request, options);
   }
 
   // Server-streaming RPC
-  async *watchGreeting(request: GreetingStreamRequest, options?: CallOptions):
-      AsyncGenerator<GreetingEvent, void, undefined> {
-    const requestBytes = GreetingStreamRequest.encode(request);
-    const stream = this.client.serverStream(`${this.service}/WatchGreeting`, requestBytes, options);
-    for await (const chunk of stream) {
-      yield GreetingEvent.decode(chunk);
-    }
+  async *watchGreeting(request: IGreetingStreamRequest, options?: CallOptions):
+      AsyncGenerator<IGreetingEvent, void, undefined> {
+    yield* this.client.serverStream(`${this.service}/WatchGreeting`, request, options);
   }
 
   // Client-streaming RPC
-  async collectNames(requests: AsyncIterable<CollectNamesRequest>, options?: CallOptions):
-      Promise<CollectNamesResponse> {
-    const encoded = (async function* () {
-      for await (const req of requests) { yield CollectNamesRequest.encode(req); }
-    })();
-    const responseBytes = await this.client.clientStream(`${this.service}/CollectNames`, encoded, options);
-    return CollectNamesResponse.decode(responseBytes);
+  async collectNames(requests: AsyncIterable<ICollectNamesRequest>, options?: CallOptions):
+      Promise<ICollectNamesResponse> {
+    return await this.client.clientStream(`${this.service}/CollectNames`, requests, options);
   }
 
   // Bidi-streaming RPC
-  async *chat(requests: AsyncIterable<ChatMessage>, options?: CallOptions):
-      AsyncGenerator<ChatMessage, void, undefined> {
-    const encoded = (async function* () {
-      for await (const req of requests) { yield ChatMessage.encode(req); }
-    })();
-    const stream = this.client.bidiStream(`${this.service}/Chat`, encoded, options);
-    for await (const chunk of stream) {
-      yield ChatMessage.decode(chunk);
-    }
+  async *chat(requests: AsyncIterable<IChatMessage>, options?: CallOptions):
+      AsyncGenerator<IChatMessage, void, undefined> {
+    yield* this.client.bidiStream(`${this.service}/Chat`, requests, options);
   }
 }
 ```
@@ -193,10 +151,8 @@ export function registerHelloBridgeService(handler: IHelloBridgeServiceHandler):
 
   methods['SayHello'] = {
     type: MethodType.UNARY,
-    handler: async (requestBytes, context) => {
-      const request = HelloRequest.decode(requestBytes);
-      const response = await handler.sayHello(request, context);
-      return HelloResponse.encode(response);
+    handler: async (request, context) => {
+      return await handler.sayHello(request as IHelloRequest, context);
     },
   };
   // ... other methods ...
@@ -205,27 +161,33 @@ export function registerHelloBridgeService(handler: IHelloBridgeServiceHandler):
 }
 ```
 
-The dispatcher handles the serialization boundary: it decodes incoming bytes into typed messages, calls the handler, and encodes the response back to bytes.
+Since messages are plain JSON objects, the dispatcher casts incoming payloads to their typed interfaces and passes them directly to the handler. No encode/decode step is needed.
 
 ## Swift Generation
 
-The Swift generator (`src/gen-swift.ts`) produces a single `.swift` file per service. Message encoding is handled entirely by [SwiftProtobuf](https://github.com/apple/swift-protobuf) via `protoc-gen-swift`, so the codegen only generates RPC glue code.
+The Swift generator (`src/gen-swift.ts`) produces a single `.swift` file per service containing message structs, service protocols, and dispatchers.
 
-### Namespace Enum with Typealiases
+### Message Structs
 
-All types are nested inside a namespace enum (e.g., `DemoHelloV1`). Messages are typealiases to the `protoc-gen-swift` generated types:
+For each message, generates a `Codable` struct with `CodingKeys` for JSON serialization:
 
 ```swift
-public enum DemoHelloV1 {
-    public typealias HelloRequest = Demo_Hello_V1_HelloRequest
-    public typealias HelloResponse = Demo_Hello_V1_HelloResponse
-    // ...
+public struct HelloRequest: Codable, Sendable {
+    public var name: String
+    public var language: String
+
+    public init(name: String = "", language: String = "") {
+        self.name = name
+        self.language = language
+    }
+
+    enum CodingKeys: String, CodingKey {
+        case name, language
+    }
 }
 ```
 
-The `protoc-gen-swift` naming convention maps package `demo.hello.v1` + message `HelloRequest` to `Demo_Hello_V1_HelloRequest`. The typealiases provide shorter names within the namespace.
-
-Message structs are generated by running `protoc --swift_out` on the `.proto` files. These conform to `SwiftProtobuf.Message` and provide `serializedData()` / `init(serializedBytes:)` for encoding.
+All types are nested inside a namespace enum (e.g., `DemoHelloV1`) for organization.
 
 ### Service Protocol
 
@@ -242,22 +204,23 @@ public protocol HelloBridgeServiceProvider: Sendable {
 
 ### Dispatcher Class
 
-A `Dispatcher` class that routes raw bytes to the typed protocol methods:
+A `Dispatcher` class that routes JSON payloads to the typed protocol methods:
 
 ```swift
 public final class HelloBridgeServiceDispatcher: ServiceDispatcher, @unchecked Sendable {
     private let provider: any HelloBridgeServiceProvider
 
-    public func dispatch(method: String, messages: AsyncStream<Data>)
+    public func dispatch(method: String, messages: AsyncStream<Any>)
         async throws -> DispatchResult {
         switch method {
         case "demo.hello.v1.HelloBridgeService/SayHello":
-            var requestData: Data?
+            var requestData: Any?
             for await data in messages { requestData = data; break }
             guard let requestData else { throw DispatchError.missingRequestData }
-            let request = try HelloRequest(serializedBytes: requestData)
+            let jsonData = try JSONSerialization.data(withJSONObject: requestData)
+            let request = try JSONDecoder().decode(HelloRequest.self, from: jsonData)
             let response = try await provider.sayHello(request)
-            return .unary(try response.serializedData())
+            return .unary(response)
         // ...
         }
     }
@@ -270,24 +233,17 @@ The Kotlin generator (`src/gen-kotlin.ts`) produces a single `.kt` file containi
 
 ### Data Classes
 
-For each message, generates a Kotlin `data class` annotated with `@Serializable` and `@ProtoNumber` from `kotlinx-serialization-protobuf`:
+For each message, generates a Kotlin `data class` annotated with `@Serializable` from `kotlinx.serialization`:
 
 ```kotlin
 @Serializable
 data class HelloRequest(
-    @ProtoNumber(1) val name: String = "",
-    @ProtoNumber(2) val language: String = "",
-) {
-    fun encode(): ByteArray = ProtoBuf.encodeToByteArray(this)
-
-    companion object {
-        fun decode(data: ByteArray): HelloRequest =
-            ProtoBuf.decodeFromByteArray(data)
-    }
-}
+    val name: String = "",
+    val language: String = "",
+)
 ```
 
-The `@ProtoNumber` annotations map fields to their protobuf field numbers. Encoding and decoding is handled by `kotlinx-serialization-protobuf`, producing standard protobuf binary wire format.
+Encoding and decoding is handled by `kotlinx.serialization.json`, producing standard JSON.
 
 ### Service Interface
 
@@ -304,7 +260,7 @@ interface HelloBridgeServiceHandler {
 
 ### Dispatcher Class
 
-A dispatcher class routing raw bytes to typed interface methods, analogous to the Swift dispatcher.
+A dispatcher class routing JSON payloads to typed interface methods, analogous to the Swift dispatcher.
 
 ## CLI Usage
 
@@ -385,20 +341,20 @@ const PROTO_TO_DART: Record<string, string> = {
 };
 ```
 
-### 3. Generate Message Encode/Decode
+### 3. Generate Message Types
 
-Use an established protobuf library for the target language. Examples from existing generators:
+Generate message structs/classes that support JSON serialization. Examples from existing generators:
 
-- **TypeScript**: `BinaryWriter`/`BinaryReader` from `@bufbuild/protobuf/wire`
-- **Swift**: `protoc-gen-swift` generates `SwiftProtobuf.Message` conforming types
-- **Kotlin**: `@Serializable` + `@ProtoNumber` annotations with `kotlinx-serialization-protobuf`
+- **TypeScript**: Plain interfaces (JSON-compatible by default)
+- **Swift**: `Codable` structs with `CodingKeys`
+- **Kotlin**: `@Serializable` data classes with `kotlinx.serialization.json`
 
 ### 4. Generate Service Stubs
 
 Follow the pattern:
-- **Client**: Typed methods that encode requests, call the raw RPC client, and decode responses.
+- **Client**: Typed methods that call the RPC client with typed request/response objects.
 - **Server interface**: Typed method signatures that implementors fulfill.
-- **Dispatcher**: Bridges raw bytes to typed methods and back.
+- **Dispatcher**: Routes incoming JSON payloads to typed handler methods.
 
 ### 5. Wire into the CLI
 
@@ -429,4 +385,4 @@ export { generateDart } from './gen-dart.js';
 
 ### Key Invariant
 
-All generated encode/decode code MUST produce and consume the same protobuf binary wire format. This is what enables cross-language interoperability. The field numbers, wire types, and encoding rules must exactly match `frame.proto` and the message definitions.
+All generated message types MUST produce and consume the same JSON format. This is what enables cross-language interoperability. The field names and JSON structure must exactly match across all target languages.

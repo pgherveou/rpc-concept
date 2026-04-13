@@ -8,8 +8,12 @@
  */
 
 import {
-  FrameType,
   type RpcFrame,
+  isOpenFrame,
+  isMessageFrame,
+  isHalfCloseFrame,
+  isCancelFrame,
+  isErrorFrame,
   createMessageFrame,
   createHalfCloseFrame,
   createCloseFrame,
@@ -88,63 +92,45 @@ export class RpcServer {
   }
 
   private handleFrame(frame: RpcFrame): void {
-    if (frame.type === FrameType.OPEN) {
-      this.handleOpen(frame);
+    if (isOpenFrame(frame)) {
+      this.handleOpen(frame.streamId, frame.open.method);
       return;
     }
 
     const stream = this.streams.getStream(frame.streamId);
     if (!stream) {
-      this.logger.warn(`Received frame for unknown stream ${frame.streamId}, type=${frame.type}`);
+      this.logger.warn(`Received frame for unknown stream ${frame.streamId}`);
       return;
     }
 
-    switch (frame.type) {
-      case FrameType.MESSAGE:
-        stream.pushMessage(frame.payload);
-        break;
-
-      case FrameType.HALF_CLOSE:
-        if (stream.state === StreamState.HALF_CLOSED_LOCAL) {
-          stream.setState(StreamState.HALF_CLOSED_BOTH);
-        } else {
-          stream.setState(StreamState.HALF_CLOSED_REMOTE);
-        }
-        stream.pushEnd();
-        break;
-
-      case FrameType.CANCEL:
-        this.logger.debug(`Stream ${frame.streamId} cancelled by client`);
-        stream.cancel('Cancelled by client');
-        this.streams.removeStream(frame.streamId);
-        break;
-
-      case FrameType.ERROR:
-        stream.pushError(
-          RpcError.fromFrame(
-            frame.errorCode ?? RpcStatusCode.INTERNAL,
-            frame.errorMessage ?? 'Client error',
-          ),
-        );
-        this.streams.removeStream(frame.streamId);
-        break;
-
-      default:
-        this.logger.debug(`Ignoring unknown frame type ${frame.type} on stream ${frame.streamId}`);
-        break;
+    if (isMessageFrame(frame)) {
+      stream.pushMessage(frame.message.payload);
+    } else if (isHalfCloseFrame(frame)) {
+      if (stream.state === StreamState.HALF_CLOSED_LOCAL) {
+        stream.setState(StreamState.HALF_CLOSED_BOTH);
+      } else {
+        stream.setState(StreamState.HALF_CLOSED_REMOTE);
+      }
+      stream.pushEnd();
+    } else if (isCancelFrame(frame)) {
+      this.logger.debug(`Stream ${frame.streamId} cancelled by client`);
+      stream.cancel('Cancelled by client');
+      this.streams.removeStream(frame.streamId);
+    } else if (isErrorFrame(frame)) {
+      stream.pushError(
+        RpcError.fromFrame(frame.error.errorCode, frame.error.errorMessage),
+      );
+      this.streams.removeStream(frame.streamId);
+    } else {
+      this.logger.debug(`Ignoring unknown frame on stream ${frame.streamId}`);
     }
   }
 
-  private handleOpen(frame: RpcFrame): void {
-    const method = frame.method;
-    if (!method) {
-      this.sendError(frame.streamId, RpcStatusCode.INVALID_ARGUMENT, 'Missing method name');
-      return;
-    }
+  private handleOpen(streamId: number, method: string): void {
 
     const slashIdx = method.lastIndexOf('/');
     if (slashIdx < 0) {
-      this.sendError(frame.streamId, RpcStatusCode.INVALID_ARGUMENT, `Invalid method format: ${method}`);
+      this.sendError(streamId, RpcStatusCode.INVALID_ARGUMENT, `Invalid method format: ${method}`);
       return;
     }
 
@@ -153,23 +139,23 @@ export class RpcServer {
 
     const service = this.services.get(serviceName);
     if (!service) {
-      this.sendError(frame.streamId, RpcStatusCode.UNIMPLEMENTED, `Unknown service: ${serviceName}`);
+      this.sendError(streamId, RpcStatusCode.UNIMPLEMENTED, `Unknown service: ${serviceName}`);
       return;
     }
 
     const methodHandler = service.methods[methodName];
     if (!methodHandler) {
-      this.sendError(frame.streamId, RpcStatusCode.UNIMPLEMENTED, `Unknown method: ${method}`);
+      this.sendError(streamId, RpcStatusCode.UNIMPLEMENTED, `Unknown method: ${method}`);
       return;
     }
 
-    const stream = new Stream(frame.streamId);
+    const stream = new Stream(streamId);
     stream.open();
     this.streams.registerStream(stream);
 
     const context: CallContext = {
       signal: stream.signal,
-      streamId: frame.streamId,
+      streamId,
       method,
     };
 

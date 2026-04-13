@@ -15,9 +15,15 @@ export interface ProtoFile {
   services: ServiceDef[];
 }
 
+export interface OneOfDef {
+  name: string;
+  fields: FieldDef[];
+}
+
 export interface MessageDef {
   name: string;
   fields: FieldDef[];
+  oneofs: OneOfDef[];
   reserved: number[];
 }
 
@@ -109,11 +115,31 @@ function collectTypes(ns: protobuf.NamespaceBase, result: ProtoFile): void {
 }
 
 function extractMessage(type: protobuf.Type): MessageDef {
+  // Extract oneofs (skip synthetic oneofs from proto3 optional)
+  const oneofs: OneOfDef[] = [];
+  const oneofFieldNames = new Set<string>();
+  for (const oo of type.oneofsArray) {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    if ((oo as any).isProto3Optional) continue;
+    const ooFields: FieldDef[] = [];
+    for (const field of oo.fieldsArray) {
+      oneofFieldNames.add(field.name);
+      ooFields.push({
+        name: field.name,
+        type: stripPackagePrefix(field.type),
+        number: field.id,
+        repeated: field.repeated,
+        optional: false,
+        deprecated: !!(field.options && field.options['deprecated']),
+      });
+    }
+    oneofs.push({ name: oo.name, fields: ooFields });
+  }
+
+  // Extract top-level fields (excluding oneof members)
   const fields: FieldDef[] = [];
   for (const field of type.fieldsArray) {
-    // In proto3, field.optional is true for all non-repeated fields in protobufjs.
-    // We only treat a field as optional if it uses the explicit `optional` keyword,
-    // which protobufjs represents as rule === 'optional'.
+    if (oneofFieldNames.has(field.name)) continue;
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const isExplicitOptional = (field as any).rule === 'optional';
     fields.push({
@@ -139,7 +165,7 @@ function extractMessage(type: protobuf.Type): MessageDef {
     }
   }
 
-  return { name: type.name, fields, reserved };
+  return { name: type.name, fields, oneofs, reserved };
 }
 
 function extractEnum(enumType: protobuf.Enum): EnumDef {

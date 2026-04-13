@@ -1,17 +1,21 @@
 /**
  * Swift code generator for the RPC bridge framework.
  *
- * Generates typealiases to protoc-gen-swift types, service provider protocols
- * with async/await, and dispatcher classes for routing raw bytes to typed
- * handler methods.
+ * Generates Codable enums, message structs, service provider protocols with
+ * async/await, and dispatcher classes that route JSON data to typed handler
+ * methods. No external dependencies beyond Foundation and RpcBridge.
  *
- * Message structs and protobuf encoding are handled by protoc-gen-swift.
- * This generator only produces the RPC glue code.
+ * Two modes:
+ * - Service protos (has services): wraps types in a namespace enum, imports RpcBridge
+ * - Framework protos (no services): emits top-level types, no RpcBridge import
  */
 
 import type {
   ProtoFile,
+  MessageDef,
+  EnumDef,
   ServiceDef,
+  OneOfDef,
 } from './parser.js';
 
 // ---------------------------------------------------------------------------
@@ -22,11 +26,10 @@ export function generateSwift(proto: ProtoFile): string {
   const lines: string[] = [];
   const emit = (line = '') => lines.push(line);
   const emitBlock = (block: string) => {
-    for (const l of block.split('\n')) {
-      lines.push(l);
-    }
+    for (const l of block.split('\n')) lines.push(l);
   };
 
+  const hasServices = proto.services.length > 0;
   const namespace = swiftNamespace(proto.package);
 
   // File header
@@ -35,42 +38,46 @@ export function generateSwift(proto: ProtoFile): string {
   emit('// Any manual changes will be overwritten on the next generation run.');
   emit('');
   emit('import Foundation');
-  emit('import SwiftProtobuf');
-  emit('import RpcBridge');
+  if (hasServices) emit('import RpcBridge');
   emit('');
 
-  // Namespace enum (acts as a Swift namespace)
-  emit(`// MARK: - ${namespace}`);
-  emit('');
-  emit(`public enum ${namespace} {`);
+  // Collect enum names so we can detect enum-typed fields
+  const enumNames = new Set(proto.enums.map((e) => e.name));
 
-  // Typealiases for enums
-  for (const enumDef of proto.enums) {
+  if (hasServices) {
+    // Service proto: wrap everything in a namespace enum
+    emit(`// MARK: - ${namespace}`);
     emit('');
-    emit(`    public typealias ${enumDef.name} = ${protocSwiftName(proto.package, enumDef.name)}`);
-  }
+    emit(`public enum ${namespace} {`);
 
-  // Typealiases for messages
-  for (const msg of proto.messages) {
-    emit('');
-    emit(`    public typealias ${msg.name} = ${protocSwiftName(proto.package, msg.name)}`);
-  }
-
-  // Dispatch error type (emitted once for all services)
-  if (proto.services.length > 0) {
+    for (const enumDef of proto.enums) {
+      emit('');
+      emitBlock(indent(generateEnum(enumDef), 1));
+    }
+    for (const msg of proto.messages) {
+      emit('');
+      emitBlock(indent(generateMessageStruct(msg, enumNames, proto.messages), 1));
+    }
     emit('');
     emitBlock(indent(generateDispatchError(), 1));
+    for (const svc of proto.services) {
+      emit('');
+      emitBlock(indent(generateServiceProtocol(svc, proto), 1));
+      emit('');
+      emitBlock(indent(generateDispatcher(svc, proto), 1));
+    }
+    emit('}');
+  } else {
+    // Framework proto: emit top-level types (no namespace, no RpcBridge import)
+    for (const enumDef of proto.enums) {
+      emit('');
+      emitBlock(generateEnum(enumDef));
+    }
+    for (const msg of proto.messages) {
+      emit('');
+      emitBlock(generateMessageStruct(msg, enumNames, proto.messages));
+    }
   }
-
-  // Services
-  for (const svc of proto.services) {
-    emit('');
-    emitBlock(indent(generateServiceProtocol(svc, proto), 1));
-    emit('');
-    emitBlock(indent(generateDispatcher(svc, proto), 1));
-  }
-
-  emit('}'); // close namespace enum
 
   return lines.join('\n') + '\n';
 }
@@ -81,22 +88,12 @@ export function generateSwift(proto: ProtoFile): string {
 
 /** Convert a proto package like "demo.hello.v1" to "DemoHelloV1". */
 function swiftNamespace(pkg: string): string {
-  return pkg
-    .split('.')
-    .map((s) => s.charAt(0).toUpperCase() + s.slice(1))
-    .join('');
+  return pkg.split('.').map((s) => s.charAt(0).toUpperCase() + s.slice(1)).join('');
 }
 
-/**
- * Convert a proto package + message name to the protoc-gen-swift generated name.
- * e.g. package "demo.hello.v1" + message "HelloRequest" = "Demo_Hello_V1_HelloRequest"
- */
-function protocSwiftName(pkg: string, typeName: string): string {
-  const prefix = pkg
-    .split('.')
-    .map((s) => s.charAt(0).toUpperCase() + s.slice(1))
-    .join('_');
-  return `${prefix}_${typeName}`;
+/** Convert snake_case to camelCase. */
+function snakeToCamel(name: string): string {
+  return name.replace(/_([a-z])/g, (_, ch) => ch.toUpperCase());
 }
 
 /** Convert a proto method name (PascalCase) to Swift camelCase. */
@@ -107,10 +104,327 @@ function swiftMethodName(name: string): string {
 /** Resolve a proto type reference to the short name used inside the namespace enum. */
 function resolveTypeName(protoType: string, proto: ProtoFile): string {
   const pkg = proto.package;
-  if (protoType.startsWith(pkg + '.')) {
-    return protoType.slice(pkg.length + 1);
-  }
+  if (protoType.startsWith(pkg + '.')) return protoType.slice(pkg.length + 1);
   return protoType;
+}
+
+/**
+ * Derive the enum value prefix to strip from proto enum values.
+ * e.g. "FrameType" -> "FRAME_TYPE_"
+ */
+function enumPrefix(enumName: string): string {
+  // Convert PascalCase to SCREAMING_SNAKE_CASE, then add trailing underscore
+  const snake = enumName.replace(/([a-z0-9])([A-Z])/g, '$1_$2').toUpperCase();
+  return snake + '_';
+}
+
+/**
+ * Convert a proto enum value name to a Swift case name.
+ * e.g. "FRAME_TYPE_HALF_CLOSE" with prefix "FRAME_TYPE_" -> "halfClose"
+ */
+function enumCaseName(valueName: string, prefix: string): string {
+  const stripped = valueName.startsWith(prefix) ? valueName.slice(prefix.length) : valueName;
+  // SCREAMING_SNAKE -> camelCase
+  return stripped.toLowerCase().replace(/_([a-z])/g, (_, ch) => ch.toUpperCase());
+}
+
+// ---------------------------------------------------------------------------
+// Proto type -> Swift type mapping
+// ---------------------------------------------------------------------------
+
+function swiftType(protoType: string, enumNames: Set<string>): string {
+  switch (protoType) {
+    case 'string': return 'String';
+    case 'bytes': return 'AnyCodable';
+    case 'bool': return 'Bool';
+    case 'uint32': case 'fixed32': return 'UInt32';
+    case 'int32': case 'sint32': case 'sfixed32': return 'Int32';
+    case 'uint64': case 'fixed64': return 'UInt64';
+    case 'int64': case 'sint64': case 'sfixed64': return 'Int64';
+    case 'float': return 'Float';
+    case 'double': return 'Double';
+    default:
+      if (enumNames.has(protoType)) return protoType;
+      return protoType; // message type reference
+  }
+}
+
+function swiftDefault(protoType: string, enumNames: Set<string>): string {
+  switch (protoType) {
+    case 'string': return '""';
+    case 'bytes': return 'nil';
+    case 'bool': return 'false';
+    case 'uint32': case 'fixed32':
+    case 'int32': case 'sint32': case 'sfixed32':
+    case 'uint64': case 'fixed64':
+    case 'int64': case 'sint64': case 'sfixed64':
+    case 'float': case 'double':
+      return '0';
+    default:
+      if (enumNames.has(protoType)) return `.${enumCaseName('UNSPECIFIED', '')}`;
+      return `${protoType}()`;
+  }
+}
+
+/** True if this field type is optional (nil when absent from JSON). */
+function isOptionalField(protoType: string): boolean {
+  return protoType === 'bytes';
+}
+
+/** True if this proto type needs string encoding in JSON (uint64/int64). */
+function isStringEncodedInJSON(protoType: string): boolean {
+  return ['uint64', 'int64', 'sint64', 'fixed64', 'sfixed64'].includes(protoType);
+}
+
+// ---------------------------------------------------------------------------
+// Enum generation
+// ---------------------------------------------------------------------------
+
+function generateEnum(enumDef: EnumDef): string {
+  const lines: string[] = [];
+  const prefix = enumPrefix(enumDef.name);
+
+  lines.push(`public enum ${enumDef.name}: UInt32, Codable, Sendable {`);
+  for (const v of enumDef.values) {
+    const caseName = enumCaseName(v.name, prefix);
+    lines.push(`    case ${caseName} = ${v.number}`);
+  }
+  lines.push('}');
+  return lines.join('\n');
+}
+
+// ---------------------------------------------------------------------------
+// Message struct generation
+// ---------------------------------------------------------------------------
+
+function generateMessageStruct(msg: MessageDef, enumNames: Set<string>, allMessages: MessageDef[] = []): string {
+  if (msg.oneofs.length > 0) {
+    return generateOneofMessageStruct(msg, enumNames, allMessages);
+  }
+
+  const lines: string[] = [];
+
+  lines.push(`public struct ${msg.name}: Codable, Sendable {`);
+
+  // Properties
+  for (const f of msg.fields) {
+    const camel = snakeToCamel(f.name);
+    const isOpt = isOptionalField(f.type);
+    const base = swiftType(f.type, enumNames);
+    const type = f.repeated ? `[${base}]` : (isOpt ? `${base}?` : base);
+    const def = f.repeated ? '[]' : swiftDefault(f.type, enumNames);
+    lines.push(`    public var ${camel}: ${type} = ${def}`);
+  }
+
+  // Default init
+  lines.push('');
+  lines.push('    public init() {}');
+
+  // CodingKeys (always generated for proto3 JSON compatibility)
+  if (msg.fields.length > 0) {
+    lines.push('');
+    lines.push('    enum CodingKeys: String, CodingKey {');
+    for (const f of msg.fields) {
+      const camel = snakeToCamel(f.name);
+      lines.push(`        case ${camel}`);
+    }
+    lines.push('    }');
+  }
+
+  // Custom decoder: always generated so missing keys get proto3 defaults
+  if (msg.fields.length > 0) {
+    lines.push('');
+    lines.push('    public init(from decoder: Decoder) throws {');
+    lines.push('        let container = try decoder.container(keyedBy: CodingKeys.self)');
+    for (const f of msg.fields) {
+      const camel = snakeToCamel(f.name);
+      const st = swiftType(f.type, enumNames);
+
+      if (isOptionalField(f.type)) {
+        lines.push(`        self.${camel} = try? container.decode(${st}.self, forKey: .${camel})`);
+      } else if (isStringEncodedInJSON(f.type)) {
+        lines.push(`        if let v = try? container.decode(${st}.self, forKey: .${camel}) {`);
+        lines.push(`            self.${camel} = v`);
+        lines.push(`        } else if let s = try? container.decode(String.self, forKey: .${camel}), let v = ${st}(s) {`);
+        lines.push(`            self.${camel} = v`);
+        lines.push('        }');
+      } else if (enumNames.has(f.type)) {
+        lines.push(`        self.${camel} = (try? container.decode(${st}.self, forKey: .${camel})) ?? ${swiftDefault(f.type, enumNames)}`);
+      } else if (f.repeated) {
+        lines.push(`        self.${camel} = (try? container.decode([${st}].self, forKey: .${camel})) ?? []`);
+      } else {
+        lines.push(`        self.${camel} = (try? container.decode(${st}.self, forKey: .${camel})) ?? ${swiftDefault(f.type, enumNames)}`);
+      }
+    }
+    lines.push('    }');
+  }
+
+  // JSON Data helpers (used by dispatchers)
+  lines.push('');
+  lines.push('    public init(jsonUTF8Data data: Data) throws {');
+  lines.push('        self = try JSONDecoder().decode(Self.self, from: data)');
+  lines.push('    }');
+  lines.push('');
+  lines.push('    public func jsonUTF8Data() throws -> Data {');
+  lines.push('        return try JSONEncoder().encode(self)');
+  lines.push('    }');
+
+  lines.push('}');
+  return lines.join('\n');
+}
+
+// ---------------------------------------------------------------------------
+// Oneof message struct generation
+// ---------------------------------------------------------------------------
+
+/**
+ * Generate a Swift struct for a message that contains a `oneof`.
+ * Produces a companion enum for the body, plus custom Codable on the struct
+ * that encodes/decodes each variant as a separate JSON key.
+ */
+function generateOneofMessageStruct(
+  msg: MessageDef,
+  enumNames: Set<string>,
+  allMessages: MessageDef[],
+): string {
+  const lines: string[] = [];
+  const oo = msg.oneofs[0]; // support the first oneof (sufficient for RpcFrame)
+
+  const enumName = msg.name + upperFirst(oo.name);
+
+  // --- Body enum ---
+  lines.push(`public enum ${enumName}: Sendable {`);
+  for (const f of oo.fields) {
+    const camel = snakeToCamel(f.name);
+    const msgDef = allMessages.find((m) => m.name === f.type);
+    if (msgDef && msgDef.fields.length === 0) {
+      lines.push(`    case ${camel}`);
+    } else {
+      lines.push(`    case ${camel}(${f.type})`);
+    }
+  }
+  lines.push('    case unknown');
+  lines.push('}');
+  lines.push('');
+
+  // --- Parent struct ---
+  lines.push(`public struct ${msg.name}: Codable, Sendable {`);
+
+  // Non-oneof fields
+  for (const f of msg.fields) {
+    const camel = snakeToCamel(f.name);
+    const isOpt = isOptionalField(f.type);
+    const base = swiftType(f.type, enumNames);
+    const type = f.repeated ? `[${base}]` : (isOpt ? `${base}?` : base);
+    const def = f.repeated ? '[]' : swiftDefault(f.type, enumNames);
+    lines.push(`    public var ${camel}: ${type} = ${def}`);
+  }
+  lines.push(`    public var ${oo.name}: ${enumName} = .unknown`);
+
+  // Init
+  lines.push('');
+  const initParams: string[] = [];
+  for (const f of msg.fields) {
+    const camel = snakeToCamel(f.name);
+    const isOpt = isOptionalField(f.type);
+    const base = swiftType(f.type, enumNames);
+    const type = f.repeated ? `[${base}]` : (isOpt ? `${base}?` : base);
+    const def = f.repeated ? '[]' : swiftDefault(f.type, enumNames);
+    initParams.push(`${camel}: ${type} = ${def}`);
+  }
+  initParams.push(`${oo.name}: ${enumName} = .unknown`);
+  lines.push(`    public init(${initParams.join(', ')}) {`);
+  for (const f of msg.fields) {
+    const camel = snakeToCamel(f.name);
+    lines.push(`        self.${camel} = ${camel}`);
+  }
+  lines.push(`        self.${oo.name} = ${oo.name}`);
+  lines.push('    }');
+
+  // CodingKeys
+  lines.push('');
+  lines.push('    enum CodingKeys: String, CodingKey {');
+  for (const f of msg.fields) {
+    lines.push(`        case ${snakeToCamel(f.name)}`);
+  }
+  for (const f of oo.fields) {
+    lines.push(`        case ${snakeToCamel(f.name)}`);
+  }
+  lines.push('    }');
+
+  // Custom decode
+  lines.push('');
+  lines.push('    public init(from decoder: Decoder) throws {');
+  lines.push('        let container = try decoder.container(keyedBy: CodingKeys.self)');
+  for (const f of msg.fields) {
+    const camel = snakeToCamel(f.name);
+    const st = swiftType(f.type, enumNames);
+    lines.push(`        self.${camel} = (try? container.decode(${st}.self, forKey: .${camel})) ?? ${swiftDefault(f.type, enumNames)}`);
+  }
+  // Decode oneofs
+  for (let i = 0; i < oo.fields.length; i++) {
+    const f = oo.fields[i];
+    const camel = snakeToCamel(f.name);
+    const msgDef = allMessages.find((m) => m.name === f.type);
+    const isEmpty = msgDef && msgDef.fields.length === 0;
+    const prefix = i === 0 ? 'if' : '} else if';
+
+    if (isEmpty) {
+      lines.push(`        ${prefix} container.contains(.${camel}) {`);
+      lines.push(`            self.${oo.name} = .${camel}`);
+    } else {
+      lines.push(`        ${prefix} let v = try? container.decode(${f.type}.self, forKey: .${camel}) {`);
+      lines.push(`            self.${oo.name} = .${camel}(v)`);
+    }
+  }
+  if (oo.fields.length > 0) {
+    lines.push('        } else {');
+    lines.push(`            self.${oo.name} = .unknown`);
+    lines.push('        }');
+  }
+  lines.push('    }');
+
+  // Custom encode
+  lines.push('');
+  lines.push('    public func encode(to encoder: Encoder) throws {');
+  lines.push('        var container = encoder.container(keyedBy: CodingKeys.self)');
+  for (const f of msg.fields) {
+    const camel = snakeToCamel(f.name);
+    lines.push(`        try container.encode(${camel}, forKey: .${camel})`);
+  }
+  lines.push(`        switch ${oo.name} {`);
+  for (const f of oo.fields) {
+    const camel = snakeToCamel(f.name);
+    const msgDef = allMessages.find((m) => m.name === f.type);
+    const isEmpty = msgDef && msgDef.fields.length === 0;
+    if (isEmpty) {
+      lines.push(`        case .${camel}:`);
+      lines.push(`            try container.encode(${f.type}(), forKey: .${camel})`);
+    } else {
+      lines.push(`        case .${camel}(let v):`);
+      lines.push(`            try container.encode(v, forKey: .${camel})`);
+    }
+  }
+  lines.push('        case .unknown: break');
+  lines.push('        }');
+  lines.push('    }');
+
+  // JSON Data helpers
+  lines.push('');
+  lines.push('    public init(jsonUTF8Data data: Data) throws {');
+  lines.push('        self = try JSONDecoder().decode(Self.self, from: data)');
+  lines.push('    }');
+  lines.push('');
+  lines.push('    public func jsonUTF8Data() throws -> Data {');
+  lines.push('        return try JSONEncoder().encode(self)');
+  lines.push('    }');
+
+  lines.push('}');
+  return lines.join('\n');
+}
+
+function upperFirst(s: string): string {
+  return s.charAt(0).toUpperCase() + s.slice(1);
 }
 
 // ---------------------------------------------------------------------------
@@ -167,10 +481,7 @@ function generateDispatcher(svc: ServiceDef, proto: ProtoFile): string {
   lines.push('    }');
   lines.push('');
 
-  // JSON dispatch method
-  lines.push('    /// Dispatch using JSON-encoded Data (proto3 JSON mapping).');
-  lines.push('    /// SwiftProtobuf handles int64-as-string and bytes-as-base64 automatically.');
-  lines.push('    public func dispatchJSON(');
+  lines.push('    public func dispatch(');
   lines.push('        method: String,');
   lines.push('        messages: AsyncStream<Data>');
   lines.push('    ) async throws -> DispatchResult {');
@@ -255,96 +566,6 @@ function generateDispatcher(svc: ServiceDef, proto: ProtoFile): string {
   lines.push('        }');
   lines.push('    }');
   lines.push('');
-
-  // Protobuf binary dispatch method (existing)
-  lines.push('    public func dispatch(');
-  lines.push('        method: String,');
-  lines.push('        messages: AsyncStream<Data>');
-  lines.push('    ) async throws -> DispatchResult {');
-  lines.push('        switch method {');
-
-  for (const m of svc.methods) {
-    const inputType = resolveTypeName(m.inputType, proto);
-    const methodName = swiftMethodName(m.name);
-    const fullMethodName = `${fqServiceName}/${m.name}`;
-
-    lines.push(`        case "${fullMethodName}":`);
-
-    if (!m.clientStreaming && !m.serverStreaming) {
-      // Unary
-      lines.push('            var requestData: Data?');
-      lines.push('            for await data in messages { requestData = data; break }');
-      lines.push('            guard let requestData else { throw DispatchError.missingRequestData }');
-      lines.push(`            let request = try ${inputType}(serializedBytes: requestData)`);
-      lines.push(`            let response = try await provider.${methodName}(request)`);
-      lines.push('            return .unary(try response.serializedData())');
-    } else if (!m.clientStreaming && m.serverStreaming) {
-      // Server streaming
-      lines.push('            var requestData: Data?');
-      lines.push('            for await data in messages { requestData = data; break }');
-      lines.push('            guard let requestData else { throw DispatchError.missingRequestData }');
-      lines.push(`            let request = try ${inputType}(serializedBytes: requestData)`);
-      lines.push(`            let responseStream = provider.${methodName}(request)`);
-      lines.push('            let mappedStream = AsyncThrowingStream<Data, Error> { continuation in');
-      lines.push('                Task {');
-      lines.push('                    do {');
-      lines.push('                        for try await response in responseStream {');
-      lines.push('                            continuation.yield(try response.serializedData())');
-      lines.push('                        }');
-      lines.push('                        continuation.finish()');
-      lines.push('                    } catch {');
-      lines.push('                        continuation.finish(throwing: error)');
-      lines.push('                    }');
-      lines.push('                }');
-      lines.push('            }');
-      lines.push('            return .stream(mappedStream)');
-    } else if (m.clientStreaming && !m.serverStreaming) {
-      // Client streaming
-      lines.push(`            let typedStream = AsyncStream<${inputType}> { continuation in`);
-      lines.push('                Task {');
-      lines.push('                    for await data in messages {');
-      lines.push(`                        if let msg = try? ${inputType}(serializedBytes: data) {`);
-      lines.push('                            continuation.yield(msg)');
-      lines.push('                        }');
-      lines.push('                    }');
-      lines.push('                    continuation.finish()');
-      lines.push('                }');
-      lines.push('            }');
-      lines.push(`            let response = try await provider.${methodName}(typedStream)`);
-      lines.push('            return .unary(try response.serializedData())');
-    } else {
-      // Bidi streaming
-      lines.push(`            let typedStream = AsyncStream<${inputType}> { continuation in`);
-      lines.push('                Task {');
-      lines.push('                    for await data in messages {');
-      lines.push(`                        if let msg = try? ${inputType}(serializedBytes: data) {`);
-      lines.push('                            continuation.yield(msg)');
-      lines.push('                        }');
-      lines.push('                    }');
-      lines.push('                    continuation.finish()');
-      lines.push('                }');
-      lines.push('            }');
-      lines.push(`            let responseStream = provider.${methodName}(typedStream)`);
-      lines.push('            let mappedStream = AsyncThrowingStream<Data, Error> { continuation in');
-      lines.push('                Task {');
-      lines.push('                    do {');
-      lines.push('                        for try await response in responseStream {');
-      lines.push('                            continuation.yield(try response.serializedData())');
-      lines.push('                        }');
-      lines.push('                        continuation.finish()');
-      lines.push('                    } catch {');
-      lines.push('                        continuation.finish(throwing: error)');
-      lines.push('                    }');
-      lines.push('                }');
-      lines.push('            }');
-      lines.push('            return .stream(mappedStream)');
-    }
-  }
-
-  lines.push('        default:');
-  lines.push(`            throw DispatchError.unknownMethod(method)`);
-  lines.push('        }');
-  lines.push('    }');
   lines.push('}');
 
   return lines.join('\n');

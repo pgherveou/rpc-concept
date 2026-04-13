@@ -1,5 +1,4 @@
 import { useRef } from 'react';
-import { HelloRequest } from '../../../generated/messages.js';
 import { useClient } from '../context.js';
 
 interface UnarySectionProps {
@@ -14,7 +13,7 @@ export function UnarySection({ addLog }: UnarySectionProps) {
     const name = inputRef.current?.value.trim() || 'World';
     addLog(`Calling SayHello("${name}")...`);
     try {
-      const response = await client.sayHello(new HelloRequest({ name }));
+      const response = await client.sayHello({ name, language: '' });
       addLog(`Response: ${response.message}`);
     } catch (err) {
       addLog(`Error: ${err}`, true);

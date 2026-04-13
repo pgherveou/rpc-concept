@@ -1,50 +1,47 @@
 // RPC Bridge Frame Protocol
 // Simplified for local IPC between collocated guest and host.
 //
-// COMPATIBILITY: Unknown frame types and fields are silently ignored.
+// COMPATIBILITY: Unknown frame body types are silently ignored.
 
 syntax = "proto3";
 
 package rpc.bridge.v1;
 
-enum FrameType {
-  FRAME_TYPE_UNSPECIFIED = 0;
+// --- Body messages for each frame type ---
 
-  // Opens a new logical RPC stream.
-  FRAME_TYPE_OPEN = 2;
-
-  // Carries a protobuf-encoded message payload.
-  FRAME_TYPE_MESSAGE = 3;
-
-  // Signals the sender will not send any more MESSAGE frames.
-  FRAME_TYPE_HALF_CLOSE = 4;
-
-  // Signals successful completion of the stream.
-  FRAME_TYPE_CLOSE = 5;
-
-  // Requests cancellation of an active stream.
-  FRAME_TYPE_CANCEL = 6;
-
-  // Signals an error on the stream. Terminates the stream.
-  FRAME_TYPE_ERROR = 7;
+message OpenBody {
+  // Fully qualified method name: "package.ServiceName/MethodName"
+  string method = 1;
 }
 
-message RpcFrame {
-  FrameType type = 1;
+message MessageBody {
+  // Message payload (carried as inline JSON, not base64).
+  bytes payload = 1;
+}
 
+// Signal-only frames (no additional data).
+message HalfCloseBody {}
+message CloseBody {}
+message CancelBody {}
+
+message ErrorBody {
+  uint32 error_code = 1;
+  string error_message = 2;
+}
+
+// --- RpcFrame ---
+
+message RpcFrame {
   // Logical stream identifier. 0 is reserved.
   // Odd IDs are client-initiated, even IDs reserved for future use.
-  uint32 stream_id = 2;
+  uint32 stream_id = 1;
 
-  // Protobuf-encoded message payload (MESSAGE frames).
-  bytes payload = 4;
-
-  // Fully qualified method name: "package.ServiceName/MethodName" (OPEN frames).
-  string method = 15;
-
-  // Error code (ERROR frames).
-  uint32 error_code = 20;
-
-  // Human-readable error message (ERROR frames).
-  string error_message = 21;
+  oneof body {
+    OpenBody open = 2;
+    MessageBody message = 3;
+    HalfCloseBody half_close = 4;
+    CloseBody close = 5;
+    CancelBody cancel = 6;
+    ErrorBody error = 7;
+  }
 }
