@@ -18,7 +18,7 @@ import {
   createConsoleLogger,
 } from '@rpc-bridge/core';
 import { MessagePortTransport } from '@rpc-bridge/transport-web';
-import { registerHelloBridgeService, type IHelloBridgeServiceHandler } from '../../../proto/generated/server.js';
+import { registerHelloService, type IHelloServiceHandler } from '../../../proto/generated/server.js';
 import { registerChatService, type IChatServiceHandler } from '../../../proto/generated/server.js';
 
 const logger = createConsoleLogger('Host');
@@ -43,7 +43,7 @@ function getFollowUp(text: string): string {
   return 'Tell me more about that!';
 }
 
-const helloHandler: IHelloBridgeServiceHandler = {
+const helloHandler: IHelloServiceHandler = {
   async sayHello(request) {
     logger.info(`SayHello called with name="${request.name}"`);
 
@@ -141,7 +141,7 @@ function setupBridge(): void {
     logger: createConsoleLogger('Host-Server'),
   });
 
-  server.registerService(registerHelloBridgeService(helloHandler));
+  server.registerService(registerHelloService(helloHandler));
   server.registerService(registerChatService(chatHandler));
 
   logger.info('Server ready for RPCs');

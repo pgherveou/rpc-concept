@@ -11,7 +11,7 @@ import androidx.appcompat.app.AppCompatActivity
 import com.rpcbridge.NativeBridgeTransport
 import com.rpcbridge.RpcBridgeServer
 import demo.hello.v1.ChatServiceDispatcher
-import demo.hello.v1.HelloBridgeServiceDispatcher
+import demo.hello.v1.HelloServiceDispatcher
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -62,7 +62,7 @@ class MainActivity : AppCompatActivity() {
 
         // 3. Register services using their generated dispatchers
         val helloService = HelloServiceImpl()
-        val dispatcher = HelloBridgeServiceDispatcher(helloService)
+        val dispatcher = HelloServiceDispatcher(helloService)
         server.registerDispatcher(dispatcher)
 
         val chatService = ChatServiceImpl()

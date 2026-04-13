@@ -43,9 +43,9 @@ message CollectNamesResponse {
   uint32 count = 2;
 }
 
-// HelloBridgeService demonstrates unary, server-streaming, and client-streaming RPCs.
+// HelloService demonstrates unary, server-streaming, and client-streaming RPCs.
 // The web client calls these methods; the native host implements them.
-service HelloBridgeService {
+service HelloService {
   // Unary: Simple request-response greeting.
   rpc SayHello(HelloRequest) returns (HelloResponse);
 

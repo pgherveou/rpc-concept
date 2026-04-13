@@ -1,14 +1,14 @@
 // HelloServiceImpl.swift
 // RPCBridgeDemo
 //
-// Swift implementation of HelloBridgeService and ChatService defined in
+// Swift implementation of HelloService and ChatService defined in
 // proto/demo/hello/v1/hello.proto. Uses generated types from DemoHelloV1.
 
 import Foundation
 
 // MARK: - HelloServiceImpl
 
-final class HelloServiceImpl: DemoHelloV1.HelloBridgeServiceProvider, Sendable {
+final class HelloServiceImpl: DemoHelloV1.HelloServiceProvider, Sendable {
 
     private let serverVersion = "ios-demo/1.0.0"
 

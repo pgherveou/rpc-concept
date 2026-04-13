@@ -121,7 +121,7 @@ class ViewController: UIViewController, WKNavigationDelegate {
 
         // Register service dispatchers
         let helloService = HelloServiceImpl()
-        let helloDispatcher = DemoHelloV1.HelloBridgeServiceDispatcher(provider: helloService)
+        let helloDispatcher = DemoHelloV1.HelloServiceDispatcher(provider: helloService)
         server.registerDispatcher(helloDispatcher)
 
         let chatService = ChatServiceImpl()

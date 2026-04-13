@@ -37,7 +37,7 @@ The Host API is currently spread across five repos, each hand-writing its own ty
 
 ### Define a service
 
-> The demo uses a simple `HelloBridgeService` to illustrate all four RPC patterns. In practice, this framework is designed to implement the full TrUAPI surface: define the services in `.proto`, generate stubs for every platform, and replace the per-platform hand-written implementations with a single codegen pipeline.
+> The demo uses a simple `HelloService` to illustrate all four RPC patterns. In practice, this framework is designed to implement the full TrUAPI surface: define the services in `.proto`, generate stubs for every platform, and replace the per-platform hand-written implementations with a single codegen pipeline.
 
 ```protobuf
 syntax = "proto3";
@@ -52,7 +52,7 @@ message HelloResponse {
   uint64 timestamp = 2;
 }
 
-service HelloBridgeService {
+service HelloService {
   rpc SayHello(HelloRequest) returns (HelloResponse);
   rpc WatchGreeting(GreetingStreamRequest) returns (stream GreetingEvent);
   rpc Chat(stream ChatMessage) returns (stream ChatMessage);
@@ -73,10 +73,10 @@ rpc-bridge-codegen \
 
 ```typescript
 import { RpcServer } from '@rpc-bridge/core';
-import { registerHelloBridgeService } from './generated/server';
-import type { IHelloBridgeServiceHandler } from './generated/server';
+import { registerHelloService } from './generated/server';
+import type { IHelloServiceHandler } from './generated/server';
 
-const handler: IHelloBridgeServiceHandler = {
+const handler: IHelloServiceHandler = {
   async sayHello(request, context) {
     return { message: `Hello, ${request.name}!`, timestamp: BigInt(Date.now()), serverVersion: '1.0' };
   },
@@ -100,15 +100,15 @@ const handler: IHelloBridgeServiceHandler = {
 };
 
 const server = new RpcServer({ transport });
-server.registerService(registerHelloBridgeService(handler));
+server.registerService(registerHelloService(handler));
 ```
 
 ### Call from the client (product side)
 
 ```typescript
-import { HelloBridgeServiceClient } from './generated/client';
+import { HelloServiceClient } from './generated/client';
 
-const client = new HelloBridgeServiceClient(rpcClient);
+const client = new HelloServiceClient(rpcClient);
 
 // Unary
 const response = await client.sayHello({ name: 'World', language: 'en' });

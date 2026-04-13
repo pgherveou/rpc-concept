@@ -5,7 +5,7 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flow
 
-class HelloServiceImpl : HelloBridgeService {
+class HelloServiceImpl : HelloService {
 
     private val serverVersion = "android-demo/1.0.0"
 
