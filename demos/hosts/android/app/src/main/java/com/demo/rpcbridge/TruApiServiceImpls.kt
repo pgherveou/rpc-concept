@@ -4,6 +4,7 @@ import android.util.Log
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flow
 import truapi.v02.*
+import java.security.MessageDigest
 
 private const val TAG = "TruApiServices"
 
@@ -223,9 +224,26 @@ class ChatServiceImpl : ChatService {
 // -- EntropyService --
 
 class EntropyServiceImpl : EntropyService {
+
+    companion object {
+        // Fixed 32-byte mock root seed simulating BIP-39 root entropy.
+        private val MOCK_ROOT_SEED = byteArrayOf(
+            0x4d, 0x6f, 0x63, 0x6b, 0x52, 0x6f, 0x6f, 0x74,
+            0x53, 0x65, 0x65, 0x64, 0x5f, 0x30, 0x31, 0x32,
+            0x33, 0x34, 0x35, 0x36, 0x37, 0x38, 0x39, 0x61,
+            0x62, 0x63, 0x64, 0x65, 0x66, 0x30, 0x31, 0x32,
+        )
+    }
+
     override suspend fun deriveEntropy(request: DeriveEntropyRequest): DeriveEntropyResponse {
-        Log.d(TAG, "deriveEntropy")
-        return DeriveEntropyResponse(result = DeriveEntropyResponseResult.Entropy(ByteArray(32)))
+        Log.d(TAG, "deriveEntropy key=${request.key.size} bytes")
+        // Deterministic derivation: SHA-256(rootSeed || key) as a stand-in for
+        // the real three-layer BLAKE2b-256 keyed hashing scheme.
+        val digest = MessageDigest.getInstance("SHA-256")
+        digest.update(MOCK_ROOT_SEED)
+        digest.update(request.key)
+        val entropy = digest.digest()
+        return DeriveEntropyResponse(result = DeriveEntropyResponseResult.Entropy(entropy))
     }
 }
 
