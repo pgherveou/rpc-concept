@@ -76,6 +76,8 @@ function getDefaultRequest(service: string, method: string): string {
     'LocalStorageService/Read': '{ "key": "test-key" }',
     'LocalStorageService/Write': '{ "key": "test-key", "value": {} }',
     'LocalStorageService/Clear': '{ "key": "test-key" }',
+    'PermissionsService/DevicePermissionRequest': '{ "permission": 2 }',
+    'PermissionsService/RemotePermissionRequest': '{ "permissions": [{ "permission": { "case": "remote", "value": { "domains": ["api.example.com"] } } }] }',
     'EntropyService/DeriveEntropy': '{ "key": {} }',
   };
   return defaults[`${service}/${method}`] || '{}';

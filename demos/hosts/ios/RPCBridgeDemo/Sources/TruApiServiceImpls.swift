@@ -241,12 +241,56 @@ final class PaymentServiceImpl: TruapiV02.PaymentServiceProvider, Sendable {
 
 final class PermissionsServiceImpl: TruapiV02.PermissionsServiceProvider, Sendable {
 
+    // Permissions that the mock host always denies.
+    private static let deniedDevicePermissions: Set<TruapiV02.DevicePermission> = [.biometrics]
+
     func devicePermissionRequest(_ request: TruapiV02.DevicePermissionRequestMsg) async throws -> TruapiV02.DevicePermissionResponse {
-        TruapiV02.DevicePermissionResponse(result: .granted(true))
+        let perm = request.permission
+        print("[PermissionsService] devicePermissionRequest: \(perm)")
+
+        if perm == .unspecified {
+            var err = TruapiV02.GenericError()
+            err.reason = "Permission type is required"
+            return TruapiV02.DevicePermissionResponse(result: .error(err))
+        }
+
+        if Self.deniedDevicePermissions.contains(perm) {
+            return TruapiV02.DevicePermissionResponse(result: .granted(false))
+        }
+
+        return TruapiV02.DevicePermissionResponse(result: .granted(true))
     }
 
     func remotePermissionRequest(_ request: TruapiV02.RemotePermissionRequestMsg) async throws -> TruapiV02.RemotePermissionResponse {
-        TruapiV02.RemotePermissionResponse(result: .granted(true))
+        let perms = request.permissions
+        print("[PermissionsService] remotePermissionRequest: \(perms.count) permission(s)")
+
+        if perms.isEmpty {
+            var err = TruapiV02.GenericError()
+            err.reason = "At least one permission is required"
+            return TruapiV02.RemotePermissionResponse(result: .error(err))
+        }
+
+        for entry in perms {
+            switch entry.permission {
+            case .remote(let domains):
+                if domains.domains.contains("*") {
+                    print("[PermissionsService] denied: wildcard (*) remote domain")
+                    return TruapiV02.RemotePermissionResponse(result: .granted(false))
+                }
+                print("[PermissionsService] granted remote domains: \(domains.domains.joined(separator: ", "))")
+            case .webRtc:
+                print("[PermissionsService] granted webRtc")
+            case .chainSubmit:
+                print("[PermissionsService] granted chainSubmit")
+            case .statementSubmit:
+                print("[PermissionsService] granted statementSubmit")
+            case .unknown:
+                print("[PermissionsService] unknown remote permission, ignoring")
+            }
+        }
+
+        return TruapiV02.RemotePermissionResponse(result: .granted(true))
     }
 }
 

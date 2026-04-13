@@ -294,13 +294,58 @@ class PaymentServiceImpl : PaymentService {
 // -- PermissionsService --
 
 class PermissionsServiceImpl : PermissionsService {
+
+    // Permissions that the mock host always denies.
+    private val deniedDevicePermissions = setOf(DevicePermission.DEVICE_PERMISSION_BIOMETRICS)
+
     override suspend fun devicePermissionRequest(request: DevicePermissionRequestMsg): DevicePermissionResponse {
-        Log.d(TAG, "devicePermissionRequest: ${request.permission}")
+        val perm = request.permission
+        Log.d(TAG, "devicePermissionRequest: $perm")
+
+        if (perm == DevicePermission.DEVICE_PERMISSION_UNSPECIFIED) {
+            return DevicePermissionResponse(
+                result = DevicePermissionResponseResult.Error(GenericError(reason = "Permission type is required"))
+            )
+        }
+
+        if (perm in deniedDevicePermissions) {
+            return DevicePermissionResponse(result = DevicePermissionResponseResult.Granted(false))
+        }
+
         return DevicePermissionResponse(result = DevicePermissionResponseResult.Granted(true))
     }
 
     override suspend fun remotePermissionRequest(request: RemotePermissionRequestMsg): RemotePermissionResponse {
-        Log.d(TAG, "remotePermissionRequest")
+        val perms = request.permissions
+        Log.d(TAG, "remotePermissionRequest: ${perms.size} permission(s)")
+
+        if (perms.isEmpty()) {
+            return RemotePermissionResponse(
+                result = RemotePermissionResponseResult.Error(GenericError(reason = "At least one permission is required"))
+            )
+        }
+
+        for (entry in perms) {
+            when (val p = entry.permission) {
+                is RemotePermissionPermission.Remote -> {
+                    val domains = p.value.domains
+                    if (domains.any { it == "*" }) {
+                        Log.d(TAG, "denied: wildcard (*) remote domain")
+                        return RemotePermissionResponse(result = RemotePermissionResponseResult.Granted(false))
+                    }
+                    Log.d(TAG, "granted remote domains: ${domains.joinToString(", ")}")
+                }
+                is RemotePermissionPermission.WebRtc ->
+                    Log.d(TAG, "granted webRtc")
+                is RemotePermissionPermission.ChainSubmit ->
+                    Log.d(TAG, "granted chainSubmit")
+                is RemotePermissionPermission.StatementSubmit ->
+                    Log.d(TAG, "granted statementSubmit")
+                is RemotePermissionPermission.Unknown ->
+                    Log.d(TAG, "unknown remote permission, ignoring")
+            }
+        }
+
         return RemotePermissionResponse(result = RemotePermissionResponseResult.Granted(true))
     }
 }
