@@ -1,14 +1,8 @@
 // HelloServiceImpl.swift
 // RPCBridgeDemo
 //
-// Swift implementation of the HelloBridgeService defined in
+// Swift implementation of HelloBridgeService and ChatService defined in
 // proto/demo/hello/v1/hello.proto. Uses generated types from DemoHelloV1.
-//
-// Implements all four RPC patterns:
-// - Unary: SayHello
-// - Server streaming: WatchGreeting
-// - Client streaming: CollectNames
-// - Bidi streaming: Chat
 
 import Foundation
 
@@ -116,6 +110,12 @@ final class HelloServiceImpl: DemoHelloV1.HelloBridgeServiceProvider, Sendable {
         response.count = count
         return response
     }
+
+}
+
+// MARK: - ChatServiceImpl
+
+final class ChatServiceImpl: DemoHelloV1.ChatServiceProvider, Sendable {
 
     // MARK: - Bidi Streaming: Chat
 

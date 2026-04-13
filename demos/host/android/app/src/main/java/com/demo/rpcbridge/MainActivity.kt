@@ -10,6 +10,7 @@ import android.webkit.WebViewClient
 import androidx.appcompat.app.AppCompatActivity
 import com.rpcbridge.NativeBridgeTransport
 import com.rpcbridge.RpcBridgeServer
+import demo.hello.v1.ChatServiceDispatcher
 import demo.hello.v1.HelloBridgeServiceDispatcher
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -59,10 +60,14 @@ class MainActivity : AppCompatActivity() {
             transport.sendToWebView(frame)
         }
 
-        // 3. Register the Hello service using the generated dispatcher
+        // 3. Register services using their generated dispatchers
         val helloService = HelloServiceImpl()
         val dispatcher = HelloBridgeServiceDispatcher(helloService)
         server.registerDispatcher(dispatcher)
+
+        val chatService = ChatServiceImpl()
+        val chatDispatcher = ChatServiceDispatcher(chatService)
+        server.registerDispatcher(chatDispatcher)
 
         // 4. Wire incoming frames from the transport to the server
         transport.onFrame = { frame ->

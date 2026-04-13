@@ -1,12 +1,12 @@
 import { useRef } from 'react';
-import { useClient } from '../context.js';
+import { useHelloClient } from '../context.js';
 
 interface UnarySectionProps {
   addLog: (msg: string, isError?: boolean) => void;
 }
 
 export function UnarySection({ addLog }: UnarySectionProps) {
-  const client = useClient();
+  const client = useHelloClient();
   const inputRef = useRef<HTMLInputElement>(null);
 
   const handleClick = async () => {
