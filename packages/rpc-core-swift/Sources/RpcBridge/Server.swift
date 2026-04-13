@@ -131,8 +131,13 @@ public final class RpcBridgeServer: @unchecked Sendable {
     private var streams: [UInt32: ServerStream] = [:]
     private let lock = NSLock()
     private var dispatchers: [String: any ServiceDispatcher] = [:]
+    private var _log: ((String) -> Void)?
 
-    public var log: ((String) -> Void)?
+    /// Log callback. Must be set before processing any frames.
+    public var log: ((String) -> Void)? {
+        get { lock.lock(); defer { lock.unlock() }; return _log }
+        set { lock.lock(); defer { lock.unlock() }; _log = newValue }
+    }
 
     // MARK: - Initialization
 
@@ -183,9 +188,15 @@ public final class RpcBridgeServer: @unchecked Sendable {
 
         let svcName = String(method[method.startIndex..<slashIdx])
 
+        let stream = ServerStream(streamId: streamId)
+        stream.open()
+
         lock.lock()
         let dispatcher = dispatchers[svcName]
         let duplicate = streams[streamId] != nil
+        if !duplicate && dispatcher != nil {
+            streams[streamId] = stream
+        }
         lock.unlock()
 
         guard let dispatcher else {
@@ -197,12 +208,6 @@ public final class RpcBridgeServer: @unchecked Sendable {
             sendError(streamId: streamId, code: RpcStatusCode.internal, message: "Duplicate stream ID: \(streamId)")
             return
         }
-
-        let stream = ServerStream(streamId: streamId)
-        stream.open()
-        lock.lock()
-        streams[streamId] = stream
-        lock.unlock()
 
         log?("[Server] Stream \(streamId) opened for method: \(method)")
 

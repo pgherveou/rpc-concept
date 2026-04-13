@@ -109,7 +109,9 @@ class ViewController: UIViewController, WKNavigationDelegate {
 
         // Create the RPC server
         server = RpcBridgeServer(sendFrame: { [weak self] frame in
-            self?.transport.sendFrameToJS(frame)
+            Task { @MainActor in
+                self?.transport.sendFrameToJS(frame)
+            }
         })
 
         // Register the hello service dispatcher

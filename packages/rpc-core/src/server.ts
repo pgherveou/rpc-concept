@@ -213,9 +213,11 @@ export class RpcServer {
     const request = await stream.collectUnary();
     const response = await handler(request, context);
 
-    this.transport.send(createMessageFrame(stream.streamId, response));
-    this.transport.send(createCloseFrame(stream.streamId));
-    stream.setState(StreamState.CLOSED);
+    if (stream.state !== StreamState.CANCELLED && stream.state !== StreamState.ERROR) {
+      this.transport.send(createMessageFrame(stream.streamId, response));
+      this.transport.send(createCloseFrame(stream.streamId));
+      stream.setState(StreamState.CLOSED);
+    }
   }
 
   private async handleServerStream(
