@@ -256,8 +256,20 @@ final class PreimageServiceImpl: TruapiV02.PreimageServiceProvider, Sendable {
 
     func lookupSubscribe(_ request: TruapiV02.PreimageLookupRequest) -> AsyncThrowingStream<TruapiV02.PreimageLookupEvent, Error> {
         AsyncThrowingStream { continuation in
+            print("[host] preimage lookupSubscribe")
+
+            // First event: preimage not yet available
             continuation.yield(TruapiV02.PreimageLookupEvent())
-            continuation.finish()
+
+            // Simulate network fetch delay, then resolve with mock data
+            Task {
+                try await Task.sleep(nanoseconds: 500_000_000)
+                var event = TruapiV02.PreimageLookupEvent()
+                event.value = AnyCodable(Data(repeating: 0xAB, count: 64).base64EncodedString())
+                print("[host] preimage resolved")
+                continuation.yield(event)
+                continuation.finish()
+            }
         }
     }
 }

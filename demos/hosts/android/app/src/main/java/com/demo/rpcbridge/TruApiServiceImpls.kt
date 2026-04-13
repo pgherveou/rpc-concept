@@ -309,8 +309,17 @@ class PermissionsServiceImpl : PermissionsService {
 
 class PreimageServiceImpl : PreimageService {
     override fun lookupSubscribe(request: PreimageLookupRequest): Flow<PreimageLookupEvent> = flow {
-        Log.d(TAG, "lookupSubscribe")
-        emit(PreimageLookupEvent(value = ByteArray(32)))
+        Log.d(TAG, "lookupSubscribe key=${request.key.size} bytes")
+
+        // First event: preimage not yet available
+        emit(PreimageLookupEvent(value = ByteArray(0)))
+
+        // Simulate network fetch delay, then resolve with mock data
+        kotlinx.coroutines.delay(500)
+        val keySize = request.key.size.coerceAtLeast(1)
+        val mockData = ByteArray(64) { i -> ((request.key.getOrElse(i % keySize) { 0 }).toInt() xor 0xff).toByte() }
+        Log.d(TAG, "preimage resolved")
+        emit(PreimageLookupEvent(value = mockData))
     }
 }
 
