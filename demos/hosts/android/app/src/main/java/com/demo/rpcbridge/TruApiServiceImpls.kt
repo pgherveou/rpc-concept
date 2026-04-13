@@ -172,51 +172,108 @@ class ChainServiceImpl : ChainService {
 // -- ChatService --
 
 class ChatServiceImpl : ChatService {
+    private val rooms = mutableMapOf<String, ChatRoom>()
+    private val botIds = mutableSetOf<String>()
+    private var msgSeq = 0
+    private val listFlow = kotlinx.coroutines.flow.MutableSharedFlow<ChatRoomList>(replay = 0)
+
+    private fun currentRoomList() = ChatRoomList(rooms = rooms.values.toList())
+
     override suspend fun createRoom(request: ChatRoomRequest): ChatRoomResponse {
-        Log.d(TAG, "createRoom")
+        Log.d(TAG, "createRoom: ${request.roomId}")
+        if (rooms.containsKey(request.roomId)) {
+            return ChatRoomResponse(
+                result = ChatRoomResponseResult.Ok(
+                    ChatRoomRegistrationResult(status = ChatRoomRegistrationStatus.CHAT_ROOM_REGISTRATION_STATUS_EXISTS)
+                )
+            )
+        }
+        rooms[request.roomId] = ChatRoom(
+            roomId = request.roomId,
+            participatingAs = ChatRoomParticipation.CHAT_ROOM_PARTICIPATION_ROOM_HOST
+        )
+        listFlow.emit(currentRoomList())
         return ChatRoomResponse(
-            result = ChatRoomResponseResult.Ok(ChatRoomRegistrationResult())
+            result = ChatRoomResponseResult.Ok(
+                ChatRoomRegistrationResult(status = ChatRoomRegistrationStatus.CHAT_ROOM_REGISTRATION_STATUS_NEW)
+            )
         )
     }
 
     override suspend fun createSimpleGroup(request: SimpleGroupChatRequest): SimpleGroupChatResponse {
-        Log.d(TAG, "createSimpleGroup")
+        Log.d(TAG, "createSimpleGroup: ${request.roomId}")
+        val exists = rooms.containsKey(request.roomId)
+        if (!exists) {
+            rooms[request.roomId] = ChatRoom(
+                roomId = request.roomId,
+                participatingAs = ChatRoomParticipation.CHAT_ROOM_PARTICIPATION_ROOM_HOST
+            )
+            listFlow.emit(currentRoomList())
+        }
         return SimpleGroupChatResponse(
             result = SimpleGroupChatResponseResult.Ok(
-                SimpleGroupChatResult(joinLink = "https://mock.link/join")
+                SimpleGroupChatResult(
+                    status = if (exists) ChatRoomRegistrationStatus.CHAT_ROOM_REGISTRATION_STATUS_EXISTS
+                             else ChatRoomRegistrationStatus.CHAT_ROOM_REGISTRATION_STATUS_NEW,
+                    joinLink = "https://mock.link/join/${request.roomId}"
+                )
             )
         )
     }
 
     override suspend fun registerBot(request: ChatBotRequest): ChatBotResponse {
-        Log.d(TAG, "registerBot")
+        Log.d(TAG, "registerBot: ${request.botId}")
+        if (!botIds.add(request.botId)) {
+            return ChatBotResponse(
+                result = ChatBotResponseResult.Ok(
+                    ChatBotRegistrationResult(status = ChatBotRegistrationStatus.CHAT_BOT_REGISTRATION_STATUS_EXISTS)
+                )
+            )
+        }
         return ChatBotResponse(
-            result = ChatBotResponseResult.Ok(ChatBotRegistrationResult())
+            result = ChatBotResponseResult.Ok(
+                ChatBotRegistrationResult(status = ChatBotRegistrationStatus.CHAT_BOT_REGISTRATION_STATUS_NEW)
+            )
         )
     }
 
     override suspend fun postMessage(request: ChatPostMessageRequest): ChatPostMessageResponse {
-        Log.d(TAG, "postMessage")
+        val messageId = "msg-${++msgSeq}"
+        Log.d(TAG, "postMessage: ${request.roomId} -> $messageId")
         return ChatPostMessageResponse(
-            result = ChatPostMessageResponseResult.Ok(ChatPostMessageResult(messageId = "mock-msg-1"))
+            result = ChatPostMessageResponseResult.Ok(ChatPostMessageResult(messageId = messageId))
         )
     }
 
     override fun listSubscribe(request: ChatListRequest): Flow<ChatRoomList> = flow {
         Log.d(TAG, "listSubscribe")
-        emit(ChatRoomList(rooms = listOf(
-            ChatRoom(roomId = "room-1", participatingAs = ChatRoomParticipation.CHAT_ROOM_PARTICIPATION_ROOM_HOST)
-        )))
+        // Emit current snapshot then forward updates.
+        emit(currentRoomList())
+        listFlow.collect { emit(it) }
     }
 
     override fun actionSubscribe(request: ChatActionRequest): Flow<ReceivedChatAction> = flow {
         Log.d(TAG, "actionSubscribe")
-        emit(ReceivedChatAction(roomId = "room-1", peer = "peer-1", payload = ChatActionPayload()))
+        // Simulate a peer message after a short delay.
+        kotlinx.coroutines.delay(500)
+        emit(ReceivedChatAction(
+            roomId = "room-1",
+            peer = "alice",
+            payload = ChatActionPayload(
+                payload = ChatActionPayloadPayload.MessagePosted(
+                    ChatMessageContent(content = ChatMessageContentContent.Text("Hello from Alice!"))
+                )
+            )
+        ))
     }
 
     override fun customRenderSubscribe(requests: Flow<CustomRendererNode>): Flow<CustomMessageRenderRequest> = flow {
         Log.d(TAG, "customRenderSubscribe")
-        emit(CustomMessageRenderRequest(messageId = "msg-1", messageType = "mock", payload = ByteArray(0)))
+        // Send an initial render request then echo for each incoming node.
+        emit(CustomMessageRenderRequest(messageId = "custom-1", messageType = "poll", payload = byteArrayOf(0x01)))
+        requests.collect {
+            emit(CustomMessageRenderRequest(messageId = "custom-2", messageType = "poll-update", payload = byteArrayOf(0x02)))
+        }
     }
 }
 
