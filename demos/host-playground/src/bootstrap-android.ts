@@ -8,23 +8,7 @@
 
 import { RpcClient, createConsoleLogger } from '@rpc-bridge/core';
 import { AndroidWebViewTransport } from '@rpc-bridge/transport-android';
-import {
-  GeneralServiceClient,
-  PermissionsServiceClient,
-  LocalStorageServiceClient,
-  AccountServiceClient,
-  SigningServiceClient,
-  ChatServiceClient,
-  StatementStoreServiceClient,
-  PreimageServiceClient,
-  ChainServiceClient,
-  PaymentServiceClient,
-  EntropyServiceClient,
-} from '../../proto/generated/client.js';
-import { createElement } from 'react';
-import { createRoot } from 'react-dom/client';
-import { App } from './App.js';
-import type { ServiceClients } from './main.js';
+import { renderApp } from './setup-client.js';
 
 const transport = new AndroidWebViewTransport({
   interfaceName: 'RpcBridgeClient',
@@ -37,19 +21,4 @@ const rpcClient = new RpcClient({
   logger: createConsoleLogger('Android-Client'),
 });
 
-const clients: ServiceClients = {
-  general: new GeneralServiceClient(rpcClient),
-  permissions: new PermissionsServiceClient(rpcClient),
-  localStorage: new LocalStorageServiceClient(rpcClient),
-  account: new AccountServiceClient(rpcClient),
-  signing: new SigningServiceClient(rpcClient),
-  chat: new ChatServiceClient(rpcClient),
-  statementStore: new StatementStoreServiceClient(rpcClient),
-  preimage: new PreimageServiceClient(rpcClient),
-  chain: new ChainServiceClient(rpcClient),
-  payment: new PaymentServiceClient(rpcClient),
-  entropy: new EntropyServiceClient(rpcClient),
-};
-
-const root = createRoot(document.getElementById('app')!);
-root.render(createElement(App, { clients }));
+renderApp(rpcClient);

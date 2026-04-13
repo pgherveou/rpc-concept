@@ -35,7 +35,7 @@ class MainActivity : AppCompatActivity() {
         webView.addJavascriptInterface(ServerBridge(), "RpcBridgeServer")
 
         webView.webViewClient = WebViewClient()
-        webView.loadUrl("file:///android_asset/web/android-index.html")
+        webView.loadUrl("file:///android_asset/web/index.html")
     }
 
     /** Client -> Server relay: JS client calls sendFrame, we forward to server callback. */

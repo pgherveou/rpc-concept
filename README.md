@@ -7,6 +7,8 @@
 [![Build](https://img.shields.io/badge/build-passing-brightgreen.svg)](#testing)
 [![TypeScript](https://img.shields.io/badge/TypeScript-5.4-3178c6.svg)](https://www.typescriptlang.org/)
 
+<img src="docs/images/playground-ios.png" alt="TruAPI Playground running on iOS simulator" width="320">
+
 </div>
 
 ---

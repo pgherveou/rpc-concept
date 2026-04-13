@@ -1,5 +1,5 @@
 /**
- * Host Playground - Host Page
+ * Host Playground - Host Page (web).
  *
  * Creates the RPC server with mock service implementations,
  * then transfers a MessagePort to the sandboxed iframe.
@@ -7,30 +7,7 @@
 
 import { RpcServer, createConsoleLogger } from '@rpc-bridge/core';
 import { MessagePortTransport } from '@rpc-bridge/transport-web';
-import {
-  registerGeneralService,
-  registerPermissionsService,
-  registerLocalStorageService,
-  registerAccountService,
-  registerSigningService,
-  registerChatService,
-  registerStatementStoreService,
-  registerPreimageService,
-  registerChainService,
-  registerPaymentService,
-  registerEntropyService,
-} from '../../proto/generated/server.js';
-import { generalHandler } from './mocks/general.js';
-import { permissionsHandler } from './mocks/permissions.js';
-import { localStorageHandler } from './mocks/local-storage.js';
-import { accountHandler } from './mocks/account.js';
-import { signingHandler } from './mocks/signing.js';
-import { chatHandler } from './mocks/chat.js';
-import { statementStoreHandler } from './mocks/statement-store.js';
-import { preimageHandler } from './mocks/preimage.js';
-import { chainHandler } from './mocks/chain.js';
-import { paymentHandler } from './mocks/payment.js';
-import { entropyHandler } from './mocks/entropy.js';
+import { registerAllServices } from './setup-server.js';
 
 const logger = createConsoleLogger('Host');
 
@@ -49,17 +26,7 @@ function setupBridge(): void {
     logger: createConsoleLogger('Host-Server'),
   });
 
-  server.registerService(registerGeneralService(generalHandler));
-  server.registerService(registerPermissionsService(permissionsHandler));
-  server.registerService(registerLocalStorageService(localStorageHandler));
-  server.registerService(registerAccountService(accountHandler));
-  server.registerService(registerSigningService(signingHandler));
-  server.registerService(registerChatService(chatHandler));
-  server.registerService(registerStatementStoreService(statementStoreHandler));
-  server.registerService(registerPreimageService(preimageHandler));
-  server.registerService(registerChainService(chainHandler));
-  server.registerService(registerPaymentService(paymentHandler));
-  server.registerService(registerEntropyService(entropyHandler));
+  registerAllServices(server);
 
   logger.info('Server ready with 11 mock services');
   updateStatus('Connected');

@@ -2,7 +2,7 @@ import path from 'path';
 import { test, expect, _electron as electron } from '@playwright/test';
 import { PlaygroundPage } from './helpers/playground.js';
 
-const appPath = path.resolve('demos/host-playground/dist/host-electron.js');
+const appPath = path.resolve('demos/host-playground/dist/electron/host-electron.js');
 
 test.describe('Electron Demo', () => {
   let playground: PlaygroundPage;
