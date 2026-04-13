@@ -29,30 +29,6 @@ export interface CallContext {
   method: string;
 }
 
-/** Describes a single RPC method for dispatch purposes. */
-export interface MethodDescriptor {
-  /** Fully qualified method name: "package.Service/Method" */
-  name: string;
-  /** Streaming pattern */
-  type: MethodType;
-  /** Encode request message to bytes */
-  requestEncode: (msg: unknown) => Uint8Array;
-  /** Decode request message from bytes */
-  requestDecode: (data: Uint8Array) => unknown;
-  /** Encode response message to bytes */
-  responseEncode: (msg: unknown) => Uint8Array;
-  /** Decode response message from bytes */
-  responseDecode: (data: Uint8Array) => unknown;
-}
-
-/** Service descriptor containing all methods. */
-export interface ServiceDescriptor {
-  /** Fully qualified service name: "package.ServiceName" */
-  name: string;
-  /** Methods in this service, keyed by short method name. */
-  methods: Record<string, MethodDescriptor>;
-}
-
 /** Logger interface for debug output. */
 export interface Logger {
   debug(message: string, ...args: unknown[]): void;

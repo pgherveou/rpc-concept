@@ -40,19 +40,22 @@ export interface ElectronMainTransportOptions {
  */
 export class ElectronMainTransport extends MessageTransportBase {
   private readonly port: ElectronMessagePortMain;
+  private readonly messageHandler: (event: { data: unknown }) => void;
+  private readonly closeHandler: () => void;
 
   constructor(options: ElectronMainTransportOptions) {
     super(FrameEncoding.STRUCTURED_CLONE, options.logger);
     this.port = options.port;
 
-    this.port.on('message', (event) => {
+    this.messageHandler = (event) => {
       this.handleRawMessage(event.data as RpcFrame);
-    });
-
-    this.port.on('close', () => {
+    };
+    this.closeHandler = () => {
       this.close();
-    });
+    };
 
+    this.port.on('message', this.messageHandler);
+    this.port.on('close', this.closeHandler);
     this.port.start();
   }
 
@@ -62,6 +65,8 @@ export class ElectronMainTransport extends MessageTransportBase {
 
   close(): void {
     if (!this.isOpen) return;
+    this.port.off('message', this.messageHandler);
+    this.port.off('close', this.closeHandler);
     this.port.close();
     super.close();
   }

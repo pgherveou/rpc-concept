@@ -2,14 +2,14 @@
  * WKWebView bridge transport (web/JS side).
  *
  * Communication pattern:
- * - JS -> Native: window.webkit.messageHandlers.<name>.postMessage(base64String)
+ * - JS -> Native: window.webkit.messageHandlers.<name>.postMessage(jsonString)
  * - Native -> JS: WKWebView.evaluateJavaScript() calls a global callback function
  *
  * The native side (Swift) uses WKScriptMessageHandler to receive messages
  * and evaluateJavaScript to send messages back.
  *
  * Since WKWebView message handlers only support JSON-compatible types,
- * we use base64 encoding for frame data.
+ * we use JSON string encoding for frame data.
  */
 
 import { MessageTransportBase, FrameEncoding, type Logger, type RpcFrame } from '@rpc-bridge/core';
@@ -22,7 +22,7 @@ declare global {
         postMessage(message: unknown): void;
       }>;
     };
-    __rpcBridgeReceive?: (base64Frame: string) => void;
+    __rpcBridgeReceive?: (jsonFrame: string) => void;
   }
 }
 
@@ -48,8 +48,8 @@ export class WKWebViewTransport extends MessageTransportBase {
     this.callbackName = options.callbackName ?? DEFAULT_CALLBACK_NAME;
 
     // Register the global callback for receiving messages from native
-    (window as unknown as Record<string, unknown>)[this.callbackName] = (base64Frame: string) => {
-      this.handleRawMessage(base64Frame);
+    (window as unknown as Record<string, unknown>)[this.callbackName] = (jsonFrame: string) => {
+      this.handleRawMessage(jsonFrame);
     };
 
     // Verify the message handler exists

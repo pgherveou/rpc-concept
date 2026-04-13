@@ -110,5 +110,9 @@ export function frameToJSON(frame: RpcFrame): string {
 }
 
 export function frameFromJSON(json: string): RpcFrame {
-  return JSON.parse(json) as RpcFrame;
+  const obj = JSON.parse(json);
+  if (typeof obj !== 'object' || obj === null || typeof obj.streamId !== 'number') {
+    throw new Error('Invalid RpcFrame: missing or invalid streamId');
+  }
+  return obj as RpcFrame;
 }

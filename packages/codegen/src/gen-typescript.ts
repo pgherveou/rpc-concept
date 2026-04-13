@@ -264,7 +264,7 @@ function generateToJsonField(f: FieldDef, tm: TypeMapping, camel: string): strin
   if (f.repeated) {
     lines.push(`    if (msg.${camel}.length !== 0) {`);
     if (tm.isMessage) {
-      lines.push(`      o.${camel} = msg.${camel}.map(v => ${tm.tsType}.toJSON(v));`);
+      lines.push(`      o.${camel} = msg.${camel}.map(v => ${tm.tsType}JSON.encode(v));`);
     } else if (isBigInt) {
       lines.push(`      o.${camel} = msg.${camel}.map(v => v.toString());`);
     } else if (isBytes) {
@@ -278,7 +278,7 @@ function generateToJsonField(f: FieldDef, tm: TypeMapping, camel: string): strin
   } else if (f.optional) {
     lines.push(`    if (msg.${camel} !== undefined && msg.${camel} !== null) {`);
     if (tm.isMessage) {
-      lines.push(`      o.${camel} = ${tm.tsType}.toJSON(msg.${camel});`);
+      lines.push(`      o.${camel} = ${tm.tsType}JSON.encode(msg.${camel});`);
     } else if (isBigInt) {
       lines.push(`      o.${camel} = msg.${camel}.toString();`);
     } else if (isBytes) {
@@ -294,7 +294,7 @@ function generateToJsonField(f: FieldDef, tm: TypeMapping, camel: string): strin
     const guard = proto3ZeroGuard(f, tm, camel);
     if (tm.isMessage) {
       // Always emit message fields
-      lines.push(`    o.${camel} = ${tm.tsType}.toJSON(msg.${camel});`);
+      lines.push(`    o.${camel} = ${tm.tsType}JSON.encode(msg.${camel});`);
     } else if (guard) {
       lines.push(`    if (${guard}) {`);
       if (isBigInt) {
@@ -322,7 +322,7 @@ function generateFromJsonField(f: FieldDef, tm: TypeMapping, camel: string): str
   if (f.repeated) {
     lines.push(`    if (Array.isArray(o.${camel})) {`);
     if (tm.isMessage) {
-      lines.push(`      msg.${camel} = (o.${camel} as Record<string, unknown>[]).map(v => ${tm.tsType}.fromJSON(v));`);
+      lines.push(`      msg.${camel} = (o.${camel} as Record<string, unknown>[]).map(v => ${tm.tsType}JSON.decode(v));`);
     } else if (isBigInt) {
       lines.push(`      msg.${camel} = (o.${camel} as unknown[]).map(v => {`);
       lines.push(`        if (typeof v === 'string') return BigInt(v);`);
@@ -339,7 +339,7 @@ function generateFromJsonField(f: FieldDef, tm: TypeMapping, camel: string): str
     }
     lines.push('    }');
   } else if (tm.isMessage) {
-    lines.push(`    if (o.${camel} != null) msg.${camel} = ${tm.tsType}.fromJSON(o.${camel} as Record<string, unknown>);`);
+    lines.push(`    if (o.${camel} != null) msg.${camel} = ${tm.tsType}JSON.decode(o.${camel} as Record<string, unknown>);`);
   } else if (isBigInt) {
     lines.push(`    { const v = o.${camel}; if (typeof v === 'string') msg.${camel} = BigInt(v); else if (typeof v === 'number') msg.${camel} = BigInt(v); else if (typeof v === 'bigint') msg.${camel} = v; }`);
   } else if (isBytes) {

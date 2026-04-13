@@ -1,17 +1,26 @@
 /**
  * Electron Boot - Creates RpcClient from MessagePort and injects into guest app.
- * The preload forwards a MessagePort from main process via window.postMessage.
+ * The preload exposes the port via contextBridge as window.rpcBridge.getPort().
  * Loaded after guest.js in the renderer.
  */
 
 import { RpcClient, createConsoleLogger } from '@rpc-bridge/core';
 import { MessagePortTransport } from '@rpc-bridge/transport-web';
 
-window.addEventListener('message', (event) => {
-  if (event.data?.type !== 'rpc-bridge-init') return;
+declare global {
+  interface Window {
+    rpcBridge?: { getPort: () => Promise<MessagePort> };
+  }
+}
 
-  const port = event.ports[0];
-  if (!port) return;
+async function boot() {
+  const bridge = window.rpcBridge;
+  if (!bridge) {
+    console.error('rpcBridge not exposed by preload script');
+    return;
+  }
+
+  const port = await bridge.getPort();
 
   const transport = new MessagePortTransport({
     port,
@@ -23,5 +32,12 @@ window.addEventListener('message', (event) => {
     logger: createConsoleLogger('Guest-Client'),
   });
 
-  (window as any).__rpcBridgeBoot(client);
-});
+  const bootFn = (window as any).__rpcBridgeBoot;
+  if (typeof bootFn === 'function') {
+    bootFn(client);
+  } else {
+    console.error('__rpcBridgeBoot callback not found. Is guest.js loaded?');
+  }
+}
+
+boot();

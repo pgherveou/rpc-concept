@@ -16,13 +16,14 @@ import WebKit
 
 // MARK: - NativeBridgeTransport
 
-public final class NativeBridgeTransport: NSObject, WKScriptMessageHandler, @unchecked Sendable {
+@MainActor
+public final class NativeBridgeTransport: NSObject, WKScriptMessageHandler {
 
     private let callbackName: String
     private weak var webView: WKWebView?
     private var server: RpcBridgeServer?
 
-    public var log: ((String) -> Void)?
+    public var log: (@Sendable (String) -> Void)?
 
     // MARK: - Initialization
 
@@ -48,22 +49,20 @@ public final class NativeBridgeTransport: NSObject, WKScriptMessageHandler, @unc
 
         log?("[Transport] TX frame \(frameTypeName(frame)) stream=\(frame.streamId)")
 
-        Task { @MainActor [weak self] in
-            guard let self, let webView = self.webView else { return }
+        guard let webView else { return }
 
-            // Escape the JSON string for embedding in JS
-            let escaped = json
-                .replacingOccurrences(of: "\\", with: "\\\\")
-                .replacingOccurrences(of: "'", with: "\\'")
-                .replacingOccurrences(of: "\n", with: "\\n")
-                .replacingOccurrences(of: "\r", with: "\\r")
+        // Escape the JSON string for embedding in JS
+        let escaped = json
+            .replacingOccurrences(of: "\\", with: "\\\\")
+            .replacingOccurrences(of: "'", with: "\\'")
+            .replacingOccurrences(of: "\n", with: "\\n")
+            .replacingOccurrences(of: "\r", with: "\\r")
 
-            let js = "window.\(self.callbackName)('\(escaped)')"
+        let js = "window.\(callbackName)('\(escaped)')"
 
-            webView.evaluateJavaScript(js) { _, error in
-                if let error {
-                    self.log?("[Transport] JS eval error: \(error.localizedDescription)")
-                }
+        webView.evaluateJavaScript(js) { [weak self] _, error in
+            if let error {
+                self?.log?("[Transport] JS eval error: \(error.localizedDescription)")
             }
         }
     }

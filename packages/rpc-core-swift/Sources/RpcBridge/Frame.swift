@@ -25,10 +25,14 @@ public struct AnyCodable: Codable, Sendable {
             self.value = NSNull()
         } else if let bool = try? container.decode(Bool.self) {
             self.value = bool
-        } else if let int = try? container.decode(Int.self) {
-            self.value = int
         } else if let double = try? container.decode(Double.self) {
-            self.value = double
+            // Decode Double before Int to preserve fractional values.
+            // Use Int only when the value has no fractional part.
+            if double == double.rounded(.towardZero), let int = Int(exactly: double) {
+                self.value = int
+            } else {
+                self.value = double
+            }
         } else if let string = try? container.decode(String.self) {
             self.value = string
         } else if let array = try? container.decode([AnyCodable].self) {

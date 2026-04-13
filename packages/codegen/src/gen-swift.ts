@@ -15,7 +15,6 @@ import type {
   MessageDef,
   EnumDef,
   ServiceDef,
-  OneOfDef,
 } from './parser.js';
 
 // ---------------------------------------------------------------------------
@@ -99,6 +98,22 @@ function snakeToCamel(name: string): string {
 /** Convert a proto method name (PascalCase) to Swift camelCase. */
 function swiftMethodName(name: string): string {
   return name.charAt(0).toLowerCase() + name.slice(1);
+}
+
+const SWIFT_KEYWORDS = new Set([
+  'associatedtype', 'class', 'deinit', 'enum', 'extension', 'fileprivate',
+  'func', 'import', 'init', 'inout', 'internal', 'let', 'open', 'operator',
+  'private', 'protocol', 'public', 'rethrows', 'static', 'struct',
+  'subscript', 'typealias', 'var', 'break', 'case', 'continue', 'default',
+  'defer', 'do', 'else', 'fallthrough', 'for', 'guard', 'if', 'in',
+  'repeat', 'return', 'switch', 'where', 'while', 'as', 'catch', 'false',
+  'is', 'nil', 'super', 'self', 'Self', 'throw', 'throws', 'true', 'try',
+  'Type', 'Protocol',
+]);
+
+/** Escape Swift keywords with backticks. */
+function escapeSwiftKeyword(name: string): string {
+  return SWIFT_KEYWORDS.has(name) ? `\`${name}\`` : name;
 }
 
 /** Resolve a proto type reference to the short name used inside the namespace enum. */
@@ -209,11 +224,12 @@ function generateMessageStruct(msg: MessageDef, enumNames: Set<string>, allMessa
   // Properties
   for (const f of msg.fields) {
     const camel = snakeToCamel(f.name);
+    const prop = escapeSwiftKeyword(camel);
     const isOpt = isOptionalField(f.type);
     const base = swiftType(f.type, enumNames);
     const type = f.repeated ? `[${base}]` : (isOpt ? `${base}?` : base);
     const def = f.repeated ? '[]' : swiftDefault(f.type, enumNames);
-    lines.push(`    public var ${camel}: ${type} = ${def}`);
+    lines.push(`    public var ${prop}: ${type} = ${def}`);
   }
 
   // Default init
@@ -226,7 +242,8 @@ function generateMessageStruct(msg: MessageDef, enumNames: Set<string>, allMessa
     lines.push('    enum CodingKeys: String, CodingKey {');
     for (const f of msg.fields) {
       const camel = snakeToCamel(f.name);
-      lines.push(`        case ${camel}`);
+      const key = escapeSwiftKeyword(camel);
+      lines.push(`        case ${key}`);
     }
     lines.push('    }');
   }
@@ -238,22 +255,24 @@ function generateMessageStruct(msg: MessageDef, enumNames: Set<string>, allMessa
     lines.push('        let container = try decoder.container(keyedBy: CodingKeys.self)');
     for (const f of msg.fields) {
       const camel = snakeToCamel(f.name);
+      const prop = escapeSwiftKeyword(camel);
+      const key = escapeSwiftKeyword(camel);
       const st = swiftType(f.type, enumNames);
 
       if (isOptionalField(f.type)) {
-        lines.push(`        self.${camel} = try? container.decode(${st}.self, forKey: .${camel})`);
+        lines.push(`        self.${prop} = try? container.decode(${st}.self, forKey: .${key})`);
       } else if (isStringEncodedInJSON(f.type)) {
-        lines.push(`        if let v = try? container.decode(${st}.self, forKey: .${camel}) {`);
-        lines.push(`            self.${camel} = v`);
-        lines.push(`        } else if let s = try? container.decode(String.self, forKey: .${camel}), let v = ${st}(s) {`);
-        lines.push(`            self.${camel} = v`);
+        lines.push(`        if let v = try? container.decode(${st}.self, forKey: .${key}) {`);
+        lines.push(`            self.${prop} = v`);
+        lines.push(`        } else if let s = try? container.decode(String.self, forKey: .${key}), let v = ${st}(s) {`);
+        lines.push(`            self.${prop} = v`);
         lines.push('        }');
       } else if (enumNames.has(f.type)) {
-        lines.push(`        self.${camel} = (try? container.decode(${st}.self, forKey: .${camel})) ?? ${swiftDefault(f.type, enumNames)}`);
+        lines.push(`        self.${prop} = (try? container.decode(${st}.self, forKey: .${key})) ?? ${swiftDefault(f.type, enumNames)}`);
       } else if (f.repeated) {
-        lines.push(`        self.${camel} = (try? container.decode([${st}].self, forKey: .${camel})) ?? []`);
+        lines.push(`        self.${prop} = (try? container.decode([${st}].self, forKey: .${key})) ?? []`);
       } else {
-        lines.push(`        self.${camel} = (try? container.decode(${st}.self, forKey: .${camel})) ?? ${swiftDefault(f.type, enumNames)}`);
+        lines.push(`        self.${prop} = (try? container.decode(${st}.self, forKey: .${key})) ?? ${swiftDefault(f.type, enumNames)}`);
       }
     }
     lines.push('    }');
@@ -508,7 +527,7 @@ function generateDispatcher(svc: ServiceDef, proto: ProtoFile): string {
       lines.push(`            let request = try ${inputType}(jsonUTF8Data: requestData)`);
       lines.push(`            let responseStream = provider.${methodName}(request)`);
       lines.push('            let mappedStream = AsyncThrowingStream<Data, Error> { continuation in');
-      lines.push('                Task {');
+      lines.push('                let task = Task {');
       lines.push('                    do {');
       lines.push('                        for try await response in responseStream {');
       lines.push('                            continuation.yield(try response.jsonUTF8Data())');
@@ -518,6 +537,7 @@ function generateDispatcher(svc: ServiceDef, proto: ProtoFile): string {
       lines.push('                        continuation.finish(throwing: error)');
       lines.push('                    }');
       lines.push('                }');
+      lines.push('                continuation.onTermination = { _ in task.cancel() }');
       lines.push('            }');
       lines.push('            return .stream(mappedStream)');
     } else if (m.clientStreaming && !m.serverStreaming) {
@@ -546,7 +566,7 @@ function generateDispatcher(svc: ServiceDef, proto: ProtoFile): string {
       lines.push('            }');
       lines.push(`            let responseStream = provider.${methodName}(typedStream)`);
       lines.push('            let mappedStream = AsyncThrowingStream<Data, Error> { continuation in');
-      lines.push('                Task {');
+      lines.push('                let task = Task {');
       lines.push('                    do {');
       lines.push('                        for try await response in responseStream {');
       lines.push('                            continuation.yield(try response.jsonUTF8Data())');
@@ -556,6 +576,7 @@ function generateDispatcher(svc: ServiceDef, proto: ProtoFile): string {
       lines.push('                        continuation.finish(throwing: error)');
       lines.push('                    }');
       lines.push('                }');
+      lines.push('                continuation.onTermination = { _ in task.cancel() }');
       lines.push('            }');
       lines.push('            return .stream(mappedStream)');
     }

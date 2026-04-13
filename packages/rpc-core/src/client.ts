@@ -139,8 +139,10 @@ export class RpcClient {
         this.transport.send(createMessageFrame(stream.streamId, req));
       }
 
-      this.transport.send(createHalfCloseFrame(stream.streamId));
-      stream.setState(StreamState.HALF_CLOSED_LOCAL);
+      if (stream.state === StreamState.OPEN) {
+        this.transport.send(createHalfCloseFrame(stream.streamId));
+        stream.setState(StreamState.HALF_CLOSED_LOCAL);
+      }
 
       return await stream.collectUnary();
     } catch (err) {

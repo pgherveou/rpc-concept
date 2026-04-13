@@ -149,6 +149,11 @@ export class RpcServer {
       return;
     }
 
+    if (this.streams.getStream(streamId)) {
+      this.sendError(streamId, RpcStatusCode.INTERNAL, `Duplicate stream ID: ${streamId}`);
+      return;
+    }
+
     const stream = new Stream(streamId);
     stream.open();
     this.streams.registerStream(stream);
@@ -226,8 +231,10 @@ export class RpcServer {
       this.transport.send(createMessageFrame(stream.streamId, response));
     }
 
-    this.transport.send(createCloseFrame(stream.streamId));
-    stream.setState(StreamState.CLOSED);
+    if (stream.state !== StreamState.CANCELLED && stream.state !== StreamState.ERROR) {
+      this.transport.send(createCloseFrame(stream.streamId));
+      stream.setState(StreamState.CLOSED);
+    }
   }
 
   private async handleClientStream(
@@ -238,9 +245,11 @@ export class RpcServer {
     const requests = this.createReceiveIterable(stream);
     const response = await handler(requests, context);
 
-    this.transport.send(createMessageFrame(stream.streamId, response));
-    this.transport.send(createCloseFrame(stream.streamId));
-    stream.setState(StreamState.CLOSED);
+    if (stream.state !== StreamState.CANCELLED && stream.state !== StreamState.ERROR) {
+      this.transport.send(createMessageFrame(stream.streamId, response));
+      this.transport.send(createCloseFrame(stream.streamId));
+      stream.setState(StreamState.CLOSED);
+    }
   }
 
   private async handleBidiStream(
@@ -256,9 +265,11 @@ export class RpcServer {
       this.transport.send(createMessageFrame(stream.streamId, response));
     }
 
-    this.transport.send(createHalfCloseFrame(stream.streamId));
-    this.transport.send(createCloseFrame(stream.streamId));
-    stream.setState(StreamState.CLOSED);
+    if (stream.state !== StreamState.CANCELLED && stream.state !== StreamState.ERROR) {
+      this.transport.send(createHalfCloseFrame(stream.streamId));
+      this.transport.send(createCloseFrame(stream.streamId));
+      stream.setState(StreamState.CLOSED);
+    }
   }
 
   private createReceiveIterable(stream: Stream): AsyncIterable<unknown> {

@@ -49,8 +49,7 @@ export class MessagePortTransport extends MessageTransportBase {
   }
 
   close(): void {
-    // Null out handlers before closing so no further events fire
-    // after the port is closed and resources are cleaned up.
+    if (!this.isOpen) return;
     this.port.onmessage = null;
     this.port.onmessageerror = null;
     this.port.close();

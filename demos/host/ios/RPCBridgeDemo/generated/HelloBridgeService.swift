@@ -262,7 +262,7 @@ public enum DemoHelloV1 {
                 let request = try GreetingStreamRequest(jsonUTF8Data: requestData)
                 let responseStream = provider.watchGreeting(request)
                 let mappedStream = AsyncThrowingStream<Data, Error> { continuation in
-                    Task {
+                    let task = Task {
                         do {
                             for try await response in responseStream {
                                 continuation.yield(try response.jsonUTF8Data())
@@ -272,6 +272,7 @@ public enum DemoHelloV1 {
                             continuation.finish(throwing: error)
                         }
                     }
+                    continuation.onTermination = { _ in task.cancel() }
                 }
                 return .stream(mappedStream)
             case "demo.hello.v1.HelloBridgeService/CollectNames":
@@ -300,7 +301,7 @@ public enum DemoHelloV1 {
                 }
                 let responseStream = provider.chat(typedStream)
                 let mappedStream = AsyncThrowingStream<Data, Error> { continuation in
-                    Task {
+                    let task = Task {
                         do {
                             for try await response in responseStream {
                                 continuation.yield(try response.jsonUTF8Data())
@@ -310,6 +311,7 @@ public enum DemoHelloV1 {
                             continuation.finish(throwing: error)
                         }
                     }
+                    continuation.onTermination = { _ in task.cancel() }
                 }
                 return .stream(mappedStream)
             default:

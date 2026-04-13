@@ -44,11 +44,23 @@ enum StreamState: Sendable {
 
 final class ServerStream: @unchecked Sendable {
     let streamId: UInt32
-    private(set) var state: StreamState = .idle
+    private let lock = NSLock()
+    private var _state: StreamState = .idle
 
     private var messageContinuation: AsyncStream<Data>.Continuation?
     let messages: AsyncStream<Data>
-    var handlerTask: Task<Void, Never>?
+    private var _handlerTask: Task<Void, Never>?
+
+    var state: StreamState {
+        lock.lock()
+        defer { lock.unlock() }
+        return _state
+    }
+
+    var handlerTask: Task<Void, Never>? {
+        get { lock.lock(); defer { lock.unlock() }; return _handlerTask }
+        set { lock.lock(); defer { lock.unlock() }; _handlerTask = newValue }
+    }
 
     init(streamId: UInt32) {
         self.streamId = streamId
@@ -60,36 +72,50 @@ final class ServerStream: @unchecked Sendable {
     }
 
     func open() {
-        state = .open
+        lock.lock()
+        _state = .open
+        lock.unlock()
     }
 
     func pushMessage(_ data: Data) {
-        messageContinuation?.yield(data)
+        lock.lock()
+        let cont = messageContinuation
+        lock.unlock()
+        cont?.yield(data)
     }
 
     func pushEnd() {
+        lock.lock()
         messageContinuation?.finish()
         messageContinuation = nil
-        state = .halfClosedRemote
+        _state = .halfClosedRemote
+        lock.unlock()
     }
 
     func pushError() {
+        lock.lock()
         messageContinuation?.finish()
         messageContinuation = nil
-        state = .error
+        _state = .error
+        lock.unlock()
     }
 
     func cancel() {
+        lock.lock()
         messageContinuation?.finish()
         messageContinuation = nil
-        state = .cancelled
-        handlerTask?.cancel()
+        _state = .cancelled
+        let task = _handlerTask
+        lock.unlock()
+        task?.cancel()
     }
 
     func close() {
+        lock.lock()
         messageContinuation?.finish()
         messageContinuation = nil
-        state = .closed
+        _state = .closed
+        lock.unlock()
     }
 }
 
@@ -117,7 +143,9 @@ public final class RpcBridgeServer: @unchecked Sendable {
     // MARK: - Service Registration
 
     public func registerDispatcher(_ dispatcher: any ServiceDispatcher) {
+        lock.lock()
         dispatchers[dispatcher.serviceName] = dispatcher
+        lock.unlock()
     }
 
     // MARK: - Frame Handling
@@ -155,8 +183,18 @@ public final class RpcBridgeServer: @unchecked Sendable {
 
         let svcName = String(method[method.startIndex..<slashIdx])
 
-        guard let dispatcher = dispatchers[svcName] else {
+        lock.lock()
+        let dispatcher = dispatchers[svcName]
+        let duplicate = streams[streamId] != nil
+        lock.unlock()
+
+        guard let dispatcher else {
             sendError(streamId: streamId, code: RpcStatusCode.unimplemented, message: "Unknown service: \(svcName)")
+            return
+        }
+
+        if duplicate {
+            sendError(streamId: streamId, code: RpcStatusCode.internal, message: "Duplicate stream ID: \(streamId)")
             return
         }
 
@@ -187,6 +225,7 @@ public final class RpcBridgeServer: @unchecked Sendable {
 
             switch result {
             case .unary(let data):
+                guard stream.state != .cancelled else { return }
                 sendFrame(createMessageFrame(streamId: stream.streamId, payload: data))
                 sendFrame(createCloseFrame(streamId: stream.streamId))
                 stream.close()
@@ -197,6 +236,7 @@ public final class RpcBridgeServer: @unchecked Sendable {
                     try Task.checkCancellation()
                     sendFrame(createMessageFrame(streamId: stream.streamId, payload: data))
                 }
+                guard stream.state != .cancelled else { return }
                 sendFrame(createCloseFrame(streamId: stream.streamId))
                 stream.close()
             }

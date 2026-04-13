@@ -85,8 +85,6 @@ export {
   MethodType,
   type CallOptions,
   type CallContext,
-  type MethodDescriptor,
-  type ServiceDescriptor,
   type Logger,
   silentLogger,
   createConsoleLogger,
