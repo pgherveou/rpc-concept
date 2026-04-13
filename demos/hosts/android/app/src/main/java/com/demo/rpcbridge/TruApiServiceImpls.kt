@@ -349,22 +349,71 @@ class SigningServiceImpl : SigningService {
 // -- StatementStoreService --
 
 class StatementStoreServiceImpl : StatementStoreService {
+
+    companion object {
+        private val mockSigner = ByteArray(32).also { it[0] = 0xd4.toByte(); it[1] = 0x35 }
+        private val mockSigner2 = ByteArray(32).also { it[0] = 0x8e.toByte(); it[1] = 0xaf.toByte() }
+        private val mockTopicA = ByteArray(32).also { it[0] = 0x01 }
+        private val mockTopicB = ByteArray(32).also { it[0] = 0x02 }
+        private fun mockSignature(len: Int) = ByteArray(len) { i -> ((i * 7 + 0xab) and 0xff).toByte() }
+    }
+
     override fun subscribe(request: TopicFilter): Flow<StatementList> = flow {
         Log.d(TAG, "statement subscribe")
-        emit(StatementList())
+        val now = System.currentTimeMillis() / 1000
+
+        val stmt1 = SignedStatement(
+            proof = StatementProof(proof = StatementProofProof.Sr25519(
+                Sr25519Proof(signature = mockSignature(64), signer = mockSigner)
+            )),
+            expiry = (now + 3600).toULong(),
+            topics = listOf(mockTopicA),
+            data = """{"type":"profile","name":"Alice"}""".toByteArray()
+        )
+
+        val stmt2 = SignedStatement(
+            proof = StatementProof(proof = StatementProofProof.Ed25519(
+                Ed25519Proof(signature = mockSignature(64), signer = mockSigner2)
+            )),
+            decryptionKey = ByteArray(32),
+            expiry = (now + 7200).toULong(),
+            topics = listOf(mockTopicA, mockTopicB),
+            data = """{"type":"attestation","score":42}""".toByteArray()
+        )
+
+        emit(StatementList(statements = listOf(stmt1, stmt2)))
+
+        // Simulate a delayed update
+        kotlinx.coroutines.delay(1500)
+        val nowUpdated = System.currentTimeMillis() / 1000
+        val stmt3 = SignedStatement(
+            proof = StatementProof(proof = StatementProofProof.Sr25519(
+                Sr25519Proof(signature = mockSignature(64), signer = mockSigner)
+            )),
+            expiry = (nowUpdated + 1800).toULong(),
+            topics = listOf(mockTopicB),
+            data = """{"type":"update","seq":1}""".toByteArray()
+        )
+        emit(StatementList(statements = listOf(stmt3)))
     }
 
     override suspend fun createProof(request: StatementCreateProofRequest): StatementCreateProofResponse {
         Log.d(TAG, "statement createProof")
         return StatementCreateProofResponse(
-            result = StatementCreateProofResponseResult.Error(
-                StatementProofError(reason = "Not implemented")
+            result = StatementCreateProofResponseResult.Proof(
+                StatementProof(proof = StatementProofProof.Sr25519(
+                    Sr25519Proof(signature = mockSignature(64), signer = mockSigner)
+                ))
             )
         )
     }
 
     override suspend fun submit(request: StatementSubmitRequest): StatementSubmitResponse {
         Log.d(TAG, "statement submit")
-        return StatementSubmitResponse(result = StatementSubmitResponseResult.Hash("0xmockhash"))
+        return StatementSubmitResponse(
+            result = StatementSubmitResponseResult.Hash(
+                "0xab2cb9d0e7c5dcda1fc9d4ece9fdf4210712ff19f40fe90fdc12ea22fd24392a"
+            )
+        )
     }
 }

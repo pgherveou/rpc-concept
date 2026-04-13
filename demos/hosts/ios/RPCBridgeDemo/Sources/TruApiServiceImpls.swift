@@ -287,10 +287,53 @@ final class SigningServiceImpl: TruapiV02.SigningServiceProvider, Sendable {
 
 final class StatementStoreServiceImpl: TruapiV02.StatementStoreServiceProvider, Sendable {
 
+    private static let mockSigner: AnyCodable = AnyCodable("1FRMM8PEiWXYax7rpS6X4XZX1aAAxSWx1CrKTyrVYhV24fg=")
+    private static let mockSigner2: AnyCodable = AnyCodable("jq8AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=")
+    private static let mockSignature: AnyCodable = AnyCodable("q7K50OfF3NrB+dTs6f30IQcS/xn0D+kP3BLqIv0kOSpB")
+    private static let mockTopicA: AnyCodable = AnyCodable("AQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=")
+    private static let mockTopicB: AnyCodable = AnyCodable("AgAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=")
+
     func subscribe(_ request: TruapiV02.TopicFilter) -> AsyncThrowingStream<TruapiV02.StatementList, Error> {
         AsyncThrowingStream { continuation in
-            continuation.yield(TruapiV02.StatementList())
-            continuation.finish()
+            let expiry = UInt64(Date().timeIntervalSince1970) + 3600
+
+            var stmt1 = TruapiV02.SignedStatement()
+            stmt1.proof = TruapiV02.StatementProof(proof: .sr25519(TruapiV02.Sr25519Proof(
+                signature: Self.mockSignature, signer: Self.mockSigner
+            )))
+            stmt1.expiry = expiry
+            stmt1.topics = [Self.mockTopicA]
+            stmt1.data = AnyCodable("eyJ0eXBlIjoicHJvZmlsZSIsIm5hbWUiOiJBbGljZSJ9")
+
+            var stmt2 = TruapiV02.SignedStatement()
+            stmt2.proof = TruapiV02.StatementProof(proof: .ed25519(TruapiV02.Ed25519Proof(
+                signature: Self.mockSignature, signer: Self.mockSigner2
+            )))
+            stmt2.decryptionKey = AnyCodable("AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=")
+            stmt2.expiry = expiry + 3600
+            stmt2.topics = [Self.mockTopicA, Self.mockTopicB]
+            stmt2.data = AnyCodable("eyJ0eXBlIjoiYXR0ZXN0YXRpb24iLCJzY29yZSI6NDJ9")
+
+            var list = TruapiV02.StatementList()
+            list.statements = [stmt1, stmt2]
+            continuation.yield(list)
+
+            // Simulate a delayed update
+            Task {
+                try await Task.sleep(nanoseconds: 1_500_000_000)
+                var stmt3 = TruapiV02.SignedStatement()
+                stmt3.proof = TruapiV02.StatementProof(proof: .sr25519(TruapiV02.Sr25519Proof(
+                    signature: Self.mockSignature, signer: Self.mockSigner
+                )))
+                stmt3.expiry = UInt64(Date().timeIntervalSince1970) + 1800
+                stmt3.topics = [Self.mockTopicB]
+                stmt3.data = AnyCodable("eyJ0eXBlIjoidXBkYXRlIiwic2VxIjoxfQ==")
+
+                var list2 = TruapiV02.StatementList()
+                list2.statements = [stmt3]
+                continuation.yield(list2)
+                continuation.finish()
+            }
         }
     }
 
@@ -299,6 +342,6 @@ final class StatementStoreServiceImpl: TruapiV02.StatementStoreServiceProvider, 
     }
 
     func submit(_ request: TruapiV02.StatementSubmitRequest) async throws -> TruapiV02.StatementSubmitResponse {
-        TruapiV02.StatementSubmitResponse(result: .hash("0xmockhash"))
+        TruapiV02.StatementSubmitResponse(result: .hash("0xab2cb9d0e7c5dcda1fc9d4ece9fdf4210712ff19f40fe90fdc12ea22fd24392a"))
     }
 }
