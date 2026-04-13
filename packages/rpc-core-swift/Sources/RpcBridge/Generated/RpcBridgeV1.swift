@@ -117,7 +117,7 @@ public struct ErrorBody: Codable, Sendable {
 }
 
 public enum RpcFrameBody: Sendable {
-    case open(OpenBody)
+    case `open`(OpenBody)
     case message(MessageBody)
     case halfClose
     case close
@@ -137,7 +137,7 @@ public struct RpcFrame: Codable, Sendable {
 
     enum CodingKeys: String, CodingKey {
         case streamId
-        case open
+        case `open`
         case message
         case halfClose
         case close
@@ -148,8 +148,8 @@ public struct RpcFrame: Codable, Sendable {
     public init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         self.streamId = (try? container.decode(UInt32.self, forKey: .streamId)) ?? 0
-        if let v = try? container.decode(OpenBody.self, forKey: .open) {
-            self.body = .open(v)
+        if let v = try? container.decode(OpenBody.self, forKey: .`open`) {
+            self.body = .`open`(v)
         } else if let v = try? container.decode(MessageBody.self, forKey: .message) {
             self.body = .message(v)
         } else if container.contains(.halfClose) {
@@ -169,8 +169,8 @@ public struct RpcFrame: Codable, Sendable {
         var container = encoder.container(keyedBy: CodingKeys.self)
         try container.encode(streamId, forKey: .streamId)
         switch body {
-        case .open(let v):
-            try container.encode(v, forKey: .open)
+        case .`open`(let v):
+            try container.encode(v, forKey: .`open`)
         case .message(let v):
             try container.encode(v, forKey: .message)
         case .halfClose:

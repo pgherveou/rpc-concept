@@ -4,14 +4,6 @@
 import Foundation
 import RpcBridge
 
-// Fix codegen: scalar oneofs emit raw proto type names instead of Swift types.
-extension TruapiV02 {
-    typealias bytes = AnyCodable
-    typealias string = String
-    typealias bool = Bool
-    typealias uint32 = UInt32
-}
-
 // MARK: - GeneralServiceImpl
 
 final class GeneralServiceImpl: TruapiV02.GeneralServiceProvider, Sendable {
