@@ -1,0 +1,21 @@
+{
+  "name": "@rpc-bridge/product-app",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Demo product app: shared web client embedded in all platform hosts",
+  "type": "module",
+  "scripts": {
+    "build": "tsc && node build.js"
+  },
+  "dependencies": {
+    "@rpc-bridge/core": "0.1.0",
+    "react": "^19.1.0",
+    "react-dom": "^19.1.0"
+  },
+  "devDependencies": {
+    "@types/react": "^19.1.0",
+    "@types/react-dom": "^19.1.0",
+    "esbuild": "^0.28.0",
+    "typescript": "^5.4.0"
+  }
+}

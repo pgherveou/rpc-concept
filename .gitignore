@@ -1,0 +1,44 @@
+node_modules/
+dist/
+*.js.map
+*.d.ts.map
+*.tsbuildinfo
+
+# Build outputs
+packages/*/dist/
+tests/dist/
+
+# Built web assets copied/bundled into native hosts
+demos/host/ios/RPCBridgeDemo/web/*.js
+demos/host/ios/RPCBridgeDemo/web/*.js.map
+demos/host/android/app/src/main/assets/web/*.js
+demos/host/android/app/src/main/assets/web/*.js.map
+
+# Generated code from proto definitions
+demos/proto/generated/
+demos/host/ios/RPCBridgeDemo/generated/
+demos/host/android/generated/
+
+# Swift build artifacts
+.build/
+*.resolved
+**/build/
+
+# Test results
+test-results/
+tests/test-results/
+
+# Misc
+excalidraw.log
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+demos/host/android/.gradle/
+packages/rpc-core-android/.gradle/

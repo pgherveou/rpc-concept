@@ -1,0 +1,47 @@
+// RPC Bridge Frame Protocol
+// Simplified for local IPC between collocated guest and host.
+//
+// COMPATIBILITY: Unknown frame body types are silently ignored.
+
+syntax = "proto3";
+
+package rpc.bridge.v1;
+
+// --- Body messages for each frame type ---
+
+message OpenBody {
+  // Fully qualified method name: "package.ServiceName/MethodName"
+  string method = 1;
+}
+
+message MessageBody {
+  // Message payload (carried as inline JSON, not base64).
+  bytes payload = 1;
+}
+
+// Signal-only frames (no additional data).
+message HalfCloseBody {}
+message CloseBody {}
+message CancelBody {}
+
+message ErrorBody {
+  uint32 error_code = 1;
+  string error_message = 2;
+}
+
+// --- RpcFrame ---
+
+message RpcFrame {
+  // Logical stream identifier. 0 is reserved.
+  // All streams are client-initiated with odd IDs (1, 3, 5, ...).
+  uint32 stream_id = 1;
+
+  oneof body {
+    OpenBody open = 2;
+    MessageBody message = 3;
+    HalfCloseBody half_close = 4;
+    CloseBody close = 5;
+    CancelBody cancel = 6;
+    ErrorBody error = 7;
+  }
+}
