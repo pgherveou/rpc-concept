@@ -13,11 +13,11 @@ test.describe('Android Demo', () => {
       throw new Error('No Android devices/emulators found. Start an emulator first.');
     }
     device = devices[0];
-    await device.shell(`am force-stop ${PKG}`);
-    await device.shell(`am start -n ${PKG}/.MainActivity`);
   });
 
   test.beforeEach(async () => {
+    await device.shell(`am force-stop ${PKG}`);
+    await device.shell(`am start -n ${PKG}/.MainActivity`);
     const webview = await device.webView({ pkg: PKG });
     const page = await webview.page();
     playground = new PlaygroundPage(page);
