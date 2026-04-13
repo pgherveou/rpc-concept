@@ -41,25 +41,48 @@ The Host API is currently spread across five repos, each hand-writing its own ty
 
 ### Define a service
 
-> The demo uses a simple `HelloService` to illustrate all four RPC patterns. In practice, this framework is designed to implement the full TrUAPI surface: define the services in `.proto`, generate stubs for every platform, and replace the per-platform hand-written implementations with a single codegen pipeline.
+> The demo implements the full TruAPI v0.2 surface: 11 services covering accounts, signing, payments, chat, chain operations, and more. Below are excerpts from three of them to illustrate the different RPC patterns.
 
 ```protobuf
 syntax = "proto3";
-package demo.hello.v1;
+package truapi.v02;
 
-message HelloRequest {
-  string name = 1;
+// --- LocalStorageService: unary RPCs for a scoped key-value store ---
+
+service LocalStorageService {
+  rpc Read(StorageReadRequest) returns (StorageReadResponse);
+  rpc Write(StorageWriteRequest) returns (StorageWriteResponse);
+  rpc Clear(StorageClearRequest) returns (StorageClearResponse);
 }
 
-message HelloResponse {
-  string message = 1;
-  uint64 timestamp = 2;
+message StorageReadRequest {
+  string key = 1;
 }
 
-service HelloService {
-  rpc SayHello(HelloRequest) returns (HelloResponse);
-  rpc WatchGreeting(GreetingStreamRequest) returns (stream GreetingEvent);
-  rpc Chat(stream ChatMessage) returns (stream ChatMessage);
+message StorageReadResponse {
+  oneof result {
+    StorageReadValue value = 1;
+    StorageError error = 2;
+  }
+}
+
+// --- PaymentService: server-streaming balance and status subscriptions ---
+
+service PaymentService {
+  rpc BalanceSubscribe(PaymentBalanceRequest) returns (stream PaymentBalanceEvent);
+  rpc TopUp(PaymentTopUpRequest) returns (PaymentTopUpResponse);
+  rpc Request(PaymentRequestMsg) returns (PaymentRequestResponse);
+  rpc StatusSubscribe(PaymentStatusRequest) returns (stream PaymentStatusEvent);
+}
+
+// --- ChatService: includes a bidirectional custom-render stream ---
+
+service ChatService {
+  rpc CreateRoom(ChatRoomRequest) returns (ChatRoomResponse);
+  rpc PostMessage(ChatPostMessageRequest) returns (ChatPostMessageResponse);
+  rpc ListSubscribe(ChatListRequest) returns (stream ChatRoomList);
+  rpc ActionSubscribe(ChatActionRequest) returns (stream ReceivedChatAction);
+  rpc CustomRenderSubscribe(stream CustomRendererNode) returns (stream CustomMessageRenderRequest);
 }
 ```
 
@@ -67,67 +90,73 @@ service HelloService {
 
 ```bash
 rpc-bridge-codegen \
-  --proto demos/proto/hello.proto \
+  --proto 'demos/proto/truapi/v02/*.proto' \
+  --proto-path demos/proto \
   --ts-out demos/proto/generated \
-  --swift-out demos/host/ios/RPCBridgeDemo/generated \
-  --kotlin-out demos/host/android/generated
+  --swift-out packages/rpc-core-swift/Sources/RpcBridge/Generated
 ```
 
 ### Implement the server (host side)
 
 ```typescript
-import { RpcServer } from '@rpc-bridge/core';
-import { registerHelloService } from './generated/server';
-import type { IHelloServiceHandler } from './generated/server';
+import type { ILocalStorageServiceHandler } from './generated/server';
+import type { StorageReadRequest, StorageReadResponse, StorageWriteResponse, StorageClearResponse } from './generated/messages';
 
-const handler: IHelloServiceHandler = {
-  async sayHello(request, context) {
-    return { message: `Hello, ${request.name}!`, timestamp: BigInt(Date.now()), serverVersion: '1.0' };
-  },
-  async *watchGreeting(request, context) {
-    for (let i = 0; i < request.maxCount; i++) {
-      if (context.signal.aborted) break;
-      yield { message: `Hello #${i + 1}`, seq: BigInt(i + 1), timestamp: BigInt(Date.now()) };
-      await delay(request.intervalMs);
+const store = new Map<string, Uint8Array>();
+
+const localStorageHandler: ILocalStorageServiceHandler = {
+  async read(req: StorageReadRequest): Promise<StorageReadResponse> {
+    const value = store.get(req.key);
+    if (value !== undefined) {
+      return { result: { case: 'value', value: { data: value } } };
     }
+    return { result: { case: 'error', value: { code: 0, reason: 'Key not found' } } };
   },
-  async collectNames(requests, context) {
-    const names: string[] = [];
-    for await (const req of requests) names.push(req.name);
-    return { message: `Hello ${names.join(', ')}!`, count: names.length };
+  async write(req): Promise<StorageWriteResponse> {
+    store.set(req.key, new TextEncoder().encode(JSON.stringify(req.value)));
+    return { result: { case: 'ok' } };
   },
-  async *chat(requests, context) {
-    for await (const msg of requests) {
-      yield { from: 'host', text: `Echo: ${msg.text}`, seq: msg.seq, timestamp: BigInt(Date.now()) };
-    }
+  async clear(req): Promise<StorageClearResponse> {
+    store.delete(req.key);
+    return { result: { case: 'ok' } };
   },
 };
+```
+
+The playground demo registers all 11 services at once via a shared `registerAllServices` helper:
+
+```typescript
+import { registerAllServices } from './setup-server';
 
 const server = new RpcServer({ transport });
-server.registerService(registerHelloService(handler));
+registerAllServices(server);
 ```
 
 ### Call from the client (product side)
 
 ```typescript
-import { HelloServiceClient } from './generated/client';
+import { LocalStorageServiceClient, PaymentServiceClient, ChatServiceClient } from './generated/client';
 
-const client = new HelloServiceClient(rpcClient);
+// --- Unary: read from local storage ---
+const storage = new LocalStorageServiceClient(rpcClient);
+const response = await storage.read({ key: 'user-prefs' });
 
-// Unary
-const response = await client.sayHello({ name: 'World', language: 'en' });
-
-// Server streaming
-for await (const event of client.watchGreeting({ name: 'World', maxCount: 5, intervalMs: 1000 })) {
-  console.log(event.message);
+// --- Server streaming: subscribe to payment balance updates ---
+const payments = new PaymentServiceClient(rpcClient);
+for await (const event of payments.balanceSubscribe({})) {
+  if (event.result.case === 'balance') {
+    console.log(`Available: ${event.result.value.available}`);
+  }
 }
 
-// Bidirectional streaming: chat() takes an AsyncIterable and returns an AsyncGenerator
-async function* outgoing() {
-  yield { from: 'guest', text: 'Hello!', seq: 1n, timestamp: BigInt(Date.now()) };
+// --- Bidirectional streaming: custom chat message rendering ---
+const chat = new ChatServiceClient(rpcClient);
+async function* renderNodes() {
+  // Product sends rendered UI nodes back to the host as they are built.
+  yield { node: { case: 'text' as const, value: { modifiers: [], children: [] } } };
 }
-for await (const msg of client.chat(outgoing())) {
-  console.log(`${msg.from}: ${msg.text}`);
+for await (const req of chat.customRenderSubscribe(renderNodes())) {
+  console.log(`Render request for message ${req.messageId} (type: ${req.messageType})`);
 }
 ```
 
@@ -144,29 +173,29 @@ for await (const msg of client.chat(outgoing())) {
 
 ```bash
 npm install
-npm run build     # core -> codegen -> generate -> transports -> demos
+npm run build     # core -> codegen -> generate -> transports -> playground
 ```
 
 ### Web (iframe + MessagePort)
 
 ```bash
-cd demos/host/web && npm run serve
+cd demos/host-playground && npm run serve
 # Open http://localhost:3000
 ```
 
 ### Electron (MessageChannelMain)
 
 ```bash
-cd demos/host/electron && npm run start
+npx electron demos/host-playground/dist/electron/host-electron.js
 ```
 
 ### iOS (WKWebView)
 
-Open `demos/host/ios/Package.swift` in Xcode.
+Open `demos/host-playground/ios/Package.swift` in Xcode.
 
 ### Android (WebView)
 
-Open `demos/host/android/` in Android Studio.
+Open `demos/host-playground/android/` in Android Studio.
 
 ## Testing
 
@@ -194,9 +223,19 @@ packages/
   transport-android/                Android WebView transport (JS side)
   transport-electron/               Electron main + preload transports
 demos/
-  proto/hello.proto                 Demo service definition
-  product-app/                        Shared product web client (React)
-  host/{web,ios,electron,android}/  Platform-specific host implementations
+  proto/truapi/v02/*.proto          TruAPI v0.2 service definitions (11 services)
+  proto/generated/                  Generated TS messages, client stubs, server interfaces
+  host-playground/                  Playground demo (shared product UI + per-platform hosts)
+    src/setup-server.ts               Registers all 11 mock services on an RpcServer
+    src/setup-client.ts               Creates typed clients and renders the React UI
+    src/mocks/                        Mock handler implementations per service
+    src/host.ts                       Web host (MessagePort to iframe)
+    src/host-electron.ts              Electron host (MessageChannelMain)
+    src/bootstrap-ios.ts              iOS bootstrap (WKWebView transport)
+    src/bootstrap-android.ts          Android bootstrap (WebView transport)
+    web/                              Static HTML for the web host
+    ios/                              Xcode project (Swift, WKWebView)
+    android/                          Android Studio project (Gradle, WebView)
 tests/                              Unit and integration tests
 e2e/                                Playwright e2e tests
 docs/                               Design and architecture docs
@@ -234,4 +273,3 @@ Each platform uses the most efficient channel available: structured clone for we
 - **[Code Generation](docs/CODEGEN.md)**: Proto parser, generated output per language
 - **[Platform Bridges](docs/PLATFORM-BRIDGES.md)**: Transport implementations, encoding, security
 - **[Tradeoffs](docs/TRADEOFFS.md)**: Limitations, future extensions, performance
-
