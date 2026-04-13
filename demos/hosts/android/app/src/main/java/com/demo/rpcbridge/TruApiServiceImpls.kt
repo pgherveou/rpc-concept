@@ -318,31 +318,78 @@ class PreimageServiceImpl : PreimageService {
 
 class SigningServiceImpl : SigningService {
     override suspend fun signPayload(request: SigningPayload): SignPayloadResponse {
-        Log.d(TAG, "signPayload")
+        Log.d(TAG, "signPayload: account=${request.account.dotNsIdentifier}/${request.account.derivationIndex} method=${request.method.size} bytes")
+
+        val signature = mockSignature(request.method)
+        val signedTransaction = if (request.withSignedTransaction) {
+            mockSignedTransaction(signature, request.method)
+        } else {
+            ByteArray(0)
+        }
+
         return SignPayloadResponse(
             result = SignPayloadResponseResult.Ok(
-                SigningResult(signature = ByteArray(64), signedTransaction = ByteArray(0))
+                SigningResult(signature = signature, signedTransaction = signedTransaction)
             )
         )
     }
 
     override suspend fun signRaw(request: SigningRawPayload): SignRawResponse {
-        Log.d(TAG, "signRaw")
+        Log.d(TAG, "signRaw: account=${request.account.dotNsIdentifier}/${request.account.derivationIndex}")
+
+        val seed = when (val payload = request.data.payload) {
+            is RawPayloadPayload.RawBytes -> payload.value
+            is RawPayloadPayload.Message -> payload.value.toByteArray()
+            else -> ByteArray(0)
+        }
+
         return SignRawResponse(
             result = SignRawResponseResult.Ok(
-                SigningResult(signature = ByteArray(64), signedTransaction = ByteArray(0))
+                SigningResult(signature = mockSignature(seed), signedTransaction = ByteArray(0))
             )
         )
     }
 
     override suspend fun createTransaction(request: CreateTransactionRequest): CreateTransactionResponse {
-        Log.d(TAG, "createTransaction")
-        return CreateTransactionResponse(result = CreateTransactionResponseResult.Transaction(ByteArray(128)))
+        Log.d(TAG, "createTransaction: account=${request.account.dotNsIdentifier}/${request.account.derivationIndex}")
+
+        val callData = extractCallData(request.payload)
+        val signature = mockSignature(callData)
+        return CreateTransactionResponse(
+            result = CreateTransactionResponseResult.Transaction(mockSignedTransaction(signature, callData))
+        )
     }
 
     override suspend fun createTransactionNonProduct(request: CreateTransactionNonProductRequest): CreateTransactionResponse {
         Log.d(TAG, "createTransactionNonProduct")
-        return CreateTransactionResponse(result = CreateTransactionResponseResult.Transaction(ByteArray(128)))
+
+        val callData = extractCallData(request.payload)
+        val signature = mockSignature(callData)
+        return CreateTransactionResponse(
+            result = CreateTransactionResponseResult.Transaction(mockSignedTransaction(signature, callData))
+        )
+    }
+
+    private fun mockSignature(seed: ByteArray): ByteArray {
+        return ByteArray(64) { i ->
+            if (seed.isEmpty()) (i * 3).toByte()
+            else (seed[i % seed.size].toInt() xor (i * 7)).toByte()
+        }
+    }
+
+    private fun mockSignedTransaction(signature: ByteArray, callData: ByteArray): ByteArray {
+        val tx = ByteArray(1 + signature.size + callData.size)
+        tx[0] = 0x84.toByte() // extrinsic version prefix
+        signature.copyInto(tx, 1)
+        callData.copyInto(tx, 1 + signature.size)
+        return tx
+    }
+
+    private fun extractCallData(payload: VersionedTxPayload): ByteArray {
+        return when (val version = payload.version) {
+            is VersionedTxPayloadVersion.V1 -> version.value.callData
+            else -> ByteArray(0)
+        }
     }
 }
 
