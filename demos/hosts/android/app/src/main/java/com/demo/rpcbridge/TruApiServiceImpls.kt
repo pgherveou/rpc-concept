@@ -236,14 +236,10 @@ class LocalStorageServiceImpl : LocalStorageService {
 
     override suspend fun read(request: StorageReadRequest): StorageReadResponse {
         Log.d(TAG, "storage read: ${request.key}")
-        val value = store[request.key]
-        return if (value != null) {
-            StorageReadResponse(result = StorageReadResponseResult.Value(StorageReadValue(data = value)))
-        } else {
-            StorageReadResponse(
-                result = StorageReadResponseResult.Error(StorageError(reason = "Key not found"))
-            )
-        }
+        val data = store[request.key] ?: ByteArray(0)
+        return StorageReadResponse(
+            result = StorageReadResponseResult.Value(StorageReadValue(data = data))
+        )
     }
 
     override suspend fun write(request: StorageWriteRequest): StorageWriteResponse {
