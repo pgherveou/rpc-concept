@@ -209,17 +209,17 @@ sequenceDiagram
 
     rect rgba(128,128,128,0.1)
     Note right of P: Unary
-    P->>H: OPEN {service, method, payload}
-    H->>P: MESSAGE {response}
+    P->>H: OPEN (service, method, payload)
+    H->>P: MESSAGE (response)
     H->>P: CLOSE
     end
 
     rect rgba(128,128,128,0.1)
     Note right of P: Server streaming
-    P->>H: OPEN {service, method, payload}
-    H->>P: MESSAGE {event 1}
-    H->>P: MESSAGE {event 2}
-    H-->>P: ...
+    P->>H: OPEN (service, method, payload)
+    H->>P: MESSAGE (event 1)
+    H->>P: MESSAGE (event 2)
+    H->>P: MESSAGE (event n)
     H->>P: CLOSE
     end
 ```
