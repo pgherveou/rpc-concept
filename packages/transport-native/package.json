@@ -1,7 +1,7 @@
 {
-  "name": "@rpc-bridge/transport-ios",
+  "name": "@rpc-bridge/transport-native",
   "version": "0.1.0",
-  "description": "iOS WKWebView bridge transport (web side) for RPC bridge",
+  "description": "Native WebView bridge transport (JS side) for iOS and Android",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
   "type": "module",

@@ -45,10 +45,9 @@ copyFileSync(`${productDist}/product.js`, 'dist/electron/product.js');
 writeFileSync('dist/electron/host.js', '// host runs in the electron main process\n');
 copyFileSync('index.html', 'dist/electron/index.html');
 
-// --- Android (native host, only needs product bundle) ---
-copyFileSync(`${productDist}/product-android.js`, 'dist/android/product.js');
+// --- Native hosts (iOS + Android, only need product bundle) ---
+copyFileSync(`${productDist}/product-native.js`, 'dist/android/product.js');
 copyFileSync('index.html', 'dist/android/index.html');
 
-// --- iOS (native host, only needs product bundle) ---
-copyFileSync(`${productDist}/product-ios.js`, 'dist/ios/product.js');
+copyFileSync(`${productDist}/product-native.js`, 'dist/ios/product.js');
 copyFileSync('index.html', 'dist/ios/index.html');

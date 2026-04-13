@@ -10,22 +10,12 @@ await build({
   jsx: 'automatic',
 });
 
-// iOS product bundle
+// Native (iOS + Android) product bundle
 await build({
-  entryPoints: ['src/bootstrap-ios.ts'],
+  entryPoints: ['src/bootstrap-native.ts'],
   bundle: true,
   format: 'iife',
-  outfile: 'dist/product-ios.js',
-  sourcemap: true,
-  jsx: 'automatic',
-});
-
-// Android product bundle
-await build({
-  entryPoints: ['src/bootstrap-android.ts'],
-  bundle: true,
-  format: 'iife',
-  outfile: 'dist/product-android.js',
+  outfile: 'dist/product-native.js',
   sourcemap: true,
   jsx: 'automatic',
 });

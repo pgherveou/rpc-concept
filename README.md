@@ -219,8 +219,7 @@ packages/
   rpc-core-swift/                   Swift frame codec + server runtime
   rpc-core-android/                 Android frame codec + server runtime
   transport-web/                    MessagePort + postMessage transports
-  transport-ios/                    WKWebView transport (JS side)
-  transport-android/                Android WebView transport (JS side)
+  transport-native/                  Native WebView transport (JS side, iOS + Android)
   transport-electron/               Electron main + preload transports
 demos/
   proto/truapi/v02/*.proto          TruAPI v0.2 service definitions (11 services)
@@ -229,8 +228,7 @@ demos/
     src/setup-client.ts               Creates typed clients and renders the React UI
     src/App.tsx                       Root React component
     src/main.ts                       Web/Electron entry (MessagePort)
-    src/bootstrap-ios.ts              iOS entry (WKWebView transport)
-    src/bootstrap-android.ts          Android entry (WebView transport)
+    src/bootstrap-native.ts            iOS/Android entry (native WebView transport)
   hosts/                            Host implementations (RPC servers with mock services)
     src/setup-server.ts               Registers all 11 mock services on an RpcServer
     src/mocks/                        Mock handler implementations per service

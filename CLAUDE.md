@@ -26,8 +26,7 @@ packages/                       # Framework code only
   rpc-core-swift/                 Swift package: frame codec, server runtime, WKWebView transport
   rpc-core-android/               Android library: frame codec, server runtime, WebView transport
   transport-web/                  Browser transports (MessagePort, postMessage)
-  transport-ios/                  iOS WKWebView transport (JS side)
-  transport-android/              Android WebView transport (JS side)
+  transport-native/               Native WebView transport (JS side, iOS + Android)
   transport-electron/             Electron transports (preload + main)
 
 demos/                          # Demo application code
@@ -37,8 +36,7 @@ demos/                          # Demo application code
     src/setup-client.ts             Creates typed clients and renders the React UI
     src/App.tsx                     Root React component
     src/main.ts                     Web/Electron entry (MessagePort)
-    src/bootstrap-ios.ts            iOS entry (WKWebView transport)
-    src/bootstrap-android.ts        Android entry (WebView transport)
+    src/bootstrap-native.ts         iOS/Android entry (native WebView transport)
   hosts/                          Host implementations (RPC servers with mock services)
     src/setup-server.ts             Registers all 11 mock services on an RpcServer
     src/mocks/                      Mock handler implementations per service
