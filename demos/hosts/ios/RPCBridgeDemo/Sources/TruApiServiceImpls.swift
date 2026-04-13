@@ -25,25 +25,44 @@ final class GeneralServiceImpl: TruapiV02.GeneralServiceProvider, Sendable {
 
 final class AccountServiceImpl: TruapiV02.AccountServiceProvider, Sendable {
 
+    // Mock root public key (deterministic, base64-encoded).
+    private static let mockRootKey = AnyCodable("qrs=")
+
     func getAccount(_ request: TruapiV02.GetAccountRequest) async throws -> TruapiV02.GetAccountResponse {
+        // Derive a deterministic mock key from the request identifier
         var account = TruapiV02.Account()
-        account.name = "Alice"
+        account.publicKey = AnyCodable(request.account.dotNsIdentifier)
+        account.name = "Alice (derived)"
         return TruapiV02.GetAccountResponse(result: .account(account))
     }
 
     func getAlias(_ request: TruapiV02.GetAliasRequest) async throws -> TruapiV02.GetAliasResponse {
-        TruapiV02.GetAliasResponse(result: .alias(TruapiV02.ContextualAlias()))
+        // Ring VRF alias not yet implemented
+        var err = TruapiV02.RequestCredentialsError()
+        err.code = .unknown
+        err.reason = "Ring VRF alias not yet implemented"
+        return TruapiV02.GetAliasResponse(result: .error(err))
     }
 
     func createProof(_ request: TruapiV02.CreateProofRequest) async throws -> TruapiV02.CreateProofResponse {
-        TruapiV02.CreateProofResponse(result: .proof(AnyCodable("mock-proof")))
+        // Ring VRF proof not yet implemented
+        var err = TruapiV02.CreateProofError()
+        err.code = .unknown
+        err.reason = "Ring VRF proof not yet implemented"
+        return TruapiV02.CreateProofResponse(result: .error(err))
     }
 
     func getNonProductAccounts(_ request: TruapiV02.GetNonProductAccountsRequest) async throws -> TruapiV02.GetNonProductAccountsResponse {
-        TruapiV02.GetNonProductAccountsResponse(result: .accounts(TruapiV02.AccountList()))
+        var rootAccount = TruapiV02.Account()
+        rootAccount.publicKey = Self.mockRootKey
+        rootAccount.name = "Alice"
+        var list = TruapiV02.AccountList()
+        list.accounts = [rootAccount]
+        return TruapiV02.GetNonProductAccountsResponse(result: .accounts(list))
     }
 
     func connectionStatusSubscribe(_ request: TruapiV02.ConnectionStatusRequest) -> AsyncThrowingStream<TruapiV02.AccountConnectionStatusEvent, Error> {
+        // Playground is always authenticated
         AsyncThrowingStream { continuation in
             var event = TruapiV02.AccountConnectionStatusEvent()
             event.status = .connected
@@ -55,6 +74,7 @@ final class AccountServiceImpl: TruapiV02.AccountServiceProvider, Sendable {
     func getUserId(_ request: TruapiV02.GetUserIdRequest) async throws -> TruapiV02.GetUserIdResponse {
         var identity = TruapiV02.UserIdentity()
         identity.dotNsIdentifier = "alice.dot"
+        identity.publicKey = Self.mockRootKey
         return TruapiV02.GetUserIdResponse(result: .identity(identity))
     }
 }

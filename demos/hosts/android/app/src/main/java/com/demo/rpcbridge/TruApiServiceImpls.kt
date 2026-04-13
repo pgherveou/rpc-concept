@@ -29,35 +29,66 @@ class GeneralServiceImpl : GeneralService {
 // -- AccountService --
 
 class AccountServiceImpl : AccountService {
+
+    // Mock root public key (deterministic).
+    private val mockRootKey = ByteArray(32).also { it[0] = 0xAA.toByte(); it[1] = 0xBB.toByte() }
+
+    // Derive a deterministic mock public key from dotNsIdentifier and derivationIndex.
+    private fun deriveProductKey(dotNsIdentifier: String, derivationIndex: Int): ByteArray {
+        val key = ByteArray(32)
+        for (i in 0 until minOf(dotNsIdentifier.length, 30)) {
+            key[i] = dotNsIdentifier[i].code.toByte()
+        }
+        key[30] = ((derivationIndex shr 8) and 0xff).toByte()
+        key[31] = (derivationIndex and 0xff).toByte()
+        return key
+    }
+
     override suspend fun getAccount(request: GetAccountRequest): GetAccountResponse {
-        Log.d(TAG, "getAccount")
+        Log.d(TAG, "getAccount: ${request.account.dotNsIdentifier} index ${request.account.derivationIndex}")
+        val publicKey = deriveProductKey(request.account.dotNsIdentifier, request.account.derivationIndex.toInt())
         return GetAccountResponse(
-            result = GetAccountResponseResult.Account(Account(publicKey = ByteArray(32), name = "Alice"))
+            result = GetAccountResponseResult.Account(Account(publicKey = publicKey, name = "Alice (derived)"))
         )
     }
 
     override suspend fun getAlias(request: GetAliasRequest): GetAliasResponse {
-        Log.d(TAG, "getAlias")
+        // Ring VRF alias not yet implemented
+        Log.d(TAG, "getAlias: not implemented")
         return GetAliasResponse(
-            result = GetAliasResponseResult.Alias(ContextualAlias(context = ByteArray(0), alias = ByteArray(0)))
+            result = GetAliasResponseResult.Error(
+                RequestCredentialsError(
+                    code = RequestCredentialsErrorCode.REQUEST_CREDENTIALS_ERROR_CODE_UNKNOWN,
+                    reason = "Ring VRF alias not yet implemented"
+                )
+            )
         )
     }
 
     override suspend fun createProof(request: CreateProofRequest): CreateProofResponse {
-        Log.d(TAG, "createProof")
-        return CreateProofResponse(result = CreateProofResponseResult.Proof(ByteArray(64)))
+        // Ring VRF proof not yet implemented
+        Log.d(TAG, "createProof: not implemented")
+        return CreateProofResponse(
+            result = CreateProofResponseResult.Error(
+                CreateProofError(
+                    code = CreateProofErrorCode.CREATE_PROOF_ERROR_CODE_UNKNOWN,
+                    reason = "Ring VRF proof not yet implemented"
+                )
+            )
+        )
     }
 
     override suspend fun getNonProductAccounts(request: GetNonProductAccountsRequest): GetNonProductAccountsResponse {
         Log.d(TAG, "getNonProductAccounts")
         return GetNonProductAccountsResponse(
             result = GetNonProductAccountsResponseResult.Accounts(
-                AccountList(accounts = listOf(Account(publicKey = ByteArray(32), name = "Bob")))
+                AccountList(accounts = listOf(Account(publicKey = mockRootKey, name = "Alice")))
             )
         )
     }
 
     override fun connectionStatusSubscribe(request: ConnectionStatusRequest): Flow<AccountConnectionStatusEvent> = flow {
+        // Playground is always authenticated
         Log.d(TAG, "connectionStatusSubscribe")
         emit(AccountConnectionStatusEvent(status = AccountConnectionStatus.ACCOUNT_CONNECTION_STATUS_CONNECTED))
     }
@@ -66,7 +97,7 @@ class AccountServiceImpl : AccountService {
         Log.d(TAG, "getUserId")
         return GetUserIdResponse(
             result = GetUserIdResponseResult.Identity(
-                UserIdentity(dotNsIdentifier = "mock-user", publicKey = ByteArray(32))
+                UserIdentity(dotNsIdentifier = "alice.dot", publicKey = mockRootKey)
             )
         )
     }
