@@ -1,5 +1,5 @@
 import { useRef, useState, useCallback } from 'react';
-import type { HelloBridgeServiceClient } from '../../../proto/generated/client.js';
+import type { ChatServiceClient } from '../../../proto/generated/client.js';
 import type { ChatMessage } from '../../../proto/generated/messages.js';
 
 export interface ChatEntry {
@@ -20,7 +20,7 @@ function freshState(): ChatState {
   return { queue: [], resolve: undefined, seq: 0, done: false, abort: undefined, nextEntryId: 0 };
 }
 
-export function useBidiChat(client: HelloBridgeServiceClient) {
+export function useBidiChat(client: ChatServiceClient) {
   const [chatEntries, setChatEntries] = useState<ChatEntry[]>([]);
   const state = useRef<ChatState>(freshState());
 

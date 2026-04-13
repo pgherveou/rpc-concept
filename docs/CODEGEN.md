@@ -47,7 +47,7 @@ interface MessageDef {
 }
 
 interface ServiceDef {
-  name: string;          // "HelloBridgeService"
+  name: string;          // "HelloService"
   methods: MethodDef[];  // [{name: "SayHello", inputType: "HelloRequest", ...}]
 }
 ```
@@ -97,14 +97,14 @@ export enum MethodType {
 For each service, generates a client class that wraps `RpcClient`:
 
 ```typescript
-export class HelloBridgeServiceClient {
+export class HelloServiceClient {
   private readonly client: RpcClient;
   private readonly service: string;
   private readonly json: boolean;
 
   constructor(client: RpcClient, options?: { service?: string; json?: boolean }) {
     this.client = client;
-    this.service = options?.service ?? 'demo.hello.v1.HelloBridgeService';
+    this.service = options?.service ?? 'demo.hello.v1.HelloService';
     this.json = options?.json ?? false;
   }
 
@@ -144,19 +144,19 @@ export class HelloBridgeServiceClient {
 
 For each service, generates:
 
-1. A **handler interface** (`IHelloBridgeServiceHandler`) with typed method signatures
-2. A **registration factory** (`registerHelloBridgeService(handler)`) that returns a `ServiceRegistration`
+1. A **handler interface** (`IHelloServiceHandler`) with typed method signatures
+2. A **registration factory** (`registerHelloService(handler)`) that returns a `ServiceRegistration`
 
 ```typescript
-export interface IHelloBridgeServiceHandler {
+export interface IHelloServiceHandler {
   sayHello(request: HelloRequest, context: CallContext): Promise<HelloResponse>;
   watchGreeting(request: GreetingStreamRequest, context: CallContext): AsyncIterable<GreetingEvent>;
   collectNames(requests: AsyncIterable<CollectNamesRequest>, context: CallContext): Promise<CollectNamesResponse>;
   chat(requests: AsyncIterable<ChatMessage>, context: CallContext): AsyncIterable<ChatMessage>;
 }
 
-export function registerHelloBridgeService(
-  handler: IHelloBridgeServiceHandler,
+export function registerHelloService(
+  handler: IHelloServiceHandler,
   options?: { json?: boolean },
 ): ServiceRegistration {
   const methods: Record<string, MethodHandler> = {};
@@ -171,7 +171,7 @@ export function registerHelloBridgeService(
   };
   // ... other methods ...
 
-  return { name: 'demo.hello.v1.HelloBridgeService', methods };
+  return { name: 'demo.hello.v1.HelloService', methods };
 }
 ```
 
@@ -208,7 +208,7 @@ All types are nested inside a namespace enum (e.g., `DemoHelloV1`) for organizat
 For each service, generates a Swift protocol using `async`/`await` and `AsyncStream`/`AsyncThrowingStream`:
 
 ```swift
-public protocol HelloBridgeServiceProvider: Sendable {
+public protocol HelloServiceProvider: Sendable {
     func sayHello(_ request: HelloRequest) async throws -> HelloResponse
     func watchGreeting(_ request: GreetingStreamRequest) -> AsyncThrowingStream<GreetingEvent, Error>
     func collectNames(_ requests: AsyncStream<CollectNamesRequest>) async throws -> CollectNamesResponse
@@ -221,13 +221,13 @@ public protocol HelloBridgeServiceProvider: Sendable {
 A `Dispatcher` class that routes JSON payloads to the typed protocol methods:
 
 ```swift
-public final class HelloBridgeServiceDispatcher: ServiceDispatcher, @unchecked Sendable {
-    private let provider: any HelloBridgeServiceProvider
+public final class HelloServiceDispatcher: ServiceDispatcher, @unchecked Sendable {
+    private let provider: any HelloServiceProvider
 
     public func dispatch(method: String, messages: AsyncStream<Any>)
         async throws -> DispatchResult {
         switch method {
-        case "demo.hello.v1.HelloBridgeService/SayHello":
+        case "demo.hello.v1.HelloService/SayHello":
             var requestData: Any?
             for await data in messages { requestData = data; break }
             guard let requestData else { throw DispatchError.missingRequestData }
@@ -264,7 +264,7 @@ Encoding and decoding is handled by `kotlinx.serialization.json`, producing stan
 For each service, generates a Kotlin `interface` using `suspend` functions and `Flow`:
 
 ```kotlin
-interface HelloBridgeServiceHandler {
+interface HelloServiceHandler {
     suspend fun sayHello(request: HelloRequest): HelloResponse
     fun watchGreeting(request: GreetingStreamRequest): Flow<GreetingEvent>
     suspend fun collectNames(requests: Flow<CollectNamesRequest>): CollectNamesResponse
@@ -308,13 +308,13 @@ rpc-bridge-codegen \
 
 ### Output Files
 
-For a proto file with package `demo.hello.v1` and service `HelloBridgeService`:
+For a proto file with package `demo.hello.v1` and service `HelloService`:
 
 | Flag | Files Generated |
 |------|----------------|
 | `--ts-out <dir>` | `messages.ts`, `client.ts`, `server.ts`, `index.ts` |
-| `--swift-out <dir>` | `HelloBridgeService.swift` |
-| `--kotlin-out <dir>` | `HelloBridgeService.kt` |
+| `--swift-out <dir>` | `HelloService.swift` |
+| `--kotlin-out <dir>` | `HelloService.kt` |
 
 ### Using the npm Script
 

@@ -3,13 +3,13 @@
  *
  * Creates a BrowserWindow with a secure renderer, establishes a MessagePort
  * channel between main and renderer, and runs the RPC server that implements
- * the HelloBridgeService.
+ * the HelloService.
  *
  * Architecture:
  *   Main Process (this file)            Renderer Process
  *   +--------------------------+       +--------------------------+
  *   | RpcServer                |       | (preload forwards port)  |
- *   | HelloBridgeService impl  |<----->| Product app (RpcClient)  |
+ *   | HelloService impl  |<----->| Product app (RpcClient)  |
  *   | ElectronMainTransport    |  MP   | MessagePortTransport     |
  *   +--------------------------+       +--------------------------+
  *
@@ -27,7 +27,8 @@ import {
   createConsoleLogger,
 } from '@rpc-bridge/core';
 import { ElectronMainTransport } from '@rpc-bridge/transport-electron';
-import { registerHelloBridgeService, type IHelloBridgeServiceHandler } from '../../../proto/generated/server.js';
+import { registerHelloService, type IHelloServiceHandler } from '../../../proto/generated/server.js';
+import { registerChatService, type IChatServiceHandler } from '../../../proto/generated/server.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -54,7 +55,7 @@ function getFollowUp(text: string): string {
   return 'Tell me more about that!';
 }
 
-const handler: IHelloBridgeServiceHandler = {
+const helloHandler: IHelloServiceHandler = {
   async sayHello(request) {
     logger.info(`SayHello called with name="${request.name}"`);
 
@@ -95,6 +96,19 @@ const handler: IHelloBridgeServiceHandler = {
     }
   },
 
+  async collectNames(requests) {
+    const names: string[] = [];
+    for await (const req of requests) {
+      if (req.name) names.push(req.name);
+    }
+    return {
+      message: `Collected ${names.length} names: ${names.join(', ')}`,
+      count: names.length,
+    };
+  },
+};
+
+const chatHandler: IChatServiceHandler = {
   async *chat(requests, context) {
     logger.info('Chat stream started');
     let responseSeq = 0;
@@ -122,17 +136,6 @@ const handler: IHelloBridgeServiceHandler = {
     }
 
     logger.info('Chat stream ended');
-  },
-
-  async collectNames(requests) {
-    const names: string[] = [];
-    for await (const req of requests) {
-      if (req.name) names.push(req.name);
-    }
-    return {
-      message: `Collected ${names.length} names: ${names.join(', ')}`,
-      count: names.length,
-    };
   },
 };
 
@@ -169,7 +172,8 @@ function setupBridge(win: BrowserWindow): void {
     logger: createConsoleLogger('Main-Server'),
   });
 
-  server.registerService(registerHelloBridgeService(handler));
+  server.registerService(registerHelloService(helloHandler));
+  server.registerService(registerChatService(chatHandler));
 
   logger.info('Server ready for RPCs');
 

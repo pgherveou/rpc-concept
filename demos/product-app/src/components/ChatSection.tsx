@@ -1,9 +1,9 @@
 import { useRef, useEffect } from 'react';
-import { useClient } from '../context.js';
+import { useChatClient } from '../context.js';
 import { useBidiChat } from '../hooks/useBidiChat.js';
 
 export function ChatSection() {
-  const client = useClient();
+  const client = useChatClient();
   const { chatEntries, startChat, sendMessage, stopChat } = useBidiChat(client);
   const inputRef = useRef<HTMLInputElement>(null);
   const chatLogRef = useRef<HTMLDivElement>(null);

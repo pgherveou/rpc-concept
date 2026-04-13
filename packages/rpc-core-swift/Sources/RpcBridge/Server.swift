@@ -20,11 +20,11 @@ public enum DispatchResult: Sendable {
 /// Protocol for service dispatchers that route JSON data to typed handlers.
 /// Generated code produces concrete implementations of this protocol.
 public protocol ServiceDispatcher: Sendable {
-    /// Fully qualified service name (e.g. "demo.hello.v1.HelloBridgeService").
+    /// Fully qualified service name (e.g. "demo.hello.v1.HelloService").
     var serviceName: String { get }
 
     /// Dispatch an RPC call. The full method string (e.g.
-    /// "demo.hello.v1.HelloBridgeService/SayHello") and the JSON-encoded
+    /// "demo.hello.v1.HelloService/SayHello") and the JSON-encoded
     /// message stream are passed in.
     func dispatch(method: String, messages: AsyncStream<Data>) async throws -> DispatchResult
 }

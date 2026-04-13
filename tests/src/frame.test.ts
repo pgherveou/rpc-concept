@@ -30,13 +30,13 @@ import {
 
 describe('Frame JSON Serialization', () => {
   it('should round-trip OPEN frames', () => {
-    const frame = createOpenFrame(1, 'demo.hello.v1.HelloBridgeService/SayHello');
+    const frame = createOpenFrame(1, 'demo.hello.v1.HelloService/SayHello');
     const json = frameToJSON(frame);
     const decoded = frameFromJSON(json);
 
     assert.ok(isOpenFrame(decoded));
     assert.equal(decoded.streamId, 1);
-    assert.equal(decoded.open.method, 'demo.hello.v1.HelloBridgeService/SayHello');
+    assert.equal(decoded.open.method, 'demo.hello.v1.HelloService/SayHello');
   });
 
   it('should round-trip MESSAGE frames with payload', () => {

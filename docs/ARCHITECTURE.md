@@ -91,7 +91,7 @@ The `.proto` files are the single source of truth. Two categories:
 
 - **`proto/rpc/bridge/v1/frame.proto`** -- Defines `RpcFrame`, the fundamental unit of communication. Uses a `oneof body` with typed variants (OpenBody, MessageBody, HalfCloseBody, CloseBody, CancelBody, ErrorBody) to discriminate frame types. This is the wire protocol specification.
 
-- **`demos/proto/hello.proto`** -- Defines the demo service (`HelloBridgeService`) with all four RPC patterns: unary, server-streaming, client-streaming, and bidi-streaming. Application developers write files like this.
+- **`demos/proto/hello.proto`** -- Defines the demo service (`HelloService`) with all four RPC patterns: unary, server-streaming, client-streaming, and bidi-streaming. Application developers write files like this.
 
 ### Layer 2: Code Generation (`packages/codegen`)
 

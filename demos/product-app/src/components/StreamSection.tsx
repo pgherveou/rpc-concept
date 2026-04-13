@@ -1,12 +1,12 @@
 import { useRef } from 'react';
-import { useClient } from '../context.js';
+import { useHelloClient } from '../context.js';
 
 interface StreamSectionProps {
   addLog: (msg: string, isError?: boolean) => void;
 }
 
 export function StreamSection({ addLog }: StreamSectionProps) {
-  const client = useClient();
+  const client = useHelloClient();
   const abortRef = useRef<AbortController | undefined>(undefined);
 
   const handleStart = async () => {

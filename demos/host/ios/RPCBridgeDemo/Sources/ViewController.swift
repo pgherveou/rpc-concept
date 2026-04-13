@@ -119,10 +119,14 @@ class ViewController: UIViewController, WKNavigationDelegate {
             }
         })
 
-        // Register the hello service dispatcher
+        // Register service dispatchers
         let helloService = HelloServiceImpl()
-        let dispatcher = DemoHelloV1.HelloBridgeServiceDispatcher(provider: helloService)
-        server.registerDispatcher(dispatcher)
+        let helloDispatcher = DemoHelloV1.HelloServiceDispatcher(provider: helloService)
+        server.registerDispatcher(helloDispatcher)
+
+        let chatService = ChatServiceImpl()
+        let chatDispatcher = DemoHelloV1.ChatServiceDispatcher(provider: chatService)
+        server.registerDispatcher(chatDispatcher)
 
         // Attach the server to the transport so incoming frames are routed
         transport.attachServer(server)

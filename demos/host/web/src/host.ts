@@ -18,7 +18,8 @@ import {
   createConsoleLogger,
 } from '@rpc-bridge/core';
 import { MessagePortTransport } from '@rpc-bridge/transport-web';
-import { registerHelloBridgeService, type IHelloBridgeServiceHandler } from '../../../proto/generated/server.js';
+import { registerHelloService, type IHelloServiceHandler } from '../../../proto/generated/server.js';
+import { registerChatService, type IChatServiceHandler } from '../../../proto/generated/server.js';
 
 const logger = createConsoleLogger('Host');
 
@@ -42,7 +43,7 @@ function getFollowUp(text: string): string {
   return 'Tell me more about that!';
 }
 
-const handler: IHelloBridgeServiceHandler = {
+const helloHandler: IHelloServiceHandler = {
   async sayHello(request) {
     logger.info(`SayHello called with name="${request.name}"`);
 
@@ -80,6 +81,19 @@ const handler: IHelloBridgeServiceHandler = {
     }
   },
 
+  async collectNames(requests) {
+    const names: string[] = [];
+    for await (const req of requests) {
+      if (req.name) names.push(req.name);
+    }
+    return {
+      message: `Collected ${names.length} names: ${names.join(', ')}`,
+      count: names.length,
+    };
+  },
+};
+
+const chatHandler: IChatServiceHandler = {
   async *chat(requests, context) {
     logger.info('Chat stream started');
     let responseSeq = 0;
@@ -108,17 +122,6 @@ const handler: IHelloBridgeServiceHandler = {
 
     logger.info('Chat stream ended');
   },
-
-  async collectNames(requests) {
-    const names: string[] = [];
-    for await (const req of requests) {
-      if (req.name) names.push(req.name);
-    }
-    return {
-      message: `Collected ${names.length} names: ${names.join(', ')}`,
-      count: names.length,
-    };
-  },
 };
 
 // --- Setup ---
@@ -138,7 +141,8 @@ function setupBridge(): void {
     logger: createConsoleLogger('Host-Server'),
   });
 
-  server.registerService(registerHelloBridgeService(handler));
+  server.registerService(registerHelloService(helloHandler));
+  server.registerService(registerChatService(chatHandler));
 
   logger.info('Server ready for RPCs');
   updateStatus('Connected');

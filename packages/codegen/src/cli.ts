@@ -3,29 +3,63 @@
  * RPC Bridge Code Generator CLI
  *
  * Usage:
- *   rpc-bridge-codegen --proto <file> [--ts-out <dir>] [--swift-out <dir>] [--kotlin-out <dir>]
+ *   rpc-bridge-codegen --proto <glob> [--ts-out <dir>] [--swift-out <dir>] [--kotlin-out <dir>]
+ *
+ * The --proto flag accepts a glob pattern (e.g. "demos/proto/*.proto") to
+ * process multiple proto files. Types and services from all matched files
+ * are merged into a single output.
  */
 
-import { writeFileSync, mkdirSync } from 'fs';
-import { resolve, dirname } from 'path';
-import { parseProtoFile } from './parser.js';
+import { writeFileSync, mkdirSync, readdirSync } from 'fs';
+import { resolve, dirname, join } from 'path';
+import { parseProtoFile, type ProtoFile } from './parser.js';
 import { generateMessages, generateClient, generateServer } from './gen-typescript.js';
 import { generateSwift } from './gen-swift.js';
 import { generateKotlin } from './gen-kotlin.js';
+
+/**
+ * Resolve a glob pattern like "path/to/*.proto" into matching file paths.
+ * Supports simple wildcards (*) in the filename portion.
+ */
+function resolveGlob(pattern: string): string[] {
+  const dir = resolve(dirname(pattern));
+  const filePattern = pattern.substring(pattern.lastIndexOf('/') + 1);
+
+  // Convert glob pattern to regex (only supports * wildcard)
+  const regex = new RegExp(
+    '^' + filePattern.replace(/[.+^${}()|[\]\\]/g, '\\$&').replace(/\*/g, '.*') + '$',
+  );
+
+  return readdirSync(dir)
+    .filter((f) => regex.test(f))
+    .map((f) => join(dir, f))
+    .sort();
+}
 
 function main(): void {
   const args = process.argv.slice(2);
   const options = parseArgs(args);
 
   if (!options.proto) {
-    console.error('Usage: rpc-bridge-codegen --proto <file> [--ts-out <dir>] [--swift-out <dir>] [--kotlin-out <dir>]');
+    console.error('Usage: rpc-bridge-codegen --proto <glob> [--ts-out <dir>] [--swift-out <dir>] [--kotlin-out <dir>]');
     process.exit(1);
   }
 
-  // Parse the proto file (uses protobufjs, resolves imports)
-  const protoPath = resolve(options.proto);
-  console.log(`Parsing proto file: ${protoPath}`);
-  const proto = parseProtoFile(protoPath);
+  // Resolve glob and parse all matched proto files
+  const files = resolveGlob(options.proto);
+  if (files.length === 0) {
+    console.error(`No files matched: ${options.proto}`);
+    process.exit(1);
+  }
+
+  const protos: ProtoFile[] = [];
+  for (const file of files) {
+    const protoPath = resolve(file);
+    console.log(`Parsing proto file: ${protoPath}`);
+    protos.push(parseProtoFile(protoPath));
+  }
+
+  const proto = mergeProtos(protos);
 
   console.log(`Package: ${proto.package}`);
   console.log(`Messages: ${proto.messages.map(m => m.name).join(', ')}`);
@@ -66,7 +100,7 @@ function main(): void {
     mkdirSync(swiftDir, { recursive: true });
 
     const swift = generateSwift(proto);
-    const fileName = proto.services[0]?.name ?? swiftNamespaceFromPkg(proto.package);
+    const fileName = swiftNamespaceFromPkg(proto.package);
     writeFile(resolve(swiftDir, `${fileName}.swift`), swift);
 
     console.log(`Swift generated in: ${swiftDir}`);
@@ -78,7 +112,7 @@ function main(): void {
     mkdirSync(kotlinDir, { recursive: true });
 
     const kotlin = generateKotlin(proto);
-    const fileName = proto.services[0]?.name ?? 'Service';
+    const fileName = kotlinNamespaceFromPkg(proto.package);
     writeFile(resolve(kotlinDir, `${fileName}.kt`), kotlin);
 
     console.log(`Kotlin generated in: ${kotlinDir}`);
@@ -87,7 +121,57 @@ function main(): void {
   console.log('Code generation complete.');
 }
 
+/** Merge multiple parsed proto files into one, combining messages/enums/services. */
+function mergeProtos(protos: ProtoFile[]): ProtoFile {
+  if (protos.length === 1) return protos[0];
+
+  const merged: ProtoFile = {
+    syntax: protos[0].syntax,
+    package: protos[0].package,
+    messages: [],
+    enums: [],
+    services: [],
+  };
+
+  const seenMessages = new Set<string>();
+  const seenEnums = new Set<string>();
+  const seenServices = new Set<string>();
+
+  for (const proto of protos) {
+    for (const msg of proto.messages) {
+      if (seenMessages.has(msg.name)) {
+        console.warn(`Warning: duplicate message "${msg.name}", skipping`);
+        continue;
+      }
+      seenMessages.add(msg.name);
+      merged.messages.push(msg);
+    }
+    for (const e of proto.enums) {
+      if (seenEnums.has(e.name)) {
+        console.warn(`Warning: duplicate enum "${e.name}", skipping`);
+        continue;
+      }
+      seenEnums.add(e.name);
+      merged.enums.push(e);
+    }
+    for (const svc of proto.services) {
+      if (seenServices.has(svc.name)) {
+        console.warn(`Warning: duplicate service "${svc.name}", skipping`);
+        continue;
+      }
+      seenServices.add(svc.name);
+      merged.services.push(svc);
+    }
+  }
+
+  return merged;
+}
+
 function swiftNamespaceFromPkg(pkg: string): string {
+  return pkg.split('.').map((s) => s.charAt(0).toUpperCase() + s.slice(1)).join('');
+}
+
+function kotlinNamespaceFromPkg(pkg: string): string {
   return pkg.split('.').map((s) => s.charAt(0).toUpperCase() + s.slice(1)).join('');
 }
 
