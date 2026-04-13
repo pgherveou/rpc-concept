@@ -1,0 +1,107 @@
+// TruAPI v0.2 - Common types shared across services.
+
+syntax = "proto3";
+
+package truapi.v02;
+
+// Identifies a product-specific account by combining a dotNS domain name with a
+// derivation index.
+message ProductAccountId {
+  // A dotNS domain name identifier (e.g., "my-product.dot").
+  string dot_ns_identifier = 1;
+  // Key derivation index for generating product-specific accounts.
+  uint32 derivation_index = 2;
+}
+
+// An account with its public key and optional display name.
+message Account {
+  // The account public key (variable-length bytes).
+  bytes public_key = 1;
+  // Optional human-readable display name.
+  optional string name = 2;
+}
+
+// Single-variant error wrapping a human-readable reason string. Used by many
+// methods as a catch-all error type.
+message GenericError {
+  string reason = 1;
+}
+
+// Feature to check for host support.
+message Feature {
+  oneof feature {
+    // Is this blockchain supported?
+    bytes chain = 1; // GenesisHash
+  }
+}
+
+// Navigation error.
+enum NavigateToErrorCode {
+  NAVIGATE_TO_ERROR_CODE_UNSPECIFIED = 0;
+  // Navigation not allowed.
+  NAVIGATE_TO_ERROR_CODE_PERMISSION_DENIED = 1;
+  // Catch-all.
+  NAVIGATE_TO_ERROR_CODE_UNKNOWN = 2;
+}
+
+message NavigateToError {
+  NavigateToErrorCode code = 1;
+  string reason = 2; // populated when code = UNKNOWN
+}
+
+// Push notification payload.
+message PushNotification {
+  // Notification text.
+  string text = 1;
+  // Optional URL to open on tap.
+  optional string deeplink = 2;
+}
+
+// Device capability to request access to.
+//
+// V0.2: extended with Notifications, Nfc, Clipboard, OpenUrl, and
+// Biometrics per RFC 0001 (JIT permissions).
+enum DevicePermission {
+  DEVICE_PERMISSION_UNSPECIFIED = 0;
+  // Push notification delivery permission.
+  DEVICE_PERMISSION_NOTIFICATIONS = 1;
+  DEVICE_PERMISSION_CAMERA = 2;
+  DEVICE_PERMISSION_MICROPHONE = 3;
+  DEVICE_PERMISSION_BLUETOOTH = 4;
+  // Near-field communication access.
+  DEVICE_PERMISSION_NFC = 5;
+  DEVICE_PERMISSION_LOCATION = 6;
+  // System clipboard access.
+  DEVICE_PERMISSION_CLIPBOARD = 7;
+  // Open a URL in an external browser.
+  DEVICE_PERMISSION_OPEN_URL = 8;
+  // Biometric authentication (fingerprint, face ID).
+  DEVICE_PERMISSION_BIOMETRICS = 9;
+}
+
+// A single remote-operation permission entry.
+//
+// V0.2: replaces RemotePermissionRequest. The Permissions.remote_permission
+// method now accepts a list of RemotePermission so products can batch
+// multiple permission requests into a single prompt.
+message RemotePermission {
+  oneof permission {
+    // HTTP/HTTPS/WS/WSS access to specific domains. Each string is a domain
+    // pattern: "api.example.com" (exact), "*.example.com" (wildcard
+    // subdomain), or "*" (all hosts).
+    RemoteDomains remote = 1;
+    // WebRTC access, can expose the user's IP address.
+    Empty web_rtc = 2;
+    // Broadcast signed transactions via ChainService.TransactionBroadcast.
+    Empty chain_submit = 3;
+    // Submit statements via StatementStoreService.Submit.
+    Empty statement_submit = 4;
+  }
+}
+
+message RemoteDomains {
+  repeated string domains = 1;
+}
+
+// Reusable empty message for signal-only variants.
+message Empty {}

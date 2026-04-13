@@ -1,0 +1,34 @@
+// TruAPI v0.2 - Permissions service: device and remote permission requests.
+
+syntax = "proto3";
+
+package truapi.v02;
+
+import "truapi/v02/common.proto";
+
+service PermissionsService {
+  rpc DevicePermissionRequest(DevicePermissionRequestMsg) returns (DevicePermissionResponse);
+  rpc RemotePermissionRequest(RemotePermissionRequestMsg) returns (RemotePermissionResponse);
+}
+
+message DevicePermissionRequestMsg {
+  DevicePermission permission = 1;
+}
+
+message DevicePermissionResponse {
+  oneof result {
+    bool granted = 1;
+    GenericError error = 2;
+  }
+}
+
+message RemotePermissionRequestMsg {
+  repeated RemotePermission permissions = 1;
+}
+
+message RemotePermissionResponse {
+  oneof result {
+    bool granted = 1;
+    GenericError error = 2;
+  }
+}

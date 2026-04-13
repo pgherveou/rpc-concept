@@ -52,11 +52,16 @@ function main(): void {
     process.exit(1);
   }
 
+  // Include paths for proto import resolution
+  const includePaths = options.protoPath
+    ? [resolve(options.protoPath)]
+    : [resolve(dirname(options.proto))];
+
   const protos: ProtoFile[] = [];
   for (const file of files) {
     const protoPath = resolve(file);
     console.log(`Parsing proto file: ${protoPath}`);
-    protos.push(parseProtoFile(protoPath));
+    protos.push(parseProtoFile(protoPath, includePaths));
   }
 
   const proto = mergeProtos(protos);
@@ -181,10 +186,11 @@ function writeFile(path: string, content: string): void {
   console.log(`  Wrote: ${path}`);
 }
 
-const KNOWN_FLAGS = new Set(['--proto', '--ts-out', '--swift-out', '--kotlin-out']);
+const KNOWN_FLAGS = new Set(['--proto', '--proto-path', '--ts-out', '--swift-out', '--kotlin-out']);
 
 function parseArgs(args: string[]): {
   proto?: string;
+  protoPath?: string;
   tsOut?: string;
   swiftOut?: string;
   kotlinOut?: string;
@@ -203,6 +209,13 @@ function parseArgs(args: string[]): {
           process.exit(1);
         }
         result.proto = args[++i];
+        break;
+      case '--proto-path':
+        if (i + 1 >= args.length || args[i + 1].startsWith('--')) {
+          console.error(`Error: --proto-path requires a value`);
+          process.exit(1);
+        }
+        result.protoPath = args[++i];
         break;
       case '--ts-out':
         if (i + 1 >= args.length || args[i + 1].startsWith('--')) {

@@ -15,6 +15,7 @@ import type {
   MessageDef,
   FieldDef,
   EnumDef,
+  OneOfDef,
   ServiceDef,
   MethodDef,
 } from './parser.js';
@@ -140,7 +141,8 @@ export function generateMessages(proto: ProtoFile): string {
 
   // --- Base64 helpers (for JSON serialization of bytes fields) ---
   const hasBytes = proto.messages.some((m) =>
-    m.fields.some((f) => !f.deprecated && f.type === 'bytes'),
+    m.fields.some((f) => !f.deprecated && f.type === 'bytes') ||
+    m.oneofs.some((oo) => oo.fields.some((f) => f.type === 'bytes')),
   );
   if (hasBytes) {
     lines.push('// Base64 helpers for bytes field JSON serialization');
@@ -170,7 +172,7 @@ export function generateMessages(proto: ProtoFile): string {
 
   // --- Messages ---
   for (const msg of proto.messages) {
-    lines.push(generateMessageCode(msg, knownMessages, knownEnums));
+    lines.push(generateMessageCode(msg, knownMessages, knownEnums, proto.messages));
     lines.push('');
   }
 
@@ -192,7 +194,12 @@ function generateMessageCode(
   msg: MessageDef,
   knownMessages: Set<string>,
   knownEnums: Set<string>,
+  allMessages: MessageDef[],
 ): string {
+  if (msg.oneofs.length > 0) {
+    return generateOneofMessageCode(msg, knownMessages, knownEnums, allMessages);
+  }
+
   const lines: string[] = [];
   const fields = msg.fields.filter((f) => !f.deprecated);
 
@@ -245,6 +252,156 @@ function generateMessageCode(
     const tm = resolveType(f.type, knownMessages, knownEnums);
     const camel = snakeToCamel(f.name);
     lines.push(generateFromJsonField(f, tm, camel));
+  }
+  lines.push('    return msg;');
+  lines.push('  },');
+
+  lines.push('};');
+
+  return lines.join('\n');
+}
+
+// ---------------------------------------------------------------------------
+// Oneof message generation
+// ---------------------------------------------------------------------------
+
+function upperFirst(s: string): string {
+  return s.charAt(0).toUpperCase() + s.slice(1);
+}
+
+/**
+ * Generate a message that contains a `oneof` group.
+ *
+ * Produces:
+ *   - A discriminated union type for the oneof: `{ case: 'fieldName'; value: Type }`
+ *   - The parent interface with the oneof as a union-typed property
+ *   - Factory + JSON codec with per-variant encode/decode
+ */
+function generateOneofMessageCode(
+  msg: MessageDef,
+  knownMessages: Set<string>,
+  knownEnums: Set<string>,
+  allMessages: MessageDef[],
+): string {
+  const lines: string[] = [];
+  const fields = msg.fields.filter((f) => !f.deprecated);
+  const oo = msg.oneofs[0]; // support first oneof
+  const unionName = `${msg.name}${upperFirst(oo.name)}`;
+
+  // --- Oneof discriminated union type ---
+  const variants: string[] = [];
+  for (const f of oo.fields) {
+    const tm = resolveType(f.type, knownMessages, knownEnums);
+    const msgDef = allMessages.find((m) => m.name === f.type);
+    const isEmpty = msgDef && msgDef.fields.length === 0 && msgDef.oneofs.length === 0;
+    if (isEmpty) {
+      variants.push(`  | { case: '${snakeToCamel(f.name)}' }`);
+    } else {
+      variants.push(`  | { case: '${snakeToCamel(f.name)}'; value: ${tm.tsType} }`);
+    }
+  }
+  variants.push(`  | { case: undefined }`);
+
+  lines.push(`/** Oneof union for ${msg.name}.${oo.name} */`);
+  lines.push(`export type ${unionName} =`);
+  for (const v of variants) {
+    lines.push(v);
+  }
+  lines.push(';');
+  lines.push('');
+
+  // --- Parent interface ---
+  lines.push(`/** Message: ${msg.name} */`);
+  lines.push(`export interface ${msg.name} {`);
+  for (const f of fields) {
+    const tm = resolveType(f.type, knownMessages, knownEnums);
+    const tsType = f.repeated ? `${tm.tsType}[]` : tm.tsType;
+    const opt = f.optional ? '?' : '';
+    lines.push(`  ${snakeToCamel(f.name)}${opt}: ${tsType};`);
+  }
+  lines.push(`  ${oo.name}: ${unionName};`);
+  lines.push('}');
+  lines.push('');
+
+  // --- Factory ---
+  lines.push(`export function create${msg.name}(init?: Partial<${msg.name}>): ${msg.name} {`);
+  lines.push('  return {');
+  for (const f of fields) {
+    const tm = resolveType(f.type, knownMessages, knownEnums);
+    const camel = snakeToCamel(f.name);
+    if (!f.optional) {
+      lines.push(`    ${camel}: ${fieldDefault(f, tm)},`);
+    }
+  }
+  lines.push(`    ${oo.name}: { case: undefined },`);
+  lines.push('    ...init,');
+  lines.push('  };');
+  lines.push('}');
+  lines.push('');
+
+  // --- JSON codec ---
+  lines.push(`/** JSON codec for ${msg.name} (proto3 JSON mapping). */`);
+  lines.push(`export const ${msg.name}JSON = {`);
+
+  // encode
+  lines.push(`  encode(msg: ${msg.name}): Record<string, unknown> {`);
+  lines.push('    const o: Record<string, unknown> = {};');
+  for (const f of fields) {
+    const tm = resolveType(f.type, knownMessages, knownEnums);
+    const camel = snakeToCamel(f.name);
+    lines.push(generateToJsonField(f, tm, camel));
+  }
+  // Encode oneof: write the active case key with its value
+  lines.push(`    switch (msg.${oo.name}.case) {`);
+  for (const f of oo.fields) {
+    const camel = snakeToCamel(f.name);
+    const tm = resolveType(f.type, knownMessages, knownEnums);
+    const msgDef = allMessages.find((m) => m.name === f.type);
+    const isEmpty = msgDef && msgDef.fields.length === 0 && msgDef.oneofs.length === 0;
+    lines.push(`      case '${camel}':`);
+    if (isEmpty) {
+      lines.push(`        o.${camel} = {};`);
+    } else if (tm.isMessage) {
+      lines.push(`        o.${camel} = ${tm.tsType}JSON.encode((msg.${oo.name} as { case: '${camel}'; value: ${tm.tsType} }).value);`);
+    } else {
+      lines.push(`        o.${camel} = (msg.${oo.name} as { case: '${camel}'; value: ${tm.tsType} }).value;`);
+    }
+    lines.push('        break;');
+  }
+  lines.push('    }');
+  lines.push('    return o;');
+  lines.push('  },');
+
+  // decode
+  lines.push(`  decode(o: Record<string, unknown>): ${msg.name} {`);
+  lines.push(`    const msg = create${msg.name}();`);
+  for (const f of fields) {
+    const tm = resolveType(f.type, knownMessages, knownEnums);
+    const camel = snakeToCamel(f.name);
+    lines.push(generateFromJsonField(f, tm, camel));
+  }
+  // Decode oneof: check each possible key
+  for (let i = 0; i < oo.fields.length; i++) {
+    const f = oo.fields[i];
+    const camel = snakeToCamel(f.name);
+    const tm = resolveType(f.type, knownMessages, knownEnums);
+    const msgDef = allMessages.find((m) => m.name === f.type);
+    const isEmpty = msgDef && msgDef.fields.length === 0 && msgDef.oneofs.length === 0;
+    const prefix = i === 0 ? '    if' : '    } else if';
+
+    if (isEmpty) {
+      lines.push(`${prefix} (o.${camel} != null) {`);
+      lines.push(`      msg.${oo.name} = { case: '${camel}' };`);
+    } else if (tm.isMessage) {
+      lines.push(`${prefix} (o.${camel} != null) {`);
+      lines.push(`      msg.${oo.name} = { case: '${camel}', value: ${tm.tsType}JSON.decode(o.${camel} as Record<string, unknown>) };`);
+    } else {
+      lines.push(`${prefix} (o.${camel} != null) {`);
+      lines.push(`      msg.${oo.name} = { case: '${camel}', value: o.${camel} as ${tm.tsType} };`);
+    }
+  }
+  if (oo.fields.length > 0) {
+    lines.push('    }');
   }
   lines.push('    return msg;');
   lines.push('  },');

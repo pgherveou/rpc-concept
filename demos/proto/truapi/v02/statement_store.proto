@@ -1,0 +1,141 @@
+// TruAPI v0.2 - Statement store service: subscribe, prove, submit statements.
+
+syntax = "proto3";
+
+package truapi.v02;
+
+import "truapi/v02/common.proto";
+
+service StatementStoreService {
+  // Subscribe to statements matching a topic filter.
+  rpc Subscribe(TopicFilter) returns (stream StatementList);
+  rpc CreateProof(StatementCreateProofRequest) returns (StatementCreateProofResponse);
+  rpc Submit(StatementSubmitRequest) returns (StatementSubmitResponse);
+}
+
+// --- Subscribe ---
+
+// Filter for statement subscriptions, allowing richer topic matching than plain
+// topic vectors. Each position can be a topic (exact match) or absent (wildcard).
+message TopicFilter {
+  // Positional topic matchers. Absent entries act as wildcards.
+  repeated TopicEntry topics = 1;
+}
+
+message TopicEntry {
+  optional bytes topic = 1; // 32 bytes, absent = wildcard
+}
+
+message StatementList {
+  repeated SignedStatement statements = 1;
+}
+
+// A statement with a required (not optional) proof.
+message SignedStatement {
+  // Required cryptographic proof.
+  StatementProof proof = 1;
+  // Optional 32-byte decryption key.
+  optional bytes decryption_key = 2;
+  // Optional Unix timestamp expiry.
+  optional uint64 expiry = 3;
+  // Optional 32-byte channel.
+  optional bytes channel = 4;
+  // Topic tags (each 32 bytes).
+  repeated bytes topics = 5;
+  // Optional data payload.
+  optional bytes data = 6;
+}
+
+// Cryptographic proof for a statement.
+message StatementProof {
+  oneof proof {
+    // Sr25519 signature proof.
+    Sr25519Proof sr25519 = 1;
+    // Ed25519 signature proof.
+    Ed25519Proof ed25519 = 2;
+    // ECDSA signature proof.
+    EcdsaProof ecdsa = 3;
+    // On-chain event proof.
+    OnChainProof on_chain = 4;
+  }
+}
+
+message Sr25519Proof {
+  bytes signature = 1; // 64 bytes
+  bytes signer = 2;    // 32 bytes
+}
+
+message Ed25519Proof {
+  bytes signature = 1; // 64 bytes
+  bytes signer = 2;    // 32 bytes
+}
+
+message EcdsaProof {
+  bytes signature = 1; // 65 bytes
+  bytes signer = 2;    // 33 bytes
+}
+
+message OnChainProof {
+  bytes who = 1;        // 32 bytes
+  bytes block_hash = 2; // 32 bytes
+  uint64 event = 3;
+}
+
+// --- CreateProof ---
+
+message StatementCreateProofRequest {
+  ProductAccountId account = 1;
+  Statement statement = 2;
+}
+
+// A statement with optional proof and metadata.
+message Statement {
+  // Optional cryptographic proof.
+  optional StatementProof proof = 1;
+  // Optional decryption key.
+  optional bytes decryption_key = 2;
+  // Optional Unix timestamp expiry.
+  optional uint64 expiry = 3;
+  // Optional channel.
+  optional bytes channel = 4;
+  // Topic tags.
+  repeated bytes topics = 5;
+  // Optional data payload.
+  optional bytes data = 6;
+}
+
+message StatementCreateProofResponse {
+  oneof result {
+    StatementProof proof = 1;
+    StatementProofError error = 2;
+  }
+}
+
+// Statement proof creation error.
+enum StatementProofErrorCode {
+  STATEMENT_PROOF_ERROR_CODE_UNSPECIFIED = 0;
+  // Signing operation failed.
+  STATEMENT_PROOF_ERROR_CODE_UNABLE_TO_SIGN = 1;
+  // Account not recognized.
+  STATEMENT_PROOF_ERROR_CODE_UNKNOWN_ACCOUNT = 2;
+  // Catch-all.
+  STATEMENT_PROOF_ERROR_CODE_UNKNOWN = 3;
+}
+
+message StatementProofError {
+  StatementProofErrorCode code = 1;
+  string reason = 2;
+}
+
+// --- Submit ---
+
+message StatementSubmitRequest {
+  bytes encoded = 1; // raw SCALE-encoded statement
+}
+
+message StatementSubmitResponse {
+  oneof result {
+    string hash = 1;
+    GenericError error = 2;
+  }
+}

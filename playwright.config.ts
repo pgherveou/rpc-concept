@@ -6,23 +6,21 @@ export default defineConfig({
   projects: [
     {
       name: 'web',
-      testMatch: 'web-demo.spec.ts',
-      use: {
-        baseURL: 'http://localhost:3000',
-      },
+      testMatch: 'web.spec.ts',
+      use: { baseURL: 'http://localhost:3456' },
     },
     {
       name: 'electron',
-      testMatch: 'electron-demo.spec.ts',
+      testMatch: 'electron.spec.ts',
     },
     {
       name: 'android',
-      testMatch: 'android-demo.spec.ts',
+      testMatch: 'android.spec.ts',
     },
   ],
   webServer: {
-    command: 'node demos/host/web/serve.js',
-    port: 3000,
+    command: 'npx serve demos/host-playground/dist -l 3456',
+    port: 3456,
     reuseExistingServer: true,
   },
 });

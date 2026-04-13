@@ -1,0 +1,345 @@
+// TruAPI v0.2 - Chain service: chainHead v1 JSON-RPC over binary protocol.
+
+syntax = "proto3";
+
+package truapi.v02;
+
+import "truapi/v02/common.proto";
+
+service ChainService {
+  // Follow the chain head. Server pushes block and operation events.
+  rpc HeadFollow(ChainHeadFollowRequest) returns (stream ChainHeadEvent);
+
+  // Unary chain operations.
+  rpc HeadHeader(ChainHeadBlockRequest) returns (ChainHeadHeaderResponse);
+  rpc HeadBody(ChainHeadBlockRequest) returns (OperationStartedResponse);
+  rpc HeadStorage(ChainHeadStorageRequest) returns (OperationStartedResponse);
+  rpc HeadCall(ChainHeadCallRequest) returns (OperationStartedResponse);
+  rpc HeadUnpin(ChainHeadUnpinRequest) returns (ChainVoidResponse);
+  rpc HeadContinue(ChainHeadOperationRequest) returns (ChainVoidResponse);
+  rpc HeadStopOperation(ChainHeadOperationRequest) returns (ChainVoidResponse);
+  rpc SpecGenesisHash(ChainGenesisRequest) returns (ChainBytesResponse);
+  rpc SpecChainName(ChainGenesisRequest) returns (ChainStringResponse);
+  rpc SpecProperties(ChainGenesisRequest) returns (ChainStringResponse);
+  rpc TransactionBroadcast(ChainTransactionBroadcastRequest) returns (ChainTransactionBroadcastResponse);
+  rpc TransactionStop(ChainTransactionStopRequest) returns (ChainVoidResponse);
+}
+
+// --- HeadFollow ---
+
+message ChainHeadFollowRequest {
+  // Chain genesis hash.
+  bytes genesis_hash = 1;
+  // Whether to include runtime information in events.
+  bool with_runtime = 2;
+}
+
+// Events received when following the chain head.
+message ChainHeadEvent {
+  oneof event {
+    // Initial state with finalized blocks.
+    Initialized initialized = 1;
+    // A new block was produced.
+    NewBlock new_block = 2;
+    // Best block changed.
+    BestBlockChanged best_block_changed = 3;
+    // Blocks were finalized.
+    Finalized finalized = 4;
+    // Body fetch completed.
+    OperationBodyDone operation_body_done = 5;
+    // Runtime call completed.
+    OperationCallDone operation_call_done = 6;
+    // Storage results batch.
+    OperationStorageItems operation_storage_items = 7;
+    // Storage query completed.
+    OperationStorageDone operation_storage_done = 8;
+    // Operation paused, needs HeadContinue.
+    OperationWaitingForContinue operation_waiting_for_continue = 9;
+    // Block became inaccessible.
+    OperationInaccessible operation_inaccessible = 10;
+    // Operation failed.
+    OperationError operation_error = 11;
+    // Subscription terminated by server.
+    Empty stop = 12;
+  }
+}
+
+message Initialized {
+  // Finalized blocks.
+  repeated bytes finalized_block_hashes = 1;
+  // Runtime information.
+  optional RuntimeType finalized_block_runtime = 2;
+}
+
+message NewBlock {
+  // New block hash.
+  bytes block_hash = 1;
+  // Parent block hash.
+  bytes parent_block_hash = 2;
+  // Runtime information.
+  optional RuntimeType new_runtime = 3;
+}
+
+message BestBlockChanged {
+  // Best block hash.
+  bytes best_block_hash = 1;
+}
+
+message Finalized {
+  // Finalized block hashes.
+  repeated bytes finalized_block_hashes = 1;
+  // Pruned block hashes.
+  repeated bytes pruned_block_hashes = 2;
+}
+
+message OperationBodyDone {
+  // Operation identifier.
+  string operation_id = 1;
+  // Body values.
+  repeated bytes value = 2;
+}
+
+message OperationCallDone {
+  // Operation identifier.
+  string operation_id = 1;
+  // Call output.
+  bytes output = 2;
+}
+
+message OperationStorageItems {
+  // Operation identifier.
+  string operation_id = 1;
+  // Storage result items.
+  repeated StorageResultItem items = 2;
+}
+
+message OperationStorageDone {
+  // Operation identifier.
+  string operation_id = 1;
+}
+
+message OperationWaitingForContinue {
+  // Operation identifier.
+  string operation_id = 1;
+}
+
+message OperationInaccessible {
+  // Operation identifier.
+  string operation_id = 1;
+}
+
+message OperationError {
+  // Operation identifier.
+  string operation_id = 1;
+  // Error message.
+  string error = 2;
+}
+
+// --- Runtime types ---
+
+// Runtime validity check result.
+message RuntimeType {
+  oneof runtime {
+    // Valid runtime with spec.
+    RuntimeSpec valid = 1;
+    // Invalid runtime with error.
+    RuntimeInvalid invalid = 2;
+  }
+}
+
+// Runtime specification metadata.
+message RuntimeSpec {
+  // Specification name.
+  string spec_name = 1;
+  // Implementation name.
+  string impl_name = 2;
+  // Spec version number.
+  uint32 spec_version = 3;
+  // Implementation version.
+  uint32 impl_version = 4;
+  // Transaction format version.
+  optional uint32 transaction_version = 5;
+  // Supported runtime APIs.
+  repeated RuntimeApi apis = 6;
+}
+
+// A runtime API identified by name and version.
+message RuntimeApi {
+  string name = 1;
+  uint32 version = 2;
+}
+
+message RuntimeInvalid {
+  string error = 1;
+}
+
+// --- Storage ---
+
+// Type of storage query to perform.
+enum StorageQueryType {
+  STORAGE_QUERY_TYPE_UNSPECIFIED = 0;
+  STORAGE_QUERY_TYPE_VALUE = 1;
+  STORAGE_QUERY_TYPE_HASH = 2;
+  STORAGE_QUERY_TYPE_CLOSEST_DESCENDANT_MERKLE_VALUE = 3;
+  STORAGE_QUERY_TYPE_DESCENDANTS_VALUES = 4;
+  STORAGE_QUERY_TYPE_DESCENDANTS_HASHES = 5;
+}
+
+// A single storage query.
+message StorageQueryItem {
+  // Storage key to query.
+  bytes key = 1;
+  // What to return.
+  StorageQueryType query_type = 2;
+}
+
+// Result of a storage query.
+message StorageResultItem {
+  // The queried key.
+  bytes key = 1;
+  // Value, if requested.
+  optional bytes value = 2;
+  // Hash, if requested.
+  optional bytes hash = 3;
+  // Merkle value, if requested.
+  optional bytes closest_descendant_merkle_value = 4;
+}
+
+// --- Request types ---
+
+// Parameters for chain head methods that operate within a follow subscription
+// on a specific block.
+message ChainHeadBlockRequest {
+  // Chain genesis hash.
+  bytes genesis_hash = 1;
+  // Follow subscription identifier.
+  string follow_subscription_id = 2;
+  // Block hash.
+  bytes hash = 3;
+}
+
+message ChainHeadStorageRequest {
+  // Chain genesis hash.
+  bytes genesis_hash = 1;
+  // Follow subscription identifier.
+  string follow_subscription_id = 2;
+  // Block hash.
+  bytes hash = 3;
+  // Storage items to query.
+  repeated StorageQueryItem items = 4;
+  // Optional child trie.
+  optional bytes child_trie = 5;
+}
+
+message ChainHeadCallRequest {
+  // Chain genesis hash.
+  bytes genesis_hash = 1;
+  // Follow subscription identifier.
+  string follow_subscription_id = 2;
+  // Block hash.
+  bytes hash = 3;
+  // Runtime API function name.
+  string function = 4;
+  // SCALE-encoded call parameters.
+  bytes call_parameters = 5;
+}
+
+message ChainHeadUnpinRequest {
+  // Chain genesis hash.
+  bytes genesis_hash = 1;
+  // Follow subscription identifier.
+  string follow_subscription_id = 2;
+  // Block hashes to unpin.
+  repeated bytes hashes = 3;
+}
+
+// Parameters for chain head operations that reference a specific operation
+// within a follow subscription.
+message ChainHeadOperationRequest {
+  // Chain genesis hash.
+  bytes genesis_hash = 1;
+  // Follow subscription identifier.
+  string follow_subscription_id = 2;
+  // Operation identifier.
+  string operation_id = 3;
+}
+
+message ChainGenesisRequest {
+  bytes genesis_hash = 1;
+}
+
+message ChainTransactionBroadcastRequest {
+  // Chain genesis hash.
+  bytes genesis_hash = 1;
+  // Signed transaction bytes.
+  bytes transaction = 2;
+}
+
+message ChainTransactionStopRequest {
+  // Chain genesis hash.
+  bytes genesis_hash = 1;
+  // Operation identifier of the broadcast to stop.
+  string operation_id = 2;
+}
+
+// --- Response types ---
+
+message ChainHeadHeaderResponse {
+  oneof result {
+    ChainHeadHeaderValue value = 1;
+    GenericError error = 2;
+  }
+}
+
+message ChainHeadHeaderValue {
+  optional bytes header = 1; // SCALE-encoded, null if not found
+}
+
+message OperationStartedResponse {
+  oneof result {
+    OperationStartedResult value = 1;
+    GenericError error = 2;
+  }
+}
+
+// Result of starting a chain operation.
+message OperationStartedResult {
+  oneof result {
+    // Operation started successfully. The assigned operation identifier.
+    string operation_id = 1;
+    // Too many concurrent operations.
+    Empty limit_reached = 2;
+  }
+}
+
+message ChainVoidResponse {
+  oneof result {
+    Empty ok = 1;
+    GenericError error = 2;
+  }
+}
+
+message ChainBytesResponse {
+  oneof result {
+    bytes value = 1;
+    GenericError error = 2;
+  }
+}
+
+message ChainStringResponse {
+  oneof result {
+    string value = 1;
+    GenericError error = 2;
+  }
+}
+
+message ChainTransactionBroadcastResponse {
+  oneof result {
+    ChainTransactionBroadcastValue value = 1;
+    GenericError error = 2;
+  }
+}
+
+message ChainTransactionBroadcastValue {
+  optional string operation_id = 1; // null if rejected
+}

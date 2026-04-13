@@ -1,0 +1,182 @@
+// TruAPI v0.2 - Account service: derivation, aliases, ring VRF, connection status.
+
+syntax = "proto3";
+
+package truapi.v02;
+
+import "truapi/v02/common.proto";
+
+service AccountService {
+  rpc GetAccount(GetAccountRequest) returns (GetAccountResponse);
+  rpc GetAlias(GetAliasRequest) returns (GetAliasResponse);
+  rpc CreateProof(CreateProofRequest) returns (CreateProofResponse);
+  rpc GetNonProductAccounts(GetNonProductAccountsRequest) returns (GetNonProductAccountsResponse);
+  rpc ConnectionStatusSubscribe(ConnectionStatusRequest) returns (stream AccountConnectionStatusEvent);
+  rpc GetUserId(GetUserIdRequest) returns (GetUserIdResponse);
+}
+
+// --- GetAccount ---
+
+message GetAccountRequest {
+  ProductAccountId account = 1;
+}
+
+message GetAccountResponse {
+  oneof result {
+    Account account = 1;
+    RequestCredentialsError error = 2;
+  }
+}
+
+// --- GetAlias ---
+
+message GetAliasRequest {
+  ProductAccountId account = 1;
+}
+
+message GetAliasResponse {
+  oneof result {
+    ContextualAlias alias = 1;
+    RequestCredentialsError error = 2;
+  }
+}
+
+// A privacy-preserving alias derived via ring VRF, bound to a specific context.
+message ContextualAlias {
+  // 32-byte context identifier.
+  bytes context = 1;
+  // Ring VRF alias (variable length).
+  bytes alias = 2;
+}
+
+// --- CreateProof ---
+
+message CreateProofRequest {
+  ProductAccountId account = 1;
+  RingLocation ring_location = 2;
+  bytes context = 3;
+}
+
+message CreateProofResponse {
+  oneof result {
+    bytes proof = 1; // RingVrfProof
+    CreateProofError error = 2;
+  }
+}
+
+// Locates a specific ring on a specific chain for ring VRF operations.
+message RingLocation {
+  // Chain genesis hash.
+  bytes genesis_hash = 1;
+  // Root hash of the ring.
+  bytes ring_root_hash = 2;
+  // Optional location hints.
+  optional RingLocationHint hints = 3;
+}
+
+// Hints for locating a ring on-chain.
+message RingLocationHint {
+  // Optional pallet instance index.
+  optional uint32 pallet_instance = 1;
+}
+
+// Error returned when ring VRF proof creation fails.
+enum CreateProofErrorCode {
+  CREATE_PROOF_ERROR_CODE_UNSPECIFIED = 0;
+  // Ring not available at the specified location.
+  CREATE_PROOF_ERROR_CODE_RING_NOT_FOUND = 1;
+  // User or host rejected.
+  CREATE_PROOF_ERROR_CODE_REJECTED = 2;
+  // Catch-all.
+  CREATE_PROOF_ERROR_CODE_UNKNOWN = 3;
+}
+
+message CreateProofError {
+  CreateProofErrorCode code = 1;
+  string reason = 2;
+}
+
+// --- GetNonProductAccounts ---
+
+message GetNonProductAccountsRequest {}
+
+message GetNonProductAccountsResponse {
+  oneof result {
+    AccountList accounts = 1;
+    RequestCredentialsError error = 2;
+  }
+}
+
+message AccountList {
+  repeated Account accounts = 1;
+}
+
+// --- ConnectionStatusSubscribe ---
+
+message ConnectionStatusRequest {}
+
+// User's authentication state.
+enum AccountConnectionStatus {
+  ACCOUNT_CONNECTION_STATUS_UNSPECIFIED = 0;
+  ACCOUNT_CONNECTION_STATUS_DISCONNECTED = 1;
+  ACCOUNT_CONNECTION_STATUS_CONNECTED = 2;
+}
+
+message AccountConnectionStatusEvent {
+  AccountConnectionStatus status = 1;
+}
+
+// --- GetUserId ---
+
+message GetUserIdRequest {}
+
+message GetUserIdResponse {
+  oneof result {
+    UserIdentity identity = 1;
+    UserIdentityError error = 2;
+  }
+}
+
+// The user's primary DotNS account identity (V0.2).
+message UserIdentity {
+  // The user's primary DotNS identifier.
+  string dot_ns_identifier = 1;
+  // The user's primary public key.
+  bytes public_key = 2;
+}
+
+// Error from GetUserId (V0.2).
+enum UserIdentityErrorCode {
+  USER_IDENTITY_ERROR_CODE_UNSPECIFIED = 0;
+  // User denied the identity disclosure request.
+  USER_IDENTITY_ERROR_CODE_REJECTED = 1;
+  // User is not logged in.
+  USER_IDENTITY_ERROR_CODE_NOT_CONNECTED = 2;
+  // Catch-all.
+  USER_IDENTITY_ERROR_CODE_UNKNOWN = 3;
+}
+
+message UserIdentityError {
+  UserIdentityErrorCode code = 1;
+  string reason = 2;
+}
+
+// --- Shared errors ---
+
+// Error returned when credential/account requests fail.
+enum RequestCredentialsErrorCode {
+  REQUEST_CREDENTIALS_ERROR_CODE_UNSPECIFIED = 0;
+  // User is not logged in.
+  REQUEST_CREDENTIALS_ERROR_CODE_NOT_CONNECTED = 1;
+  // User or host rejected the request.
+  REQUEST_CREDENTIALS_ERROR_CODE_REJECTED = 2;
+  // Domain identifier is invalid.
+  REQUEST_CREDENTIALS_ERROR_CODE_DOMAIN_NOT_VALID = 3;
+  // Catch-all error with reason.
+  REQUEST_CREDENTIALS_ERROR_CODE_UNKNOWN = 4;
+}
+
+message RequestCredentialsError {
+  RequestCredentialsErrorCode code = 1;
+  string reason = 2;
+}

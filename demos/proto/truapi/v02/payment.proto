@@ -1,0 +1,165 @@
+// TruAPI v0.2 - Payment service: balance, top-up, request, status (RFC 0006).
+//
+// Balance amounts are interpreted according to the host's single fixed
+// payment asset (e.g. pUSD).
+
+syntax = "proto3";
+
+package truapi.v02;
+
+import "truapi/v02/common.proto";
+
+service PaymentService {
+  rpc BalanceSubscribe(PaymentBalanceRequest) returns (stream PaymentBalanceEvent);
+  rpc TopUp(PaymentTopUpRequest) returns (PaymentTopUpResponse);
+  rpc Request(PaymentRequestMsg) returns (PaymentRequestResponse);
+  rpc StatusSubscribe(PaymentStatusRequest) returns (stream PaymentStatusEvent);
+}
+
+// --- BalanceSubscribe ---
+
+message PaymentBalanceRequest {}
+
+message PaymentBalanceEvent {
+  oneof result {
+    PaymentBalance balance = 1;
+    PaymentBalanceError error = 2;
+  }
+}
+
+// Current payment balance state pushed to subscribers.
+message PaymentBalance {
+  // Balance that can be spent right now.
+  string available = 1; // u128 as string
+  // Balance the user possesses but cannot spend yet (e.g. in recycling stage).
+  string pending = 2; // u128 as string
+}
+
+enum PaymentBalanceErrorCode {
+  PAYMENT_BALANCE_ERROR_CODE_UNSPECIFIED = 0;
+  // User denied the balance disclosure request.
+  PAYMENT_BALANCE_ERROR_CODE_PERMISSION_DENIED = 1;
+  // Catch-all.
+  PAYMENT_BALANCE_ERROR_CODE_UNKNOWN = 2;
+}
+
+message PaymentBalanceError {
+  PaymentBalanceErrorCode code = 1;
+  string reason = 2;
+}
+
+// --- TopUp ---
+
+message PaymentTopUpRequest {
+  string amount = 1; // u128 as string
+  PaymentTopUpSource source = 2;
+}
+
+// Source for a payment top-up operation.
+message PaymentTopUpSource {
+  oneof source {
+    // Fund from one of the calling product's scoped accounts.
+    uint32 product_account = 1; // DerivationIndex
+    // Fund from a one-time account represented by its private key. This is a
+    // standard account holding public funds, not a coin key.
+    bytes private_key = 2; // 32-byte Ed25519 key
+  }
+}
+
+message PaymentTopUpResponse {
+  oneof result {
+    Empty ok = 1;
+    PaymentTopUpError error = 2;
+  }
+}
+
+enum PaymentTopUpErrorCode {
+  PAYMENT_TOP_UP_ERROR_CODE_UNSPECIFIED = 0;
+  // The source account does not hold sufficient funds.
+  PAYMENT_TOP_UP_ERROR_CODE_INSUFFICIENT_FUNDS = 1;
+  // The source account was not found or is invalid.
+  PAYMENT_TOP_UP_ERROR_CODE_INVALID_SOURCE = 2;
+  // Catch-all.
+  PAYMENT_TOP_UP_ERROR_CODE_UNKNOWN = 3;
+}
+
+message PaymentTopUpError {
+  PaymentTopUpErrorCode code = 1;
+  string reason = 2;
+}
+
+// --- Request ---
+
+message PaymentRequestMsg {
+  string amount = 1;     // u128 as string
+  bytes destination = 2; // 32-byte AccountId
+}
+
+message PaymentRequestResponse {
+  oneof result {
+    PaymentReceipt receipt = 1;
+    PaymentRequestError error = 2;
+  }
+}
+
+// Receipt returned after a successful payment request.
+message PaymentReceipt {
+  // The assigned payment identifier.
+  string id = 1;
+}
+
+enum PaymentRequestErrorCode {
+  PAYMENT_REQUEST_ERROR_CODE_UNSPECIFIED = 0;
+  // User denied the payment request.
+  PAYMENT_REQUEST_ERROR_CODE_DENIED = 1;
+  // User's available balance is not sufficient for the requested amount.
+  PAYMENT_REQUEST_ERROR_CODE_INSUFFICIENT_BALANCE = 2;
+  // Catch-all.
+  PAYMENT_REQUEST_ERROR_CODE_UNKNOWN = 3;
+}
+
+message PaymentRequestError {
+  PaymentRequestErrorCode code = 1;
+  string reason = 2;
+}
+
+// --- StatusSubscribe ---
+
+message PaymentStatusRequest {
+  // Unique payment identifier, scoped to the product that created it.
+  string payment_id = 1;
+}
+
+message PaymentStatusEvent {
+  oneof result {
+    PaymentStatus status = 1;
+    PaymentStatusError error = 2;
+  }
+}
+
+// Payment lifecycle status pushed to subscribers.
+// Once a terminal state (Completed or Failed) is reached, the host delivers
+// it and may close the subscription.
+message PaymentStatus {
+  oneof status {
+    // Payment is being processed.
+    Empty processing = 1;
+    // Payment has been settled successfully.
+    Empty completed = 2;
+    // Payment has failed.
+    string failed = 3; // failure reason
+  }
+}
+
+enum PaymentStatusErrorCode {
+  PAYMENT_STATUS_ERROR_CODE_UNSPECIFIED = 0;
+  // Payment ID was not found or does not belong to the current product.
+  PAYMENT_STATUS_ERROR_CODE_PAYMENT_NOT_FOUND = 1;
+  // Catch-all.
+  PAYMENT_STATUS_ERROR_CODE_UNKNOWN = 2;
+}
+
+message PaymentStatusError {
+  PaymentStatusErrorCode code = 1;
+  string reason = 2;
+}
