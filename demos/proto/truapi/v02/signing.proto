@@ -1,0 +1,200 @@
+// TruAPI v0.2 - Signing service: payload signing, raw signing, transaction creation.
+
+syntax = "proto3";
+
+package truapi.v02;
+
+import "truapi/v02/common.proto";
+
+service SigningService {
+  rpc SignPayload(SigningPayload) returns (SignPayloadResponse);
+  rpc SignRaw(SigningRawPayload) returns (SignRawResponse);
+  rpc CreateTransaction(CreateTransactionRequest) returns (CreateTransactionResponse);
+  rpc CreateTransactionNonProduct(CreateTransactionNonProductRequest) returns (CreateTransactionResponse);
+}
+
+// --- SignPayload ---
+
+// Full Substrate extrinsic signing payload with all fields needed for
+// signature generation.
+message SigningPayload {
+  // Product account that will sign this payload.
+  // V0.2: replaces the previous address field per RFC 0005.
+  ProductAccountId account = 1;
+  // Reference block hash.
+  bytes block_hash = 2;
+  // Reference block number.
+  bytes block_number = 3;
+  // Mortality era encoding.
+  bytes era = 4;
+  // Chain genesis hash.
+  bytes genesis_hash = 5;
+  // SCALE-encoded call data.
+  bytes method = 6;
+  // Account nonce.
+  bytes nonce = 7;
+  // Runtime spec version.
+  bytes spec_version = 8;
+  // Transaction tip.
+  bytes tip = 9;
+  // Transaction format version.
+  bytes transaction_version = 10;
+  // Extension identifiers.
+  repeated string signed_extensions = 11;
+  // Extrinsic version.
+  uint32 version = 12;
+  // For multi-asset tips.
+  optional bytes asset_id = 13;
+  // CheckMetadataHash extension.
+  optional bytes metadata_hash = 14;
+  // Metadata mode.
+  optional uint32 mode = 15;
+  // Request signed transaction back.
+  optional bool with_signed_transaction = 16;
+}
+
+message SignPayloadResponse {
+  oneof result {
+    SigningResult ok = 1;
+    SigningError error = 2;
+  }
+}
+
+// Result of a signing operation.
+message SigningResult {
+  // The cryptographic signature.
+  bytes signature = 1;
+  // Full signed transaction, if requested.
+  optional bytes signed_transaction = 2;
+}
+
+// --- SignRaw ---
+
+// A raw signing request pairing an account with raw data.
+// V0.2: address replaced with account: ProductAccountId per RFC 0005.
+message SigningRawPayload {
+  // Product account that will sign this data.
+  ProductAccountId account = 1;
+  // The data to sign.
+  RawPayload data = 2;
+}
+
+// Raw data to sign, either binary bytes or a string message.
+message RawPayload {
+  oneof payload {
+    // Raw binary data to sign.
+    bytes raw_bytes = 1;
+    // String message to sign.
+    string message = 2;
+  }
+}
+
+message SignRawResponse {
+  oneof result {
+    SigningResult ok = 1;
+    SigningError error = 2;
+  }
+}
+
+// --- CreateTransaction ---
+
+message CreateTransactionRequest {
+  ProductAccountId account = 1;
+  VersionedTxPayload payload = 2;
+}
+
+message CreateTransactionNonProductRequest {
+  VersionedTxPayload payload = 1;
+}
+
+message CreateTransactionResponse {
+  oneof result {
+    bytes transaction = 1; // signed transaction bytes
+    CreateTransactionError error = 2;
+  }
+}
+
+// Versioned transaction payload envelope.
+message VersionedTxPayload {
+  oneof version {
+    // Version 1 payload.
+    TxPayloadV1 v1 = 1;
+  }
+}
+
+// Version 1 transaction payload with all data needed to construct a signed
+// extrinsic.
+message TxPayloadV1 {
+  // Signer hint (address/name), absent = host picks.
+  optional string signer = 1;
+  // SCALE-encoded Call data.
+  bytes call_data = 2;
+  // Signed extensions.
+  repeated TxPayloadExtensionV1 extensions = 3;
+  // 0 for Extrinsic V4, any for V5.
+  uint32 tx_ext_version = 4;
+  // Transaction context.
+  TxPayloadContextV1 context = 5;
+}
+
+// A signed extension for a transaction payload.
+message TxPayloadExtensionV1 {
+  // Extension name (e.g., "CheckSpecVersion").
+  string id = 1;
+  // SCALE-encoded extra data (in extrinsic body).
+  bytes extra = 2;
+  // SCALE-encoded implicit data (signed, not in body).
+  bytes additional_signed = 3;
+}
+
+// Context information for transaction construction.
+message TxPayloadContextV1 {
+  // RuntimeMetadataPrefixed blob (SCALE).
+  bytes metadata = 1;
+  // Native token symbol.
+  string token_symbol = 2;
+  // Native token decimals.
+  uint32 token_decimals = 3;
+  // Highest known block number.
+  uint32 best_block_height = 4;
+}
+
+// --- Errors ---
+
+// Signing operation error.
+enum SigningErrorCode {
+  SIGNING_ERROR_CODE_UNSPECIFIED = 0;
+  // Payload could not be deserialized.
+  SIGNING_ERROR_CODE_FAILED_TO_DECODE = 1;
+  // User rejected signing.
+  SIGNING_ERROR_CODE_REJECTED = 2;
+  // Not authenticated.
+  SIGNING_ERROR_CODE_PERMISSION_DENIED = 3;
+  // Catch-all.
+  SIGNING_ERROR_CODE_UNKNOWN = 4;
+}
+
+message SigningError {
+  SigningErrorCode code = 1;
+  string reason = 2;
+}
+
+// Transaction creation error.
+enum CreateTransactionErrorCode {
+  CREATE_TRANSACTION_ERROR_CODE_UNSPECIFIED = 0;
+  // Payload could not be deserialized.
+  CREATE_TRANSACTION_ERROR_CODE_FAILED_TO_DECODE = 1;
+  // User rejected.
+  CREATE_TRANSACTION_ERROR_CODE_REJECTED = 2;
+  // Unsupported payload version or extension.
+  CREATE_TRANSACTION_ERROR_CODE_NOT_SUPPORTED = 3;
+  // Not authenticated.
+  CREATE_TRANSACTION_ERROR_CODE_PERMISSION_DENIED = 4;
+  // Catch-all.
+  CREATE_TRANSACTION_ERROR_CODE_UNKNOWN = 5;
+}
+
+message CreateTransactionError {
+  CreateTransactionErrorCode code = 1;
+  string reason = 2;
+}

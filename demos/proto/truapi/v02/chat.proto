@@ -1,0 +1,499 @@
+// TruAPI v0.2 - Chat service: rooms, bots, messages, actions, custom rendering.
+
+syntax = "proto3";
+
+package truapi.v02;
+
+import "truapi/v02/common.proto";
+
+service ChatService {
+  rpc CreateRoom(ChatRoomRequest) returns (ChatRoomResponse);
+  rpc CreateSimpleGroup(SimpleGroupChatRequest) returns (SimpleGroupChatResponse);
+  rpc RegisterBot(ChatBotRequest) returns (ChatBotResponse);
+  rpc PostMessage(ChatPostMessageRequest) returns (ChatPostMessageResponse);
+  // Server pushes the full room list whenever it changes.
+  rpc ListSubscribe(ChatListRequest) returns (stream ChatRoomList);
+  // Server pushes chat actions (messages, button clicks, commands).
+  rpc ActionSubscribe(ChatActionRequest) returns (stream ReceivedChatAction);
+  // Bidi: host sends render requests, product responds with rendered nodes.
+  rpc CustomRenderSubscribe(stream CustomRendererNode) returns (stream CustomMessageRenderRequest);
+}
+
+// --- CreateRoom ---
+
+// Request to create a chat room.
+message ChatRoomRequest {
+  // Unique room identifier.
+  string room_id = 1;
+  // Room display name.
+  string name = 2;
+  // URL or base64 image.
+  string icon = 3;
+}
+
+message ChatRoomResponse {
+  oneof result {
+    ChatRoomRegistrationResult ok = 1;
+    ChatRoomRegistrationError error = 2;
+  }
+}
+
+// Result of a room registration.
+message ChatRoomRegistrationResult {
+  // New or Exists.
+  ChatRoomRegistrationStatus status = 1;
+}
+
+// Whether the room was newly created or already existed.
+enum ChatRoomRegistrationStatus {
+  CHAT_ROOM_REGISTRATION_STATUS_UNSPECIFIED = 0;
+  // Room was newly created.
+  CHAT_ROOM_REGISTRATION_STATUS_NEW = 1;
+  // Room already existed.
+  CHAT_ROOM_REGISTRATION_STATUS_EXISTS = 2;
+}
+
+// Chat room registration error.
+enum ChatRoomRegistrationErrorCode {
+  CHAT_ROOM_REGISTRATION_ERROR_CODE_UNSPECIFIED = 0;
+  // Not allowed.
+  CHAT_ROOM_REGISTRATION_ERROR_CODE_PERMISSION_DENIED = 1;
+  // Catch-all.
+  CHAT_ROOM_REGISTRATION_ERROR_CODE_UNKNOWN = 2;
+}
+
+message ChatRoomRegistrationError {
+  ChatRoomRegistrationErrorCode code = 1;
+  string reason = 2;
+}
+
+// --- CreateSimpleGroup ---
+
+// Request to create a simple group chat room.
+// V0.2: lightweight group chat that avoids the full Chat Extension v2
+// complexity. Participants join via deep link; the host handles the UI
+// with default rendering (no custom elements).
+message SimpleGroupChatRequest {
+  // Unique room identifier source.
+  string room_id = 1;
+  // Room display name.
+  string name = 2;
+  // URL or base64 image for the room avatar.
+  string icon = 3;
+}
+
+message SimpleGroupChatResponse {
+  oneof result {
+    SimpleGroupChatResult ok = 1;
+    ChatRoomRegistrationError error = 2;
+  }
+}
+
+// Result of creating a simple group chat room (V0.2).
+message SimpleGroupChatResult {
+  // Whether the room was newly created or already existed.
+  ChatRoomRegistrationStatus status = 1;
+  // Deep link that participants can use to join the room.
+  string join_link = 2;
+}
+
+// --- RegisterBot ---
+
+// Request to register a chat bot.
+message ChatBotRequest {
+  // Unique bot identifier.
+  string bot_id = 1;
+  // Bot display name.
+  string name = 2;
+  // URL or base64 image.
+  string icon = 3;
+}
+
+message ChatBotResponse {
+  oneof result {
+    ChatBotRegistrationResult ok = 1;
+    ChatBotRegistrationError error = 2;
+  }
+}
+
+// Result of a bot registration.
+message ChatBotRegistrationResult {
+  // New or Exists.
+  ChatBotRegistrationStatus status = 1;
+}
+
+// Whether the bot was newly registered or already existed.
+enum ChatBotRegistrationStatus {
+  CHAT_BOT_REGISTRATION_STATUS_UNSPECIFIED = 0;
+  // Bot was newly registered.
+  CHAT_BOT_REGISTRATION_STATUS_NEW = 1;
+  // Bot already existed.
+  CHAT_BOT_REGISTRATION_STATUS_EXISTS = 2;
+}
+
+// Chat bot registration error.
+enum ChatBotRegistrationErrorCode {
+  CHAT_BOT_REGISTRATION_ERROR_CODE_UNSPECIFIED = 0;
+  // Not allowed.
+  CHAT_BOT_REGISTRATION_ERROR_CODE_PERMISSION_DENIED = 1;
+  // Catch-all.
+  CHAT_BOT_REGISTRATION_ERROR_CODE_UNKNOWN = 2;
+}
+
+message ChatBotRegistrationError {
+  ChatBotRegistrationErrorCode code = 1;
+  string reason = 2;
+}
+
+// --- PostMessage ---
+
+// Request to post a message to a chat room.
+message ChatPostMessageRequest {
+  // Room to post to.
+  string room_id = 1;
+  // Message content.
+  ChatMessageContent payload = 2;
+}
+
+// Content of a chat message, one of several types.
+message ChatMessageContent {
+  oneof content {
+    // Plain text message.
+    string text = 1;
+    // Rich text with media.
+    ChatRichText rich_text = 2;
+    // Action button set.
+    ChatActions actions = 3;
+    // File attachment.
+    ChatFile file = 4;
+    // Emoji reaction.
+    ChatReaction reaction = 5;
+    // Reaction removal.
+    ChatReaction reaction_removed = 6;
+    // Custom message.
+    ChatCustomMessage custom = 7;
+  }
+}
+
+// Rich text message with optional media.
+message ChatRichText {
+  // Optional text content.
+  optional string text = 1;
+  // Attached media items.
+  repeated ChatMedia media = 2;
+}
+
+// A media attachment.
+message ChatMedia {
+  // Media URL.
+  string url = 1;
+}
+
+// A set of action buttons with optional text.
+message ChatActions {
+  // Optional message text.
+  optional string text = 1;
+  // List of action buttons.
+  repeated ChatAction actions = 2;
+  // Column or Grid layout.
+  ChatActionLayout layout = 3;
+}
+
+// A clickable action button in a chat message.
+message ChatAction {
+  // Action identifier.
+  string action_id = 1;
+  // Button label.
+  string title = 2;
+}
+
+// Layout for action buttons.
+enum ChatActionLayout {
+  CHAT_ACTION_LAYOUT_UNSPECIFIED = 0;
+  // Column layout.
+  CHAT_ACTION_LAYOUT_COLUMN = 1;
+  // Grid layout.
+  CHAT_ACTION_LAYOUT_GRID = 2;
+}
+
+// A file attachment in a chat message.
+message ChatFile {
+  // File download URL.
+  string url = 1;
+  // File name.
+  string file_name = 2;
+  // MIME type.
+  string mime_type = 3;
+  // File size in bytes.
+  uint64 size_bytes = 4;
+  // Optional caption text.
+  optional string text = 5;
+}
+
+// A reaction to a chat message.
+message ChatReaction {
+  // Message being reacted to.
+  string message_id = 1;
+  // Emoji reaction.
+  string emoji = 2;
+}
+
+// A custom message with application-defined type and binary payload.
+message ChatCustomMessage {
+  // Application-defined type key.
+  string message_type = 1;
+  // Binary payload.
+  bytes payload = 2;
+}
+
+message ChatPostMessageResponse {
+  oneof result {
+    ChatPostMessageResult ok = 1;
+    ChatMessagePostingError error = 2;
+  }
+}
+
+// Result of posting a message.
+message ChatPostMessageResult {
+  // Assigned message ID.
+  string message_id = 1;
+}
+
+// Chat message posting error.
+enum ChatMessagePostingErrorCode {
+  CHAT_MESSAGE_POSTING_ERROR_CODE_UNSPECIFIED = 0;
+  // Message exceeded size limit.
+  CHAT_MESSAGE_POSTING_ERROR_CODE_MESSAGE_TOO_LARGE = 1;
+  // Catch-all.
+  CHAT_MESSAGE_POSTING_ERROR_CODE_UNKNOWN = 2;
+}
+
+message ChatMessagePostingError {
+  ChatMessagePostingErrorCode code = 1;
+  string reason = 2;
+}
+
+// --- ListSubscribe ---
+
+message ChatListRequest {}
+
+message ChatRoomList {
+  repeated ChatRoom rooms = 1;
+}
+
+// A chat room the product participates in.
+message ChatRoom {
+  // Room identifier.
+  string room_id = 1;
+  // RoomHost or Bot.
+  ChatRoomParticipation participating_as = 2;
+}
+
+// How the product participates in a chat room.
+enum ChatRoomParticipation {
+  CHAT_ROOM_PARTICIPATION_UNSPECIFIED = 0;
+  // Product is room host.
+  CHAT_ROOM_PARTICIPATION_ROOM_HOST = 1;
+  // Product is bot.
+  CHAT_ROOM_PARTICIPATION_BOT = 2;
+}
+
+// --- ActionSubscribe ---
+
+message ChatActionRequest {}
+
+// A chat action received from the host.
+message ReceivedChatAction {
+  // Room where the action occurred.
+  string room_id = 1;
+  // Peer who initiated the action.
+  string peer = 2;
+  // The action payload.
+  ChatActionPayload payload = 3;
+}
+
+// Payload of a received chat action.
+message ChatActionPayload {
+  oneof payload {
+    // A peer posted a message.
+    ChatMessageContent message_posted = 1;
+    // A user triggered an action button.
+    ActionTrigger action_triggered = 2;
+    // A user issued a command.
+    ChatCommand command = 3;
+  }
+}
+
+// Payload when a user clicks an action button.
+message ActionTrigger {
+  // Message containing the action.
+  string message_id = 1;
+  // Which action was triggered.
+  string action_id = 2;
+  // Optional additional data.
+  optional bytes payload = 3;
+}
+
+// A slash command from a chat user.
+message ChatCommand {
+  // Command name.
+  string command = 1;
+  // Command arguments.
+  string payload = 2;
+}
+
+// --- CustomRenderSubscribe ---
+
+// Request from the host asking the product to render a custom chat message.
+message CustomMessageRenderRequest {
+  // Message identifier.
+  string message_id = 1;
+  // Application-defined message type.
+  string message_type = 2;
+  // Binary payload.
+  bytes payload = 3;
+}
+
+// A node in the custom renderer UI tree. Can be nested recursively via the
+// children field of each component.
+message CustomRendererNode {
+  oneof node {
+    // Empty node.
+    Empty nil = 1;
+    // Raw text string.
+    string string_value = 2;
+    // Generic container.
+    BoxComponent box = 3;
+    // Vertical layout.
+    ColumnComponent column = 4;
+    // Horizontal layout.
+    RowComponent row = 5;
+    // Flexible space.
+    SpacerComponent spacer = 6;
+    // Text display.
+    TextComponent text = 7;
+    // Interactive button.
+    ButtonComponent button = 8;
+    // Text input.
+    TextFieldComponent text_field = 9;
+  }
+}
+
+// Properties for a Box container.
+message BoxComponent {
+  // Layout and styling modifiers.
+  repeated Modifier modifiers = 1;
+  // Content alignment within the box.
+  optional string content_alignment = 2;
+  // Child nodes.
+  repeated CustomRendererNode children = 3;
+}
+
+// Properties for a Column layout.
+message ColumnComponent {
+  // Layout and styling modifiers.
+  repeated Modifier modifiers = 1;
+  // Horizontal alignment of children.
+  optional string horizontal_alignment = 2;
+  // Vertical arrangement of children.
+  optional string vertical_arrangement = 3;
+  // Child nodes.
+  repeated CustomRendererNode children = 4;
+}
+
+// Properties for a Row layout.
+message RowComponent {
+  // Layout and styling modifiers.
+  repeated Modifier modifiers = 1;
+  // Vertical alignment of children.
+  optional string vertical_alignment = 2;
+  // Horizontal arrangement of children.
+  optional string horizontal_arrangement = 3;
+  // Child nodes.
+  repeated CustomRendererNode children = 4;
+}
+
+message SpacerComponent {
+  // Layout and styling modifiers.
+  repeated Modifier modifiers = 1;
+}
+
+// Properties for a Text display.
+message TextComponent {
+  // Layout and styling modifiers.
+  repeated Modifier modifiers = 1;
+  // Typography preset.
+  optional string style = 2;
+  // Text color.
+  optional string color = 3;
+  // Child nodes.
+  repeated CustomRendererNode children = 4;
+}
+
+// Properties for a Button.
+message ButtonComponent {
+  // Layout and styling modifiers.
+  repeated Modifier modifiers = 1;
+  // Button label text.
+  string text = 2;
+  // Button style variant.
+  optional string variant = 3;
+  // Action identifier triggered on click.
+  string click_action = 4;
+}
+
+// Properties for a TextField.
+message TextFieldComponent {
+  // Layout and styling modifiers.
+  repeated Modifier modifiers = 1;
+  // Placeholder text.
+  optional string placeholder = 2;
+  // Initial value.
+  optional string initial_value = 3;
+  // Action identifier triggered on submit.
+  string submit_action = 4;
+}
+
+// Layout and styling modifiers applied to custom renderer components.
+message Modifier {
+  oneof modifier {
+    // Outer spacing: "top,end,bottom,start".
+    string margin = 1;
+    // Inner spacing: "top,end,bottom,start".
+    string padding = 2;
+    // Background fill.
+    Background background = 3;
+    // Border style.
+    BorderStyle border = 4;
+    // Fixed height.
+    uint64 height = 5;
+    // Fixed width.
+    uint64 width = 6;
+    // Minimum width.
+    uint64 min_width = 7;
+    // Minimum height.
+    uint64 min_height = 8;
+    // Fill available width.
+    bool fill_width = 9;
+    // Fill available height.
+    bool fill_height = 10;
+  }
+}
+
+// Background styling.
+message Background {
+  // Background color.
+  string color = 1;
+  // Background shape: "circle" or "rounded:<size>".
+  optional string shape = 2;
+}
+
+// Border styling.
+message BorderStyle {
+  // Border width.
+  uint64 width = 1;
+  // Border color.
+  string color = 2;
+  // Border shape.
+  optional string shape = 3;
+}

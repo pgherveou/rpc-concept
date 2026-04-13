@@ -1,0 +1,69 @@
+// TruAPI v0.2 - Local storage service: scoped key-value store.
+
+syntax = "proto3";
+
+package truapi.v02;
+
+import "truapi/v02/common.proto";
+
+service LocalStorageService {
+  rpc Read(StorageReadRequest) returns (StorageReadResponse);
+  rpc Write(StorageWriteRequest) returns (StorageWriteResponse);
+  rpc Clear(StorageClearRequest) returns (StorageClearResponse);
+}
+
+message StorageReadRequest {
+  // Key name for local storage operations.
+  string key = 1;
+}
+
+message StorageReadResponse {
+  oneof result {
+    StorageReadValue value = 1;
+    StorageError error = 2;
+  }
+}
+
+message StorageReadValue {
+  optional bytes data = 1; // null when key not found
+}
+
+message StorageWriteRequest {
+  // Key name for local storage operations.
+  string key = 1;
+  // Binary value to store.
+  bytes value = 2;
+}
+
+message StorageWriteResponse {
+  oneof result {
+    Empty ok = 1;
+    StorageError error = 2;
+  }
+}
+
+message StorageClearRequest {
+  // Key name for local storage operations.
+  string key = 1;
+}
+
+message StorageClearResponse {
+  oneof result {
+    Empty ok = 1;
+    StorageError error = 2;
+  }
+}
+
+// Local storage operation error.
+enum StorageErrorCode {
+  STORAGE_ERROR_CODE_UNSPECIFIED = 0;
+  // Storage quota exceeded.
+  STORAGE_ERROR_CODE_FULL = 1;
+  // Catch-all.
+  STORAGE_ERROR_CODE_UNKNOWN = 2;
+}
+
+message StorageError {
+  StorageErrorCode code = 1;
+  string reason = 2;
+}

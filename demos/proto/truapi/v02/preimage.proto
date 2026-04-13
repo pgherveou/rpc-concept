@@ -1,0 +1,20 @@
+// TruAPI v0.2 - Preimage service: lookup preimages by hash.
+
+syntax = "proto3";
+
+package truapi.v02;
+
+service PreimageService {
+  // Subscribe to a preimage by hash. Server pushes the value when available.
+  rpc LookupSubscribe(PreimageLookupRequest) returns (stream PreimageLookupEvent);
+}
+
+message PreimageLookupRequest {
+  // Hash of the preimage.
+  bytes key = 1;
+}
+
+message PreimageLookupEvent {
+  // The preimage data, null until preimage becomes available.
+  optional bytes value = 1;
+}

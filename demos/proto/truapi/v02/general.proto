@@ -1,0 +1,42 @@
+// TruAPI v0.2 - General service: feature detection, navigation, notifications.
+
+syntax = "proto3";
+
+package truapi.v02;
+
+import "truapi/v02/common.proto";
+
+service GeneralService {
+  rpc FeatureSupported(FeatureSupportedRequest) returns (FeatureSupportedResponse);
+  rpc NavigateTo(NavigateToRequest) returns (NavigateToResponse);
+  rpc PushNotification(PushNotification) returns (PushNotificationResponse);
+}
+
+message FeatureSupportedRequest {
+  Feature feature = 1;
+}
+
+message FeatureSupportedResponse {
+  oneof result {
+    bool supported = 1;
+    GenericError error = 2;
+  }
+}
+
+message NavigateToRequest {
+  string url = 1;
+}
+
+message NavigateToResponse {
+  oneof result {
+    Empty ok = 1;
+    NavigateToError error = 2;
+  }
+}
+
+message PushNotificationResponse {
+  oneof result {
+    Empty ok = 1;
+    GenericError error = 2;
+  }
+}

@@ -5,12 +5,11 @@
   "description": "Cross-platform RPC bridge framework using protobuf service definitions",
   "workspaces": [
     "packages/*",
-    "demos/product-app",
-    "demos/host/*",
+    "demos/host-playground",
     "tests"
   ],
   "scripts": {
-    "build": "npm run build:core && npm run build:codegen && npm run generate && npm run build:transports && npm run build:product-app && npm run build:hosts",
+    "build": "npm run build:core && npm run build:codegen && npm run generate && npm run build:transports && npm run build:playground",
     "build:core": "cd packages/rpc-core && npm run build",
     "build:codegen": "cd packages/codegen && npm run build",
     "build:transports": "npm run build:transport-web && npm run build:transport-ios && npm run build:transport-android && npm run build:transport-electron",
@@ -18,21 +17,18 @@
     "build:transport-ios": "cd packages/transport-ios && npm run build",
     "build:transport-android": "cd packages/transport-android && npm run build",
     "build:transport-electron": "cd packages/transport-electron && npm run build",
-    "build:product-app": "cd demos/product-app && npm run build",
-    "build:host-android": "cd demos/host/android && npm run build",
-    "build:hosts": "npm run build:host-web && npm run build:host-electron && npm run build:host-android && npm run build:host-ios",
-    "build:host-web": "cd demos/host/web && npm run build",
-    "build:host-ios": "cd demos/host/ios && npm run build",
-    "build:host-electron": "cd demos/host/electron && npm run build",
+    "build:playground": "cd demos/host-playground && npm run build",
     "generate": "cd packages/codegen && npm run generate",
     "test": "cd tests && npm test",
-    "test:e2e": "playwright test --project=web",
-    "test:e2e:electron": "playwright test --project=electron",
-    "test:e2e:android": "playwright test --project=android",
-    "clean": "rm -rf packages/*/dist packages/*/*.tsbuildinfo demos/product-app/dist demos/host/*/dist tests/dist"
+    "e2e:web": "npx playwright test --project=web",
+    "e2e:electron": "npx playwright test --project=electron",
+    "e2e:android": "npx playwright test --project=android",
+    "clean": "rm -rf packages/*/dist packages/*/*.tsbuildinfo demos/host-playground/dist tests/dist"
   },
   "devDependencies": {
     "@playwright/test": "^1.59.1",
+    "electron": "^41.2.0",
+    "playwright": "^1.59.1",
     "typescript": "^5.4.0"
   }
 }

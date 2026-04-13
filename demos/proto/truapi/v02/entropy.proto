@@ -1,0 +1,37 @@
+// TruAPI v0.2 - Entropy service: deterministic entropy derivation (RFC 0007).
+//
+// 32 bytes of deterministic entropy derived from the user's root BIP-39
+// entropy via a three-layer BLAKE2b-256 keyed hashing scheme. The same
+// root account + product + key always yields the same output on any
+// conforming host.
+
+syntax = "proto3";
+
+package truapi.v02;
+
+service EntropyService {
+  rpc DeriveEntropy(DeriveEntropyRequest) returns (DeriveEntropyResponse);
+}
+
+message DeriveEntropyRequest {
+  bytes key = 1; // up to 32 bytes
+}
+
+message DeriveEntropyResponse {
+  oneof result {
+    bytes entropy = 1; // 32 bytes of deterministic entropy
+    DeriveEntropyError error = 2;
+  }
+}
+
+// Under normal operation the function always succeeds; Unknown indicates an
+// unrecoverable internal host error.
+enum DeriveEntropyErrorCode {
+  DERIVE_ENTROPY_ERROR_CODE_UNSPECIFIED = 0;
+  // An unexpected error occurred in the host.
+  DERIVE_ENTROPY_ERROR_CODE_UNKNOWN = 1;
+}
+
+message DeriveEntropyError {
+  DeriveEntropyErrorCode code = 1;
+}

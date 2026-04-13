@@ -6,6 +6,8 @@
  */
 
 import protobuf from 'protobufjs';
+import { accessSync } from 'fs';
+import { resolve as resolvePath, dirname } from 'path';
 
 export interface ProtoFile {
   syntax: string;
@@ -59,9 +61,19 @@ export interface MethodDef {
   serverStreaming: boolean;
 }
 
-/** Parse a .proto file from disk. */
-export function parseProtoFile(filePath: string): ProtoFile {
-  const root = protobuf.loadSync(filePath);
+/** Parse a .proto file from disk. includePaths are searched when resolving imports. */
+export function parseProtoFile(filePath: string, includePaths?: string[]): ProtoFile {
+  const root = new protobuf.Root();
+  if (includePaths && includePaths.length > 0) {
+    root.resolvePath = (_origin: string, target: string) => {
+      for (const dir of includePaths) {
+        const resolved = resolvePath(dir, target);
+        try { accessSync(resolved); return resolved; } catch {}
+      }
+      return resolvePath(dirname(_origin), target);
+    };
+  }
+  root.loadSync(filePath);
   return extractProtoFile(root);
 }
 
