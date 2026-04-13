@@ -19,7 +19,7 @@ export default defineConfig({
     },
   ],
   webServer: {
-    command: 'npx serve demos/host-playground/dist -l 3456',
+    command: 'npx serve demos/hosts/dist -l 3456',
     port: 3456,
     reuseExistingServer: true,
   },

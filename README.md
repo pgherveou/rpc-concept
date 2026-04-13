@@ -173,29 +173,29 @@ for await (const req of chat.customRenderSubscribe(renderNodes())) {
 
 ```bash
 npm install
-npm run build     # core -> codegen -> generate -> transports -> playground
+npm run build     # core -> codegen -> generate -> transports -> playground-app -> hosts
 ```
 
 ### Web (iframe + MessagePort)
 
 ```bash
-cd demos/host-playground && npm run serve
+cd demos/hosts && npm run serve
 # Open http://localhost:3000
 ```
 
 ### Electron (MessageChannelMain)
 
 ```bash
-npx electron demos/host-playground/dist/electron/host-electron.js
+npx electron demos/hosts/dist/electron/host-electron.js
 ```
 
 ### iOS (WKWebView)
 
-Open `demos/host-playground/ios/Package.swift` in Xcode.
+Open `demos/hosts/ios/Package.swift` in Xcode.
 
 ### Android (WebView)
 
-Open `demos/host-playground/android/` in Android Studio.
+Open `demos/hosts/android/` in Android Studio.
 
 ## Testing
 
@@ -225,14 +225,19 @@ packages/
 demos/
   proto/truapi/v02/*.proto          TruAPI v0.2 service definitions (11 services)
   proto/generated/                  Generated TS messages, client stubs, server interfaces
-  host-playground/                  Playground demo (shared product UI + per-platform hosts)
-    src/setup-server.ts               Registers all 11 mock services on an RpcServer
+  playground-app/                   Product UI (React app, embedded in all platform hosts)
     src/setup-client.ts               Creates typed clients and renders the React UI
+    src/App.tsx                       Root React component
+    src/main.ts                       Web/Electron entry (MessagePort)
+    src/bootstrap-ios.ts              iOS entry (WKWebView transport)
+    src/bootstrap-android.ts          Android entry (WebView transport)
+  hosts/                            Host implementations (RPC servers with mock services)
+    src/setup-server.ts               Registers all 11 mock services on an RpcServer
     src/mocks/                        Mock handler implementations per service
     src/host.ts                       Web host (MessagePort to iframe)
     src/host-electron.ts              Electron host (MessageChannelMain)
-    src/bootstrap-ios.ts              iOS bootstrap (WKWebView transport)
-    src/bootstrap-android.ts          Android bootstrap (WebView transport)
+    src/host-ios.ts                   iOS host (WKWebView)
+    src/host-android.ts               Android host (WebView)
     web/                              Static HTML for the web host
     ios/                              Xcode project (Swift, WKWebView)
     android/                          Android Studio project (Gradle, WebView)

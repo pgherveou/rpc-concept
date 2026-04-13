@@ -13,7 +13,7 @@ Argument: $ARGUMENTS
 
 Serve and open in browser:
 ```
-npx serve demos/host-playground/dist -l 3456 &
+npx serve demos/hosts/dist -l 3456 &
 xdg-open http://localhost:3456
 ```
 
@@ -21,7 +21,7 @@ xdg-open http://localhost:3456
 
 Launch the app:
 ```
-npx electron demos/host-playground/dist/host-electron.js
+npx electron demos/hosts/dist/host-electron.js
 ```
 
 ## Platform: android
@@ -41,7 +41,7 @@ Wait for the device to come back online (`adb wait-for-device`).
 
 Build, install, and launch:
 ```
-cd demos/host-playground/android && ./copy-assets.sh
+cd demos/hosts/android && ./copy-assets.sh
 export ANDROID_HOME=/opt/android-sdk JAVA_HOME=/usr/lib/jvm/java-17-openjdk
 export PATH="$ANDROID_HOME/platform-tools:$JAVA_HOME/bin:$PATH"
 ./gradlew installDebug
