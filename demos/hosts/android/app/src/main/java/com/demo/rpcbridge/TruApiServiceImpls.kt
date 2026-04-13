@@ -1,6 +1,7 @@
 package com.demo.rpcbridge
 
 import android.util.Log
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flow
 import truapi.v02.*
@@ -262,31 +263,113 @@ class LocalStorageServiceImpl : LocalStorageService {
 // -- PaymentService --
 
 class PaymentServiceImpl : PaymentService {
+    private var balanceAvailable: Long = 1_000_000_000_000L
+    private var balancePending: Long = 0L
+    private var paymentCounter = 0
+    private val knownPayments = mutableSetOf<String>()
+
     override fun balanceSubscribe(request: PaymentBalanceRequest): Flow<PaymentBalanceEvent> = flow {
         Log.d(TAG, "balanceSubscribe")
+        // Emit current balance immediately.
         emit(PaymentBalanceEvent(
             result = PaymentBalanceEventResult.Balance(
-                PaymentBalance(available = "1000000000000", pending = "0")
+                PaymentBalance(available = balanceAvailable.toString(), pending = balancePending.toString())
+            )
+        ))
+
+        // Simulate a pending deposit arriving.
+        delay(1500)
+        balancePending = 500_000_000_000L
+        emit(PaymentBalanceEvent(
+            result = PaymentBalanceEventResult.Balance(
+                PaymentBalance(available = balanceAvailable.toString(), pending = balancePending.toString())
+            )
+        ))
+
+        // Pending clears into available.
+        delay(1500)
+        balanceAvailable += balancePending
+        balancePending = 0L
+        emit(PaymentBalanceEvent(
+            result = PaymentBalanceEventResult.Balance(
+                PaymentBalance(available = balanceAvailable.toString(), pending = balancePending.toString())
             )
         ))
     }
 
     override suspend fun topUp(request: PaymentTopUpRequest): PaymentTopUpResponse {
         Log.d(TAG, "topUp: ${request.amount}")
+        val amount = request.amount.toLongOrNull() ?: 0L
+        if (amount <= 0) {
+            return PaymentTopUpResponse(
+                result = PaymentTopUpResponseResult.Error(
+                    PaymentTopUpError(code = PaymentTopUpErrorCode.PAYMENT_TOP_UP_ERROR_CODE_UNKNOWN, reason = "Invalid amount")
+                )
+            )
+        }
+
+        balanceAvailable += amount
         return PaymentTopUpResponse(result = PaymentTopUpResponseResult.Ok)
     }
 
     override suspend fun request(request: PaymentRequestMsg): PaymentRequestResponse {
         Log.d(TAG, "payment request: ${request.amount}")
+        val amount = request.amount.toLongOrNull() ?: 0L
+        if (amount <= 0) {
+            return PaymentRequestResponse(
+                result = PaymentRequestResponseResult.Error(
+                    PaymentRequestError(code = PaymentRequestErrorCode.PAYMENT_REQUEST_ERROR_CODE_UNKNOWN, reason = "Invalid amount")
+                )
+            )
+        }
+
+        if (amount > balanceAvailable) {
+            return PaymentRequestResponse(
+                result = PaymentRequestResponseResult.Error(
+                    PaymentRequestError(
+                        code = PaymentRequestErrorCode.PAYMENT_REQUEST_ERROR_CODE_INSUFFICIENT_BALANCE,
+                        reason = "Insufficient balance"
+                    )
+                )
+            )
+        }
+
+        balanceAvailable -= amount
+        paymentCounter++
+        val id = "pay-$paymentCounter"
+        knownPayments.add(id)
         return PaymentRequestResponse(
-            result = PaymentRequestResponseResult.Receipt(PaymentReceipt(id = "mock-receipt-1"))
+            result = PaymentRequestResponseResult.Receipt(PaymentReceipt(id = id))
         )
     }
 
     override fun statusSubscribe(request: PaymentStatusRequest): Flow<PaymentStatusEvent> = flow {
         Log.d(TAG, "statusSubscribe: ${request.paymentId}")
+        if (request.paymentId.isEmpty() || request.paymentId !in knownPayments) {
+            emit(PaymentStatusEvent(
+                result = PaymentStatusEventResult.Error(
+                    PaymentStatusError(
+                        code = PaymentStatusErrorCode.PAYMENT_STATUS_ERROR_CODE_PAYMENT_NOT_FOUND,
+                        reason = "Payment not found"
+                    )
+                )
+            ))
+            return@flow
+        }
+
+        // Emit processing -> completed lifecycle.
         emit(PaymentStatusEvent(
-            result = PaymentStatusEventResult.Status(PaymentStatus())
+            result = PaymentStatusEventResult.Status(
+                PaymentStatus(status = PaymentStatusStatus.Processing)
+            )
+        ))
+
+        delay(2000)
+
+        emit(PaymentStatusEvent(
+            result = PaymentStatusEventResult.Status(
+                PaymentStatus(status = PaymentStatusStatus.Completed)
+            )
         ))
     }
 }
