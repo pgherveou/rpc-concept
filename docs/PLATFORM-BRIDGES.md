@@ -9,7 +9,7 @@ All platform-specific communication is hidden behind the `Transport` interface:
 ```typescript
 interface Transport {
   send(frame: RpcFrame): void;
-  onFrame(handler: FrameHandler): void;
+  onFrame(handler: FrameHandler): () => void;  // returns unsubscribe function
   onError(handler: TransportErrorHandler): void;
   onClose(handler: TransportCloseHandler): void;
   close(): void;
@@ -45,7 +45,7 @@ abstract class MessageTransportBase {
 | Web (MessagePort) | Structured clone (object) | MessagePort supports structured clone natively |
 | Web (postMessage) | JSON string | Cross-origin postMessage wraps frames in an envelope |
 | iOS (WKWebView) | JSON string | `webkit.messageHandlers` only supports JSON-compatible types |
-| Android (WebView) | JSON string | `@JavascriptInterface` only supports primitive types (String, int, etc.) |
+| Android (WebView) | JSON string, base64-wrapped | `@JavascriptInterface` only supports primitive types; base64 avoids quoting issues |
 | Electron (MessagePort) | Structured clone (object) | Electron MessagePort supports structured clone |
 
 ## Web: MessagePort Transport (Preferred)
@@ -231,7 +231,7 @@ WKWebView's `WKScriptMessageHandler` only supports JSON-compatible types (string
 
 **Package**: `@rpc-bridge/transport-android`
 **Class**: `AndroidWebViewTransport` (JS side)
-**Encoding**: JSON string
+**Encoding**: JSON string, base64-wrapped for the `@JavascriptInterface` boundary
 
 ### Architecture
 
@@ -241,22 +241,28 @@ WebView (JS)                             Native (Kotlin)
 | AndroidWebViewTransport  |             | NativeBridgeTransport    |
 |                          |             |                          |
 | sendRaw(json) ----------+--- JI ----->| @JavascriptInterface     |
-|   window.RpcBridge       |             |   fun sendFrame(json)    |
-|   .sendFrame(json)      |             |     -> onReceiveFromWeb() |
+|   btoa(json) -> base64   |             |   fun sendFrame(base64)  |
+|   window.RpcBridge       |             |     -> decode + process  |
+|   .sendFrame(base64)    |             |                          |
 |                          |             |                          |
-| __rpcBridgeReceive(json)<+--- eval ---| sendToWebView(frame)     |
+| __rpcBridgeReceive(b64) <+--- eval ---| sendToWebView(frame)     |
+|   atob(b64) -> json      |             |   -> encode + eval       |
 |   (global callback)     |             |   -> evaluateJavascript( |
 +--------------------------+             |      "window.__rpc..."   |
                                          +--------------------------+
 ```
 
+Since Android WebView's `@JavascriptInterface` only supports primitive types, frames are JSON-serialized and then base64-encoded for transport across the bridge.
+
 ### JS to Native
 
-The JS side calls the injected `@JavascriptInterface` object:
+The JS side JSON-encodes the frame, then base64-wraps it before calling the injected `@JavascriptInterface` object:
 
 ```typescript
-protected sendRaw(data: unknown): void {
-  window.RpcBridge.sendFrame(jsonString);
+protected sendRaw(data: string | RpcFrame): void {
+  // data is a JSON string (FrameEncoding.JSON)
+  const bridge = window[this.interfaceName];
+  bridge.sendFrame(btoa(data));  // base64-encode before crossing the bridge
 }
 ```
 
@@ -265,7 +271,8 @@ On the Kotlin side:
 ```kotlin
 class WebViewBridge(private val transport: NativeBridgeTransport) {
     @JavascriptInterface
-    fun sendFrame(json: String) {
+    fun sendFrame(base64: String) {
+        val json = String(Base64.decode(base64, Base64.NO_WRAP))
         transport.onReceiveFromWebView(json)
     }
 }
@@ -276,18 +283,27 @@ webView.addJavascriptInterface(bridge, "RpcBridge")
 
 ### Native to JS
 
-The Kotlin side evaluates JavaScript:
+The Kotlin side base64-encodes the JSON and evaluates JavaScript:
 
 ```kotlin
 fun sendToWebView(frame: RpcFrame) {
     val json = Json.encodeToString(frame)
-    val js = "window.$callbackName($json)"
+    val base64 = Base64.encodeToString(json.toByteArray(), Base64.NO_WRAP)
+    val js = "window.$callbackName('$base64')"
 
     // Must run on main thread
     mainHandler.post {
         webView.evaluateJavascript(js, null)
     }
 }
+```
+
+The JS side receives the base64 string and decodes it:
+
+```typescript
+window.__rpcBridgeReceive = (base64Frame: string) => {
+  this.handleRawMessage(atob(base64Frame));  // base64-decode to JSON string
+};
 ```
 
 ### Thread Safety
@@ -411,8 +427,9 @@ The renderer has **no access** to Node.js APIs, Electron APIs, or the file syste
                          |   (plain object)      +-- Electron MessagePort
 RpcFrame --serialize---->|
                          |                       +-- WKWebView (iOS)
-                         +-- JSON string --------+-- Android WebView
-                                                 +-- postMessage (Web)
+                         +-- JSON string --------+-- postMessage (Web)
+                         |
+                         +-- JSON + base64 ------+-- Android WebView
 ```
 
 ### Structured Clone Advantages

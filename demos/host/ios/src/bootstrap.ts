@@ -1,6 +1,6 @@
 /**
- * iOS Boot - Creates RpcClient from WKWebViewTransport and injects into guest app.
- * Loaded after guest.js in the WKWebView.
+ * iOS Boot - Creates RpcClient from WKWebViewTransport and injects into product app.
+ * Loaded after product.js in the WKWebView.
  */
 
 import { RpcClient, createConsoleLogger } from '@rpc-bridge/core';

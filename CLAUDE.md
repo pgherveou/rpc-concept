@@ -2,7 +2,7 @@
 
 ## What is this?
 
-A cross-platform RPC framework for type-safe, streaming-capable communication between sandboxed web content (guest) and native host code. Guest and host are always collocated inside the same app, communication is purely local IPC.
+A cross-platform RPC framework for type-safe, streaming-capable communication between sandboxed product apps and native host code. Product and host are always collocated inside the same app, communication is purely local IPC.
 
 ## Documentation
 
@@ -31,12 +31,12 @@ packages/                       # Framework code only
   transport-electron/             Electron transports (preload + main)
 
 demos/                          # Demo application code
-  proto/hello.proto               Demo service proto definition (shared by guest + host)
+  proto/hello.proto               Demo service proto definition (shared by product + host)
   proto/generated/                Generated TS messages, client stubs, server interfaces
-  guest-app/                      Shared guest web client (React, embedded in all platform hosts)
+  product-app/                      Shared product web client (React, embedded in all platform hosts)
     src/main.ts                     Registers __rpcBridgeBoot callback (no transport knowledge)
     src/App.tsx                     Root React component
-    build.js                        Bundles src/main.ts -> dist/guest.js (IIFE)
+    build.js                        Bundles src/main.ts -> dist/product.js (IIFE)
   host/                           Each host has a boot script that creates transport + RpcClient
     web/                          Web host (host page with iframe, boot.ts for MessagePort)
     ios/                          iOS host (Swift app with WKWebView, bootstrap.ts)
@@ -52,7 +52,7 @@ e2e/                            # Playwright e2e tests
 
 ```bash
 npm install
-npm run build     # core -> codegen -> generate -> transports -> guest-app
+npm run build     # core -> codegen -> generate -> transports -> product-app
 ```
 
 Build order matters: each step depends on the previous.
@@ -66,7 +66,7 @@ node node_modules/.bin/playwright test  # E2e tests (web demo)
 
 ## Key Design Decisions
 
-- **Local IPC only**: Guest and host are collocated. No network, no TLS, no reconnection.
+- **Local IPC only**: Product and host are collocated. No network, no TLS, no reconnection.
 - **Proto-first**: Services defined in .proto, code generated for TS/Swift/Kotlin.
 - **Platform-native transports**: MessagePort (web/electron), WKWebView handlers (iOS), WebView interface (Android).
 - **Forward-compatible wire protocol**: Unknown fields/frame types silently ignored.

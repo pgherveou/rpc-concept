@@ -62,16 +62,16 @@ The TypeScript generator (`src/gen-typescript.ts`) produces three files per prot
 
 For each message, generates:
 
-1. An **interface** (`IHelloRequest`) defining the plain-object shape
+1. An **interface** (`HelloRequest`) defining the plain-object shape
 2. A **factory function** (`createHelloRequest(init)`) for constructing instances with defaults
 
 ```typescript
-export interface IHelloRequest {
+export interface HelloRequest {
   name: string;
   language: string;
 }
 
-export function createHelloRequest(init?: Partial<IHelloRequest>): IHelloRequest {
+export function createHelloRequest(init?: Partial<HelloRequest>): HelloRequest {
   return {
     name: '',
     language: '',
@@ -80,7 +80,7 @@ export function createHelloRequest(init?: Partial<IHelloRequest>): IHelloRequest
 }
 ```
 
-Messages are plain JSON-compatible objects. No encode/decode step is needed since the wire format is JSON.
+Messages are plain TypeScript interfaces. For each message, a JSON codec object (e.g., `HelloRequestJSON`) is also generated with `encode` and `decode` methods for use on native bridge transports.
 
 For enums, generates TypeScript `enum` declarations:
 
@@ -100,33 +100,42 @@ For each service, generates a client class that wraps `RpcClient`:
 export class HelloBridgeServiceClient {
   private readonly client: RpcClient;
   private readonly service: string;
+  private readonly json: boolean;
 
-  constructor(client: RpcClient, service?: string) {
+  constructor(client: RpcClient, options?: { service?: string; json?: boolean }) {
     this.client = client;
-    this.service = service ?? 'demo.hello.v1.HelloBridgeService';
+    this.service = options?.service ?? 'demo.hello.v1.HelloBridgeService';
+    this.json = options?.json ?? false;
   }
 
   // Unary RPC
-  async sayHello(request: IHelloRequest, options?: CallOptions): Promise<IHelloResponse> {
-    return await this.client.unary(`${this.service}/SayHello`, request, options);
+  async sayHello(request: HelloRequest, options?: CallOptions): Promise<HelloResponse> {
+    const data = this.json ? HelloRequestJSON.encode(request) : request;
+    const result = await this.client.unary(`${this.service}/SayHello`, data, options);
+    return (this.json ? HelloResponseJSON.decode(result) : result) as HelloResponse;
   }
 
   // Server-streaming RPC
-  async *watchGreeting(request: IGreetingStreamRequest, options?: CallOptions):
-      AsyncGenerator<IGreetingEvent, void, undefined> {
-    yield* this.client.serverStream(`${this.service}/WatchGreeting`, request, options);
+  async *watchGreeting(request: GreetingStreamRequest, options?: CallOptions):
+      AsyncGenerator<GreetingEvent, void, undefined> {
+    const data = this.json ? GreetingStreamRequestJSON.encode(request) : request;
+    for await (const item of this.client.serverStream(`${this.service}/WatchGreeting`, data, options)) {
+      yield (this.json ? GreetingEventJSON.decode(item) : item) as GreetingEvent;
+    }
   }
 
   // Client-streaming RPC
-  async collectNames(requests: AsyncIterable<ICollectNamesRequest>, options?: CallOptions):
-      Promise<ICollectNamesResponse> {
+  async collectNames(requests: AsyncIterable<CollectNamesRequest>, options?: CallOptions):
+      Promise<CollectNamesResponse> {
     return await this.client.clientStream(`${this.service}/CollectNames`, requests, options);
   }
 
   // Bidi-streaming RPC
-  async *chat(requests: AsyncIterable<IChatMessage>, options?: CallOptions):
-      AsyncGenerator<IChatMessage, void, undefined> {
-    yield* this.client.bidiStream(`${this.service}/Chat`, requests, options);
+  async *chat(requests: AsyncIterable<ChatMessage>, options?: CallOptions):
+      AsyncGenerator<ChatMessage, void, undefined> {
+    for await (const item of this.client.bidiStream(`${this.service}/Chat`, requests, options)) {
+      yield item as ChatMessage;
+    }
   }
 }
 ```
@@ -146,13 +155,18 @@ export interface IHelloBridgeServiceHandler {
   chat(requests: AsyncIterable<ChatMessage>, context: CallContext): AsyncIterable<ChatMessage>;
 }
 
-export function registerHelloBridgeService(handler: IHelloBridgeServiceHandler): ServiceRegistration {
+export function registerHelloBridgeService(
+  handler: IHelloBridgeServiceHandler,
+  options?: { json?: boolean },
+): ServiceRegistration {
   const methods: Record<string, MethodHandler> = {};
 
   methods['SayHello'] = {
     type: MethodType.UNARY,
-    handler: async (request, context) => {
-      return await handler.sayHello(request as IHelloRequest, context);
+    handler: async (data, context) => {
+      const request = (json ? HelloRequestJSON.decode(data) : data) as HelloRequest;
+      const response = await handler.sayHello(request, context);
+      return json ? HelloResponseJSON.encode(response) : response;
     },
   };
   // ... other methods ...
@@ -161,7 +175,7 @@ export function registerHelloBridgeService(handler: IHelloBridgeServiceHandler):
 }
 ```
 
-Since messages are plain JSON objects, the dispatcher casts incoming payloads to their typed interfaces and passes them directly to the handler. No encode/decode step is needed.
+When `json` is true (required for native bridges like iOS/Android), the dispatcher uses generated JSON codecs to decode incoming payloads and encode outgoing responses. When `json` is false (default, for structured clone transports), payloads are cast directly to their typed interfaces.
 
 ## Swift Generation
 
@@ -282,14 +296,14 @@ All output flags are optional. Only languages with a specified output directory 
 # Generate all three languages
 rpc-bridge-codegen \
   --proto demos/proto/hello.proto \
-  --ts-out demos/generated \
+  --ts-out demos/proto/generated \
   --swift-out demos/host/ios/RPCBridgeDemo/generated \
   --kotlin-out demos/host/android/generated
 
 # Generate TypeScript only
 rpc-bridge-codegen \
   --proto demos/proto/hello.proto \
-  --ts-out demos/generated
+  --ts-out demos/proto/generated
 ```
 
 ### Output Files
@@ -310,7 +324,7 @@ From the monorepo root:
 npm run generate
 ```
 
-This runs the codegen with the demo proto file, outputting to `demos/generated/` (TypeScript), `demos/host/ios/RPCBridgeDemo/generated/` (Swift), and `demos/host/android/generated/` (Kotlin).
+This runs the codegen with the demo proto file, outputting to `demos/proto/generated/` (TypeScript), `demos/host/ios/RPCBridgeDemo/generated/` (Swift), and `demos/host/android/generated/` (Kotlin).
 
 ## Extending the Codegen for New Languages
 

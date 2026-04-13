@@ -11,7 +11,7 @@ Key properties:
 - **Protobuf-defined, JSON-encoded**: Frame structure is defined in `frame.proto` using a `oneof body` discriminator. On the wire, frames are serialized as JSON with structured clone semantics.
 - **Forward-compatible**: Unknown body variants are silently skipped. If no recognized key is present, the frame is ignored.
 - **Stream-oriented**: Multiple concurrent streams share a single transport, identified by stream IDs.
-- **Local IPC only**: Designed for collocated guest/host communication. No handshake, no version negotiation, no network-oriented complexity.
+- **Local IPC only**: Designed for collocated product/host communication. No handshake, no version negotiation, no network-oriented complexity.
 
 ## Frame Format
 
@@ -194,7 +194,7 @@ Receivers SHOULD handle unknown error codes gracefully by treating them as INTER
 
 ## What's Not in the Protocol
 
-Since this is a local IPC protocol between collocated guest and host (same device, same process), the following network-oriented features are intentionally omitted:
+Since this is a local IPC protocol between collocated product and host (same device, same process), the following network-oriented features are intentionally omitted:
 
 - **Handshake/version negotiation**: Guest and host are built and deployed together.
 - **Sequence numbers**: Message ordering is guaranteed by the single-threaded JS event loop and the underlying transport.

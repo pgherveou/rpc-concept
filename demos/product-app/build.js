@@ -4,7 +4,7 @@ await build({
   entryPoints: ['src/main.ts'],
   bundle: true,
   format: 'iife',
-  outfile: 'dist/guest.js',
+  outfile: 'dist/product.js',
   sourcemap: true,
   minify: false,
   jsx: 'automatic',

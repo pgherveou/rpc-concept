@@ -40,7 +40,7 @@ private class StreamInfo(
     val streamId: Int,
     val method: String,
 ) {
-    var state: StreamState = StreamState.OPEN
+    @Volatile var state: StreamState = StreamState.OPEN
     val incoming: Channel<ByteArray> = Channel(Channel.UNLIMITED)
     var handlerJob: Job? = null
 }

@@ -1,21 +1,24 @@
 /**
  * Electron Demo - Preload Script
  *
- * Receives a MessagePort from the main process and forwards it to the
- * renderer world via contextBridge. The guest app picks it up via
- * window.rpcBridge.getPort().
+ * Receives a MessagePort from the main process and transfers it to the
+ * renderer world via window.postMessage. We defer posting until DOMContentLoaded
+ * so boot.js has registered its listener.
  */
 
-import { contextBridge, ipcRenderer } from 'electron';
+import { ipcRenderer } from 'electron';
 
-const portPromise = new Promise<MessagePort>((resolve) => {
-  ipcRenderer.once('rpc-bridge-port', (event) => {
-    const [port] = event.ports;
-    if (port) resolve(port);
-  });
-  ipcRenderer.send('rpc-bridge-request-port');
-});
+ipcRenderer.once('rpc-bridge-port', (event) => {
+  const [port] = event.ports;
+  if (!port) return;
 
-contextBridge.exposeInMainWorld('rpcBridge', {
-  getPort: () => portPromise,
+  // Wait for scripts to load before transferring the port
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', () => {
+      window.postMessage({ type: 'rpc-bridge-port' }, '*', [port]);
+    });
+  } else {
+    window.postMessage({ type: 'rpc-bridge-port' }, '*', [port]);
+  }
 });
+ipcRenderer.send('rpc-bridge-request-port');

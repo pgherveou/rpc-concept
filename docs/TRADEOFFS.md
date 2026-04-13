@@ -4,14 +4,14 @@ This document captures the design tradeoffs made in the current implementation a
 
 ## Local IPC Only
 
-This framework is designed exclusively for local IPC between a guest app (web content) and its host (native code), both collocated inside the same app on the same device. Several network-oriented concerns are intentionally out of scope:
+This framework is designed exclusively for local IPC between a product app (web content) and its host (native code), both collocated inside the same app on the same device. Several network-oriented concerns are intentionally out of scope:
 
 - **No HTTP/2 framing**: Frames are passed through platform-native bridge APIs (MessagePort, WKWebView, WebView, Electron IPC) that provide their own framing and delivery guarantees.
 - **No TLS/authentication**: The communication channel is within the same process boundary. Security is handled by platform sandboxing (same-origin policy, WKWebView process isolation, app sandbox, Electron context isolation).
 - **No reconnection**: Transport lifecycle is managed by the platform. When a WebView is destroyed, creating a new one is an application-level concern.
 - **Single connection per transport**: Each WebView or iframe has exactly one bridge to its host. Connection pooling is unnecessary.
 - **No handshake/negotiation**: Guest and host are built and deployed together, so version/capability negotiation is unnecessary.
-- **No flow control**: The host manages backpressure to backend services. The guest is UI-driven and does not produce unbounded message streams.
+- **No flow control**: The host manages backpressure to backend services. The product is UI-driven and does not produce unbounded message streams.
 
 ## Current Limitations
 
@@ -84,7 +84,7 @@ This could be implemented as a well-known service (e.g., `rpc.bridge.v1.Reflecti
 
 ## Multi-Product Support
 
-A host can embed multiple products (guest-apps), each in its own iframe or WebView. The term "product" is used to match the existing host-product-sdk naming convention.
+A host can embed multiple products, each in its own iframe or WebView.
 
 ### Transport-Level Isolation
 

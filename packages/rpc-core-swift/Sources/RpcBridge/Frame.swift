@@ -72,11 +72,16 @@ public struct AnyCodable: Codable, Sendable {
 
 public func frameToJSON(_ frame: RpcFrame) throws -> String {
     let data = try JSONEncoder().encode(frame)
-    return String(data: data, encoding: .utf8)!
+    guard let str = String(data: data, encoding: .utf8) else {
+        throw DecodingError.dataCorrupted(.init(codingPath: [], debugDescription: "Frame JSON is not valid UTF-8"))
+    }
+    return str
 }
 
 public func frameFromJSON(_ json: String) throws -> RpcFrame {
-    let data = json.data(using: .utf8)!
+    guard let data = json.data(using: .utf8) else {
+        throw DecodingError.dataCorrupted(.init(codingPath: [], debugDescription: "Input string is not valid UTF-8"))
+    }
     return try JSONDecoder().decode(RpcFrame.self, from: data)
 }
 

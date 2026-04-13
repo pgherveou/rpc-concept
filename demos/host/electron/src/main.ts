@@ -9,12 +9,12 @@
  *   Main Process (this file)            Renderer Process
  *   +--------------------------+       +--------------------------+
  *   | RpcServer                |       | (preload forwards port)  |
- *   | HelloBridgeService impl  |<----->| Guest app (RpcClient)    |
+ *   | HelloBridgeService impl  |<----->| Product app (RpcClient)  |
  *   | ElectronMainTransport    |  MP   | MessagePortTransport     |
  *   +--------------------------+       +--------------------------+
  *
  * The preload receives the MessagePort from main and forwards it to the
- * renderer via window.postMessage. The guest app picks it up the same
+ * renderer via window.postMessage. The product app picks it up the same
  * way as in the web iframe demo.
  */
 

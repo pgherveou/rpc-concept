@@ -1,6 +1,6 @@
 /**
- * Web Boot - Creates RpcClient from MessagePort and injects into guest app.
- * Loaded after guest.js in the iframe.
+ * Web Boot - Creates RpcClient from MessagePort and injects into product app.
+ * Loaded after product.js in the iframe.
  */
 
 import { RpcClient, createConsoleLogger } from '@rpc-bridge/core';

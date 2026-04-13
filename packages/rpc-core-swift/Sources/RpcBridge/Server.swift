@@ -64,10 +64,8 @@ final class ServerStream: @unchecked Sendable {
 
     init(streamId: UInt32) {
         self.streamId = streamId
-        var continuation: AsyncStream<Data>.Continuation!
-        self.messages = AsyncStream<Data> { c in
-            continuation = c
-        }
+        let (stream, continuation) = AsyncStream<Data>.makeStream()
+        self.messages = stream
         self.messageContinuation = continuation
     }
 

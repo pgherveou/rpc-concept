@@ -109,6 +109,9 @@ export function frameToJSON(frame: RpcFrame): string {
   );
 }
 
+// Body-type validation is intentionally omitted: the protocol's forward-compatibility
+// guarantee requires unknown frame types to pass through (see PROTOCOL.md).
+// Callers use the type guards above; unknown types hit the default/ignore path.
 export function frameFromJSON(json: string): RpcFrame {
   const obj = JSON.parse(json);
   if (typeof obj !== 'object' || obj === null || typeof obj.streamId !== 'number') {

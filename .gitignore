@@ -29,3 +29,5 @@ Thumbs.db
 .vscode/
 *.swp
 *.swo
+demos/host/android/.gradle/
+packages/rpc-core-android/.gradle/

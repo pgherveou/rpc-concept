@@ -10,7 +10,7 @@ await build({
   sourcemap: true,
 });
 
-// Bundle boot script (creates RpcClient from MessagePort, injects into guest)
+// Bundle boot script (creates RpcClient from MessagePort, injects into product)
 await build({
   entryPoints: ['src/boot.ts'],
   bundle: true,
@@ -23,8 +23,8 @@ await build({
 cpSync('src/host.html', 'dist/host.html');
 cpSync('src/iframe.html', 'dist/iframe.html');
 
-// Copy guest-app bundle
-cpSync('../../guest-app/dist/guest.js', 'dist/iframe.js');
-if (existsSync('../../guest-app/dist/guest.js.map')) {
-  cpSync('../../guest-app/dist/guest.js.map', 'dist/iframe.js.map');
+// Copy product-app bundle
+cpSync('../../product-app/dist/product.js', 'dist/iframe.js');
+if (existsSync('../../product-app/dist/product.js.map')) {
+  cpSync('../../product-app/dist/product.js.map', 'dist/iframe.js.map');
 }

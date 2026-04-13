@@ -26,7 +26,7 @@ await build({
   external: ['electron'],
 });
 
-// Bundle boot script (creates RpcClient from MessagePort, injects into guest)
+// Bundle boot script (creates RpcClient from MessagePort, injects into product)
 await build({
   entryPoints: ['src/boot.ts'],
   bundle: true,
@@ -35,6 +35,6 @@ await build({
   sourcemap: true,
 });
 
-// Copy HTML and guest app bundle
+// Copy HTML and product app bundle
 cpSync('src/index.html', 'dist/index.html');
-cpSync('../../guest-app/dist/guest.js', 'dist/guest.js');
+cpSync('../../product-app/dist/product.js', 'dist/product.js');

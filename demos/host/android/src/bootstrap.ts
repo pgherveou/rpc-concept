@@ -1,6 +1,6 @@
 /**
- * Android Boot - Creates RpcClient from AndroidWebViewTransport and injects into guest app.
- * Loaded after guest.js in the Android WebView.
+ * Android Boot - Creates RpcClient from AndroidWebViewTransport and injects into product app.
+ * Loaded after product.js in the Android WebView.
  */
 
 import { RpcClient, createConsoleLogger } from '@rpc-bridge/core';

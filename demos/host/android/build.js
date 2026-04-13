@@ -11,5 +11,5 @@ await build({
   minify: false,
 });
 
-// Copy guest-app bundle
-cpSync('../../guest-app/dist/guest.js', 'app/src/main/assets/web/guest.js');
+// Copy product-app bundle
+cpSync('../../product-app/dist/product.js', 'app/src/main/assets/web/product.js');

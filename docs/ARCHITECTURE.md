@@ -119,7 +119,7 @@ The `Transport` interface defines the minimal contract for sending and receiving
 ```typescript
 interface Transport {
   send(frame: RpcFrame): void;
-  onFrame(handler: FrameHandler): void;
+  onFrame(handler: FrameHandler): () => void;  // returns unsubscribe function
   onError(handler: TransportErrorHandler): void;
   onClose(handler: TransportCloseHandler): void;
   close(): void;
@@ -143,16 +143,16 @@ Each platform has a transport adapter that bridges the `Transport` interface to 
 
 ### Layer 6: Demo Applications
 
-Each demo has a **host** (native/platform code running the RPC server) and embeds the shared **guest app** (web client running the RPC client). The guest app lives in `demos/guest-app/` and is bundled per-platform.
+Each demo has a **host** (native/platform code running the RPC server) and embeds a shared **product app** (web client running the RPC client). The product app lives in `demos/product-app/` and is bundled per-platform.
 
 A host can embed multiple products simultaneously, each with its own transport and RpcServer. The transport itself is the routing mechanism: responses flow back through the same physical channel that received the request. See [TRADEOFFS.md](TRADEOFFS.md#multi-product-support) for details.
 
-- **`demos/proto`** -- Proto service definitions shared by guest and host. Generated code goes to `demos/generated/`.
-- **`demos/guest-app`** -- Shared guest web client (React). Single entry point (`main.ts`) with dual boot: MessagePort via `message` event (web/Electron) or direct transport injection via `window.__rpcBridgeBoot` (iOS/Android).
-- **`demos/host/web`** -- Web host: host page with `RpcServer`, sandboxed iframe loads guest app via `MessagePort`
-- **`demos/host/electron`** -- Electron host: main process server, sandboxed renderer loads guest app via `MessageChannelMain`
-- **`demos/host/ios`** -- iOS host: Swift app with `RpcBridgeServer`, `HelloServiceImpl`, WKWebView loads guest app
-- **`demos/host/android`** -- Android host: Gradle project with `RpcBridgeServer`, `HelloServiceImpl`, WebView loads guest app
+- **`demos/proto`** -- Proto service definitions shared by product and host. Generated code goes to `demos/proto/generated/`.
+- **`demos/product-app`** -- Shared product web client (React). Single entry point (`main.ts`) with dual boot: MessagePort via `message` event (web/Electron) or direct transport injection via `window.__rpcBridgeBoot` (iOS/Android).
+- **`demos/host/web`** -- Web host: host page with `RpcServer`, sandboxed iframe loads product app via `MessagePort`
+- **`demos/host/electron`** -- Electron host: main process server, sandboxed renderer loads product app via `MessageChannelMain`
+- **`demos/host/ios`** -- iOS host: Swift app with `RpcBridgeServer`, `HelloServiceImpl`, WKWebView loads product app
+- **`demos/host/android`** -- Android host: Gradle project with `RpcBridgeServer`, `HelloServiceImpl`, WebView loads product app
 
 ## Monorepo Structure
 
@@ -170,9 +170,9 @@ rpc-concept/
     transport-android/              Android WebView transport (JS side)
     transport-electron/             Electron transports (preload + main)
   demos/                          # Demo applications
-    proto/hello.proto               Demo service proto definition (shared by guest + host)
-    generated/                      Generated TS messages + stubs (client + server)
-    guest-app/                      Shared guest web client
+    proto/hello.proto               Demo service proto definition (shared by product + host)
+    proto/generated/                Generated TS messages + stubs (client + server)
+    product-app/                      Shared product web client
       src/main.ts                     Single entry point (dual boot)
       src/ui.ts                       Shared demo UI
     host/

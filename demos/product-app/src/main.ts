@@ -1,9 +1,9 @@
 /**
- * Guest App - Single Entry Point
+ * Product App - Single Entry Point
  *
- * Platform-agnostic guest. The host injects a ready-to-use RpcClient
+ * Platform-agnostic product. The host injects a ready-to-use RpcClient
  * by calling window.__rpcBridgeBoot(rpcClient).
- * The guest has no transport or boot-path knowledge.
+ * The product has no transport or boot-path knowledge.
  */
 
 import type { RpcClient } from '@rpc-bridge/core';

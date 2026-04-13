@@ -1,8 +1,8 @@
 {
-  "name": "@rpc-bridge/guest-app",
+  "name": "@rpc-bridge/product-app",
   "version": "0.1.0",
   "private": true,
-  "description": "Demo guest app: shared web client embedded in all platform hosts",
+  "description": "Demo product app: shared web client embedded in all platform hosts",
   "type": "module",
   "scripts": {
     "build": "tsc && node build.js"

@@ -96,7 +96,7 @@ const handler: IHelloBridgeServiceHandler = {
         timestamp: BigInt(Date.now()),
       };
 
-      await delay(500);
+      await delay(500, context.signal);
       responseSeq++;
       yield {
         from: 'bot',
@@ -146,6 +146,8 @@ function setupBridge(): void {
   const iframe = document.getElementById('client-frame') as HTMLIFrameElement;
   iframe.addEventListener('load', () => {
     logger.info('Iframe loaded, transferring MessagePort...');
+    // Wildcard origin is acceptable here: the iframe is same-origin, loaded from
+    // a local asset path. Production apps should use a specific origin.
     iframe.contentWindow!.postMessage(
       { type: 'rpc-bridge-init' },
       '*',

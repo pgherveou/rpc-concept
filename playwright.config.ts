@@ -12,6 +12,10 @@ export default defineConfig({
       },
     },
     {
+      name: 'electron',
+      testMatch: 'electron-demo.spec.ts',
+    },
+    {
       name: 'android',
       testMatch: 'android-demo.spec.ts',
     },
