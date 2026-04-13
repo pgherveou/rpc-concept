@@ -27,7 +27,7 @@ data class HelloRequest(
     @ProtoNumber(2) val language: String = ""
 ) {
 
-    fun encode(): ByteArray = ProtoBuf.encodeToByteArray(this)
+    fun encode(): ByteArray = ProtoBuf.encodeToByteArray(serializer(), this)
 
     fun toJSON(): JSONObject {
         val o = JSONObject()
@@ -37,7 +37,7 @@ data class HelloRequest(
     }
 
     companion object {
-        fun decode(data: ByteArray): HelloRequest = ProtoBuf.decodeFromByteArray(data)
+        fun decode(data: ByteArray): HelloRequest = ProtoBuf.decodeFromByteArray(serializer(), data)
 
         fun fromJSON(o: JSONObject): HelloRequest {
             return HelloRequest(
@@ -55,7 +55,7 @@ data class HelloResponse(
     @ProtoNumber(3) val serverVersion: String = ""
 ) {
 
-    fun encode(): ByteArray = ProtoBuf.encodeToByteArray(this)
+    fun encode(): ByteArray = ProtoBuf.encodeToByteArray(serializer(), this)
 
     fun toJSON(): JSONObject {
         val o = JSONObject()
@@ -66,7 +66,7 @@ data class HelloResponse(
     }
 
     companion object {
-        fun decode(data: ByteArray): HelloResponse = ProtoBuf.decodeFromByteArray(data)
+        fun decode(data: ByteArray): HelloResponse = ProtoBuf.decodeFromByteArray(serializer(), data)
 
         fun fromJSON(o: JSONObject): HelloResponse {
             return HelloResponse(
@@ -85,7 +85,7 @@ data class GreetingStreamRequest(
     @ProtoNumber(3) val intervalMs: UInt = 0u
 ) {
 
-    fun encode(): ByteArray = ProtoBuf.encodeToByteArray(this)
+    fun encode(): ByteArray = ProtoBuf.encodeToByteArray(serializer(), this)
 
     fun toJSON(): JSONObject {
         val o = JSONObject()
@@ -96,7 +96,7 @@ data class GreetingStreamRequest(
     }
 
     companion object {
-        fun decode(data: ByteArray): GreetingStreamRequest = ProtoBuf.decodeFromByteArray(data)
+        fun decode(data: ByteArray): GreetingStreamRequest = ProtoBuf.decodeFromByteArray(serializer(), data)
 
         fun fromJSON(o: JSONObject): GreetingStreamRequest {
             return GreetingStreamRequest(
@@ -115,7 +115,7 @@ data class GreetingEvent(
     @ProtoNumber(3) val timestamp: ULong = 0uL
 ) {
 
-    fun encode(): ByteArray = ProtoBuf.encodeToByteArray(this)
+    fun encode(): ByteArray = ProtoBuf.encodeToByteArray(serializer(), this)
 
     fun toJSON(): JSONObject {
         val o = JSONObject()
@@ -126,7 +126,7 @@ data class GreetingEvent(
     }
 
     companion object {
-        fun decode(data: ByteArray): GreetingEvent = ProtoBuf.decodeFromByteArray(data)
+        fun decode(data: ByteArray): GreetingEvent = ProtoBuf.decodeFromByteArray(serializer(), data)
 
         fun fromJSON(o: JSONObject): GreetingEvent {
             return GreetingEvent(
@@ -143,7 +143,7 @@ data class CollectNamesRequest(
     @ProtoNumber(1) val name: String = ""
 ) {
 
-    fun encode(): ByteArray = ProtoBuf.encodeToByteArray(this)
+    fun encode(): ByteArray = ProtoBuf.encodeToByteArray(serializer(), this)
 
     fun toJSON(): JSONObject {
         val o = JSONObject()
@@ -152,7 +152,7 @@ data class CollectNamesRequest(
     }
 
     companion object {
-        fun decode(data: ByteArray): CollectNamesRequest = ProtoBuf.decodeFromByteArray(data)
+        fun decode(data: ByteArray): CollectNamesRequest = ProtoBuf.decodeFromByteArray(serializer(), data)
 
         fun fromJSON(o: JSONObject): CollectNamesRequest {
             return CollectNamesRequest(
@@ -168,7 +168,7 @@ data class CollectNamesResponse(
     @ProtoNumber(2) val count: UInt = 0u
 ) {
 
-    fun encode(): ByteArray = ProtoBuf.encodeToByteArray(this)
+    fun encode(): ByteArray = ProtoBuf.encodeToByteArray(serializer(), this)
 
     fun toJSON(): JSONObject {
         val o = JSONObject()
@@ -178,7 +178,7 @@ data class CollectNamesResponse(
     }
 
     companion object {
-        fun decode(data: ByteArray): CollectNamesResponse = ProtoBuf.decodeFromByteArray(data)
+        fun decode(data: ByteArray): CollectNamesResponse = ProtoBuf.decodeFromByteArray(serializer(), data)
 
         fun fromJSON(o: JSONObject): CollectNamesResponse {
             return CollectNamesResponse(
@@ -197,7 +197,7 @@ data class ChatMessage(
     @ProtoNumber(4) val timestamp: ULong = 0uL
 ) {
 
-    fun encode(): ByteArray = ProtoBuf.encodeToByteArray(this)
+    fun encode(): ByteArray = ProtoBuf.encodeToByteArray(serializer(), this)
 
     fun toJSON(): JSONObject {
         val o = JSONObject()
@@ -209,7 +209,7 @@ data class ChatMessage(
     }
 
     companion object {
-        fun decode(data: ByteArray): ChatMessage = ProtoBuf.decodeFromByteArray(data)
+        fun decode(data: ByteArray): ChatMessage = ProtoBuf.decodeFromByteArray(serializer(), data)
 
         fun fromJSON(o: JSONObject): ChatMessage {
             return ChatMessage(
@@ -238,7 +238,7 @@ class HelloBridgeServiceDispatcher(private val service: HelloBridgeService) : Se
     override val serviceName = "demo.hello.v1.HelloBridgeService"
 
     /** Dispatch using JSON-encoded byte arrays (proto3 JSON mapping). */
-    suspend fun dispatchJSON(method: String, messages: Flow<ByteArray>): DispatchResult {
+    override suspend fun dispatchJSON(method: String, messages: Flow<ByteArray>): DispatchResult {
         return when (method) {
             "demo.hello.v1.HelloBridgeService/SayHello" -> {
                 val request = HelloRequest.fromJSON(JSONObject(String(messages.first())))

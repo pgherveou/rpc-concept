@@ -19,12 +19,14 @@
     "build:transport-android": "cd packages/transport-android && npm run build",
     "build:transport-electron": "cd packages/transport-electron && npm run build",
     "build:guest-app": "cd demos/guest-app && npm run build",
-    "build:hosts": "npm run build:host-web && npm run build:host-electron",
+    "build:host-android": "cd demos/host/android && npm run build",
+    "build:hosts": "npm run build:host-web && npm run build:host-electron && npm run build:host-android",
     "build:host-web": "cd demos/host/web && npm run build",
     "build:host-electron": "cd demos/host/electron && npm run build",
     "generate": "cd packages/codegen && npm run generate",
     "test": "cd tests && npm test",
-    "test:e2e": "playwright test",
+    "test:e2e": "playwright test --project=web",
+    "test:e2e:android": "playwright test --project=android",
     "clean": "rm -rf packages/*/dist packages/*/*.tsbuildinfo demos/guest-app/dist demos/host/*/dist tests/dist"
   },
   "devDependencies": {

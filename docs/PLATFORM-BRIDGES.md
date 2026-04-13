@@ -102,11 +102,11 @@ protected sendRaw(data: unknown): void {
 
 ```
 Host Page                              Sandboxed Iframe
-+-----------------------+              +-----------------------+
-| PostMessageTransport  |              | PostMessageTransport  |
++-----------------------+             +-----------------------+
+| PostMessageTransport  |             | PostMessageTransport  |
 |   target: iframe.cw   |--- pM ----->|   target: parent      |
 |   source: window      |<--- pM -----|   source: window      |
-+-----------------------+              +-----------------------+
++-----------------------+             +-----------------------+
 ```
 
 ### How It Works

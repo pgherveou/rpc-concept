@@ -7,9 +7,9 @@
  * Architecture:
  *   Host Page (this file)          Sandboxed Iframe
  *   +---------------------+       +---------------------+
- *   | RpcServer            |       | RpcClient            |
- *   | HelloServiceImpl     |<----->| HelloServiceClient   |
- *   | MessagePortTransport |  MP   | MessagePortTransport |
+ *   | RpcServer           |       | RpcClient           |
+ *   | HelloServiceImpl    |<----->| HelloServiceClient  |
+ *   | MessagePortTransport|  MP   | MessagePortTransport|
  *   +---------------------+       +---------------------+
  */
 

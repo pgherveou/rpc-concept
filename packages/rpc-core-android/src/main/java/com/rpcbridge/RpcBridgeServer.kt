@@ -22,6 +22,7 @@ sealed class DispatchResult {
 interface ServiceDispatcher {
     val serviceName: String
     suspend fun dispatch(method: String, messages: Flow<ByteArray>): DispatchResult
+    suspend fun dispatchJSON(method: String, messages: Flow<ByteArray>): DispatchResult = dispatch(method, messages)
 }
 
 // ---------------------------------------------------------------------------
@@ -110,7 +111,7 @@ class RpcBridgeServer(
         streamInfo.handlerJob = scope.launch {
             try {
                 val messagesFlow = channelToFlow(streamInfo)
-                val result = dispatcher.dispatch(method, messagesFlow)
+                val result = dispatcher.dispatchJSON(method, messagesFlow)
 
                 when (result) {
                     is DispatchResult.Unary -> {

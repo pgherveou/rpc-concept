@@ -145,6 +145,8 @@ Each platform has a transport adapter that bridges the `Transport` interface to 
 
 Each demo has a **host** (native/platform code running the RPC server) and embeds the shared **guest app** (web client running the RPC client). The guest app lives in `demos/guest-app/` and is bundled per-platform.
 
+A host can embed multiple products simultaneously, each with its own transport and RpcServer. The transport itself is the routing mechanism: responses flow back through the same physical channel that received the request. See [TRADEOFFS.md](TRADEOFFS.md#multi-product-support) for details.
+
 - **`demos/proto`** -- Proto service definitions shared by guest and host. Generated code goes to `demos/generated/`.
 - **`demos/guest-app`** -- Shared guest web client (React). Single entry point (`main.ts`) with dual boot: MessagePort via `message` event (web/Electron) or direct transport injection via `window.__rpcBridgeBoot` (iOS/Android).
 - **`demos/host/web`** -- Web host: host page with `RpcServer`, sandboxed iframe loads guest app via `MessagePort`
@@ -238,12 +240,12 @@ The frame protocol is intentionally minimal for local IPC:
 ```
 Client                                    Server
   |                                         |
-  |--- OPEN (method) --------------------->|
+  |--- OPEN (method) ---------------------->|
   |--- MESSAGE (request payload) ---------->|
   |--- HALF_CLOSE ------------------------->|
   |                                         |  (dispatches to handler)
   |<-- MESSAGE (response payload) ----------|
-  |<-- CLOSE ------------------------------|
+  |<-- CLOSE -------------------------------|
   |                                         |
 ```
 
@@ -252,15 +254,15 @@ Client                                    Server
 ```
 Client                                    Server
   |                                         |
-  |--- OPEN (method) --------------------->|
+  |--- OPEN (method) ---------------------->|
   |--- MESSAGE (request payload) ---------->|
   |--- HALF_CLOSE ------------------------->|
   |                                         |  (dispatches to handler)
-  |<-- MESSAGE (response 1) ---------------|
-  |<-- MESSAGE (response 2) ---------------|
-  |<-- MESSAGE (response 3) ---------------|
+  |<-- MESSAGE (response 1) ----------------|
+  |<-- MESSAGE (response 2) ----------------|
+  |<-- MESSAGE (response 3) ----------------|
   |<-- ...                                  |
-  |<-- CLOSE ------------------------------|
+  |<-- CLOSE -------------------------------|
   |                                         |
 ```
 
@@ -269,14 +271,14 @@ Client                                    Server
 ```
 Client                                    Server
   |                                         |
-  |--- OPEN (method) --------------------->|
-  |--- MESSAGE (request 1) --------------->|
-  |--- MESSAGE (request 2) --------------->|
-  |--- MESSAGE (request 3) --------------->|
+  |--- OPEN (method) ---------------------->|
+  |--- MESSAGE (request 1) ---------------->|
+  |--- MESSAGE (request 2) ---------------->|
+  |--- MESSAGE (request 3) ---------------->|
   |--- HALF_CLOSE ------------------------->|
   |                                         |  (handler processes all requests)
   |<-- MESSAGE (response payload) ----------|
-  |<-- CLOSE ------------------------------|
+  |<-- CLOSE -------------------------------|
   |                                         |
 ```
 
@@ -285,16 +287,16 @@ Client                                    Server
 ```
 Client                                    Server
   |                                         |
-  |--- OPEN (method) --------------------->|
-  |--- MESSAGE (request 1) --------------->|
-  |<-- MESSAGE (response 1) ---------------|
-  |--- MESSAGE (request 2) --------------->|
-  |<-- MESSAGE (response 2a) --------------|
-  |<-- MESSAGE (response 2b) --------------|
-  |--- MESSAGE (request 3) --------------->|
+  |--- OPEN (method) ---------------------->|
+  |--- MESSAGE (request 1) ---------------->|
+  |<-- MESSAGE (response 1) ----------------|
+  |--- MESSAGE (request 2) ---------------->|
+  |<-- MESSAGE (response 2a) ---------------|
+  |<-- MESSAGE (response 2b) ---------------|
+  |--- MESSAGE (request 3) ---------------->|
   |--- HALF_CLOSE ------------------------->|
-  |<-- MESSAGE (response 3) ---------------|
-  |<-- CLOSE ------------------------------|
+  |<-- MESSAGE (response 3) ----------------|
+  |<-- CLOSE -------------------------------|
   |                                         |
 ```
 

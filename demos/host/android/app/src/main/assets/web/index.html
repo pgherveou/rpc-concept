@@ -4,62 +4,12 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
   <title>RPC Bridge Demo - Android</title>
-  <style>
-    /* Inline styles since we load from assets */
-    .rpc-demo { font-family: -apple-system, sans-serif; max-width: 100%; padding: 12px; color: #333; }
-    h1 { font-size: 1.3rem; border-bottom: 2px solid #4a90d9; padding-bottom: 8px; }
-    h2 { font-size: 1rem; color: #4a90d9; margin-top: 16px; }
-    .section { margin-bottom: 12px; }
-    .row { display: flex; gap: 6px; margin: 6px 0; align-items: center; flex-wrap: wrap; }
-    input[type="text"] { flex: 1; padding: 8px; border: 1px solid #ccc; border-radius: 4px; font-size: 14px; min-width: 120px; }
-    button { padding: 8px 12px; background: #4a90d9; color: white; border: none; border-radius: 4px; cursor: pointer; font-size: 13px; }
-    .log-panel { background: #1e1e1e; color: #d4d4d4; padding: 10px; border-radius: 4px; font-family: monospace; font-size: 11px; max-height: 200px; overflow-y: auto; min-height: 80px; }
-    .chat-panel { min-height: 100px; max-height: 150px; }
-    .log-entry { margin: 2px 0; }
-    .log-error { margin: 2px 0; color: #f44; }
-    .chat-entry { margin: 2px 0; color: #8cd; }
-  </style>
 </head>
 <body>
   <div id="app">
     <p>Connecting to native bridge...</p>
   </div>
-  <script>
-    // Simple inline client for Android WebView demo
-    // In production, this would use the bundled shared-ui and generated client
-
-    function encodeMsg(obj) { return btoa(JSON.stringify(obj)); }
-    function decodeMsg(b64) { return JSON.parse(atob(b64)); }
-
-    // The RPC calls go through the Android bridge interface
-    // which is injected as window.RpcBridge by the native code.
-    // The native side handles the full RPC protocol.
-
-    document.getElementById('app').innerHTML = '<div class="rpc-demo">' +
-      '<h1>RPC Bridge Demo - Android</h1>' +
-      '<section class="section"><h2>Unary: SayHello</h2>' +
-      '<div class="row"><input id="input-name" type="text" value="World" /><button id="btn-hello">Say Hello</button></div></section>' +
-      '<section class="section"><h2>Server Stream: WatchGreeting</h2>' +
-      '<div class="row"><button id="btn-stream">Start</button><button id="btn-stop">Stop</button></div></section>' +
-      '<section class="section"><h2>Bidi: Chat</h2>' +
-      '<div class="row"><button id="btn-chat-start">Start Chat</button><button id="btn-chat-stop">End Chat</button></div>' +
-      '<div class="row"><input id="input-chat" type="text" placeholder="Message..." /><button id="btn-chat-send">Send</button></div>' +
-      '<div id="chat-log" class="log-panel chat-panel"></div></section>' +
-      '<section class="section"><h2>Log</h2><div id="log" class="log-panel"></div></section></div>';
-
-    var logEl = document.getElementById('log');
-    function log(msg, isErr) {
-      var d = document.createElement('div');
-      d.className = isErr ? 'log-error' : 'log-entry';
-      d.textContent = '[' + new Date().toLocaleTimeString() + '] ' + msg;
-      logEl.appendChild(d);
-      logEl.scrollTop = logEl.scrollHeight;
-    }
-
-    log('Android WebView demo loaded. Waiting for native bridge...');
-
-    // The native side will call window.__rpcBridgeReceive(base64) for incoming frames
-    // This is handled by the transport layer automatically
-  </script>
+  <script src="guest.js"></script>
+  <script src="bootstrap.js"></script>
 </body>
 </html>

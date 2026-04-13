@@ -31,8 +31,6 @@ final class HelloServiceImpl: DemoHelloV1.HelloBridgeServiceProvider, Sendable {
             greeting = "Bonjour, \(name)!"
         case "de":
             greeting = "Hallo, \(name)!"
-        case "ja":
-            greeting = "こんにちは、\(name)!"
         default:
             greeting = "Hello, \(name)!"
         }

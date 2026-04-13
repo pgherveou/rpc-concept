@@ -132,10 +132,9 @@ Signals an error on the stream. Terminates the stream immediately.
 ### Stream ID Allocation
 
 - Stream ID **0** is reserved (unused).
-- **Odd** stream IDs (1, 3, 5, ...) are client-initiated (standard RPC calls).
-- **Even** stream IDs (2, 4, 6, ...) are reserved for future server-initiated streams.
+- All streams are **client-initiated**. The client allocates odd stream IDs by incrementing by 2 from 1 (1, 3, 5, ...).
 
-The client allocates stream IDs by incrementing by 2 from 1 (1, 3, 5, ...).
+Server push, subscriptions, and reverse-request patterns are all handled through client-initiated streams (server-streaming or bidi-streaming). The client opens the stream to signal readiness, and the server pushes messages on that stream.
 
 ### State Machine
 

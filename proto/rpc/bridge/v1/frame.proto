@@ -33,7 +33,7 @@ message ErrorBody {
 
 message RpcFrame {
   // Logical stream identifier. 0 is reserved.
-  // Odd IDs are client-initiated, even IDs reserved for future use.
+  // All streams are client-initiated with odd IDs (1, 3, 5, ...).
   uint32 stream_id = 1;
 
   oneof body {

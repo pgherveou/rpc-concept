@@ -198,7 +198,7 @@ function emitMessage(
 
   // encode()
   emit(0, '');
-  emit(1, 'fun encode(): ByteArray = ProtoBuf.encodeToByteArray(this)');
+  emit(1, `fun encode(): ByteArray = ProtoBuf.encodeToByteArray(serializer(), this)`);
 
   // toJSON()
   emit(0, '');
@@ -273,7 +273,7 @@ function emitMessage(
   // companion object with decode() and fromJSON()
   emit(0, '');
   emit(1, 'companion object {');
-  emit(2, `fun decode(data: ByteArray): ${msg.name} = ProtoBuf.decodeFromByteArray(data)`);
+  emit(2, `fun decode(data: ByteArray): ${msg.name} = ProtoBuf.decodeFromByteArray(serializer(), data)`);
   emit(0, '');
   emit(2, `fun fromJSON(o: JSONObject): ${msg.name} {`);
   emit(3, `return ${msg.name}(`);
@@ -421,7 +421,7 @@ function emitDispatcher(
 
   // JSON-based dispatch method
   emit(1, '/** Dispatch using JSON-encoded byte arrays (proto3 JSON mapping). */');
-  emit(1, 'suspend fun dispatchJSON(method: String, messages: Flow<ByteArray>): DispatchResult {');
+  emit(1, 'override suspend fun dispatchJSON(method: String, messages: Flow<ByteArray>): DispatchResult {');
   emit(2, 'return when (method) {');
 
   for (const m of svc.methods) {

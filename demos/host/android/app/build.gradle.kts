@@ -8,6 +8,10 @@ android {
     namespace = "com.demo.rpcbridge"
     compileSdk = 34
 
+    buildFeatures {
+        buildConfig = true
+    }
+
     defaultConfig {
         applicationId = "com.demo.rpcbridge"
         minSdk = 24

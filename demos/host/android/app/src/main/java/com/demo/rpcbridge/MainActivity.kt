@@ -86,7 +86,7 @@ class MainActivity : AppCompatActivity() {
                 return true
             }
         }
-        webView.loadUrl("file:///android_asset/index.html")
+        webView.loadUrl("file:///android_asset/web/index.html")
 
         Log.i(TAG, "RPC bridge initialized, loading web content")
     }

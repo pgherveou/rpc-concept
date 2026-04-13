@@ -72,19 +72,6 @@ The current architecture has one transport per client-server pair. Future enhanc
 - Support multiple services registered on a single server (already supported in `RpcServer`).
 - Support multiple independent client stubs sharing a single transport/connection.
 
-### Server-Initiated Streams
-
-The protocol reserves even stream IDs for server-initiated streams. This would enable:
-
-- Server push notifications.
-- Server-initiated RPCs (reversing the call direction).
-- Event subscriptions without client polling.
-
-Implementation would require:
-- `RpcServer` allocating even-numbered stream IDs.
-- `RpcClient` having a handler registration mechanism (like the server's service registration).
-- Defining the OPEN flow for server-initiated streams.
-
 ### Reflection / Introspection
 
 Add a built-in reflection service that returns:
@@ -95,9 +82,59 @@ Add a built-in reflection service that returns:
 
 This could be implemented as a well-known service (e.g., `rpc.bridge.v1.Reflection`) registered automatically by the server.
 
+## Multi-Product Support
+
+A host can embed multiple products (guest-apps), each in its own iframe or WebView. The term "product" is used to match the existing host-product-sdk naming convention.
+
+### Transport-Level Isolation
+
+Each product gets its own transport. The transport **is** the routing: responses flow back through the same physical channel (MessagePort pair, WebView bridge) that received the request. No product identifier is needed on the wire because the channels are physically separate.
+
+```
+Host
+├── Product Manager
+│   ├── Product A: { RpcServer + Transport → iframe/WebView A }
+│   ├── Product B: { RpcServer + Transport → iframe/WebView B }
+│   └── Product C: { RpcServer + Transport → iframe/WebView C }
+│
+│   Shared host-level resources (injected into service implementations):
+│   ├── AuthManager (singleton)
+│   └── ChainConnectionManager (ref-counted per genesis hash)
+```
+
+Each product has:
+
+- **Its own `RpcServer`** bound to its own `Transport`. The server sends responses via `this.transport.send(...)`, which always goes back to the product that sent the request.
+- **Its own stream ID space**. Stream counters are per-transport, starting at 1. No cross-product collision.
+- **Independent lifecycle**. Creating or disposing one product does not affect others.
+
+### Why No Product ID on the Wire
+
+The host knows which product it is talking to from which transport received the frame. Adding a product identifier to every frame would be:
+
+- **Redundant**: The transport channel already identifies the product.
+- **Unverifiable**: A malicious product could spoof another product's ID.
+- **Unnecessary overhead**: Every frame would carry a field that the routing doesn't need.
+
+The product identity lives in the host's wiring code, where each `RpcServer` is created with product-scoped service implementations:
+
+```typescript
+function embedProduct(webview: WebView, productId: string) {
+  const transport = createTransport(webview);
+  const server = new RpcServer({ transport });
+  server.registerService(
+    createStorageDispatcher(new StorageService({ prefix: productId }))
+  );
+  return { transport, server, productId };
+}
+```
+
+### Shared Resources
+
+Host-level singletons (auth, chain connections) live above the RPC layer. Service implementations receive them via dependency injection and can share them across products with reference counting. This matches the host-product-sdk pattern where `AuthManager` is a singleton and `ChainConnectionManager` pools connections per genesis hash.
+
 ## Summary of Reserved Protocol Capacity
 
 | Feature | Mechanism | Status |
 |---------|-----------|--------|
-| Server-initiated streams | Even stream IDs | Reserved |
 | Future body variants | New `oneof body` alternatives | Additive, forward-compatible |

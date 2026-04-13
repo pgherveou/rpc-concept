@@ -88,11 +88,17 @@ class HelloServiceImpl : HelloBridgeService {
 
         requests.collect { incoming ->
             responseSeq++
-            val responseText = generateBotResponse(incoming.text)
-
             emit(ChatMessage(
                 from = "bot",
-                text = responseText,
+                text = "You said: \"${incoming.text}\" - that's interesting!",
+                seq = responseSeq,
+                timestamp = System.currentTimeMillis().toULong(),
+            ))
+
+            responseSeq++
+            emit(ChatMessage(
+                from = "bot",
+                text = getFollowUp(incoming.text),
                 seq = responseSeq,
                 timestamp = System.currentTimeMillis().toULong(),
             ))
@@ -100,21 +106,10 @@ class HelloServiceImpl : HelloBridgeService {
     }
 }
 
-private fun generateBotResponse(text: String): String {
-    val lower = text.lowercase().trim()
-
-    if (lower.contains("hello") || lower.contains("hi") || lower.contains("hey")) {
-        return "Hey there! How can I help you today?"
-    }
-    if (lower.contains("how are you")) {
-        return "I'm running great on Android! Thanks for asking."
-    }
-    if (lower.contains("bye") || lower.contains("goodbye")) {
-        return "Goodbye! It was nice chatting with you."
-    }
-    if (lower.endsWith("?")) {
-        return "That's a great question! Let me think... I'd say the answer is 42."
-    }
-
-    return "You said: \"$text\" - I'm a demo bot running natively on Android!"
+private fun getFollowUp(text: String): String {
+    val lower = text.lowercase()
+    if (lower.contains("hello") || lower.contains("hi")) return "Nice to meet you!"
+    if (lower.contains("?")) return "Great question! Let me think about that..."
+    if (lower.contains("bye")) return "Goodbye! Have a great day!"
+    return "Tell me more about that!"
 }

@@ -46,9 +46,10 @@ export class AndroidWebViewTransport extends MessageTransportBase {
     this.interfaceName = options.interfaceName ?? DEFAULT_INTERFACE_NAME;
     this.callbackName = options.callbackName ?? DEFAULT_CALLBACK_NAME;
 
-    // Register global callback for receiving messages from native
+    // Register global callback for receiving messages from native.
+    // Native sends base64-encoded JSON, so we decode before passing to the transport.
     (window as Record<string, unknown>)[this.callbackName] = (base64Frame: string) => {
-      this.handleRawMessage(base64Frame);
+      this.handleRawMessage(atob(base64Frame));
     };
 
     // Verify the interface exists
@@ -69,7 +70,7 @@ export class AndroidWebViewTransport extends MessageTransportBase {
     if (!bridge || typeof bridge.sendFrame !== 'function') {
       throw new Error(`Android bridge interface '${this.interfaceName}' not available`);
     }
-    (bridge.sendFrame as (s: string) => void)(data);
+    (bridge.sendFrame as (s: string) => void)(btoa(data));
   }
 
   close(): void {
