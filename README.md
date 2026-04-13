@@ -7,9 +7,9 @@
 [![Build](https://img.shields.io/badge/build-passing-brightgreen.svg)](#testing)
 [![TypeScript](https://img.shields.io/badge/TypeScript-5.4-3178c6.svg)](https://www.typescriptlang.org/)
 
-| iOS | Android | Electron |
-|:---:|:-------:|:--------:|
-| <img src="docs/images/playground-ios.png" alt="TruAPI Playground on iOS" width="300"> | <img src="docs/images/playground-android.png" alt="TruAPI Playground on Android" width="300"> | <img src="docs/images/playground-electron.png" alt="TruAPI Playground on Electron" width="300"> |
+| iOS | Android | Electron | Web |
+|:---:|:-------:|:--------:|:---:|
+| <img src="docs/images/playground-ios.png" alt="TruAPI Playground on iOS" width="300"> | <img src="docs/images/playground-android.png" alt="TruAPI Playground on Android" width="300"> | <img src="docs/images/playground-electron.png" alt="TruAPI Playground on Electron" width="300"> | <img src="docs/images/playground-web.png" alt="TruAPI Playground on Web" width="300"> |
 
 </div>
 
