@@ -21,44 +21,23 @@ RPC Bridge connects sandboxed product apps to their native host through platform
 - **Platform-native transports**: MessagePort, WKWebView handlers, Android WebView interfaces, Electron IPC. Structured clone where available, JSON strings where not.
 - **Forward-compatible**: Unknown fields and frame types are silently ignored. New methods return UNIMPLEMENTED to old clients.
 
-## Quick Start
+## Comparison with Existing Implementations
 
-<details>
-<summary>Prerequisites</summary>
+The Host API is currently spread across five repos, each hand-writing its own types, codecs, and dispatch logic.
 
-- Node.js 20+
-- npm 9+
-- For iOS: Xcode with Swift Package Manager
-- For Android: Android Studio with Gradle
-
-</details>
-
-```bash
-npm install
-npm run build
-```
-
-The build compiles the core runtime, code generator, transports, and demo apps in the correct order.
-
-### Generate code from proto
-
-```bash
-npm run generate
-```
-
-This reads your `.proto` service definitions and outputs typed messages, client stubs, and server interfaces for each target language:
-
-```bash
-rpc-bridge-codegen \
-  --proto demos/proto/hello.proto \
-  --ts-out demos/proto/generated \
-  --swift-out demos/host/ios/RPCBridgeDemo/generated \
-  --kotlin-out demos/host/android/generated
-```
+| | Current | RPC Bridge |
+|---|---|---|
+| **Schema** | Hand-written per repo and language | Single `.proto`, codegen for TS + Swift + Kotlin |
+| **Adding a method** | Coordinated changes across up to 5 repos | Add to `.proto`, re-run codegen |
+| **Streaming** | Server-push subscriptions only | Unary, server, client, and bidirectional |
+| **Platforms** | Each repo covers one platform | Web, iOS, Android, Electron from one codebase |
+| **Cross-language safety** | Nothing enforces agreement between repos | All languages derive types from the same schema |
 
 ## Usage
 
 ### Define a service
+
+> The demo uses a simple `HelloBridgeService` to illustrate all four RPC patterns. In practice, this framework is designed to implement the full TrUAPI surface: define the services in `.proto`, generate stubs for every platform, and replace the per-platform hand-written implementations with a single codegen pipeline.
 
 ```protobuf
 syntax = "proto3";
@@ -78,6 +57,16 @@ service HelloBridgeService {
   rpc WatchGreeting(GreetingStreamRequest) returns (stream GreetingEvent);
   rpc Chat(stream ChatMessage) returns (stream ChatMessage);
 }
+```
+
+### Generate code from proto
+
+```bash
+rpc-bridge-codegen \
+  --proto demos/proto/hello.proto \
+  --ts-out demos/proto/generated \
+  --swift-out demos/host/ios/RPCBridgeDemo/generated \
+  --kotlin-out demos/host/android/generated
 ```
 
 ### Implement the server (host side)
@@ -138,18 +127,28 @@ for await (const msg of client.chat(outgoing())) {
 }
 ```
 
-The demo uses a simple `HelloBridgeService` to illustrate all four RPC patterns. In practice, this framework is designed to implement the full TrUAPI surface: define the services in `.proto`, generate stubs for every platform, and replace the per-platform hand-written implementations with a single codegen pipeline.
+## Getting Started
 
-## Running the Demos
+<details>
+<summary>Prerequisites</summary>
+
+- Node.js 20+, npm 9+
+- For iOS: Xcode with Swift Package Manager
+- For Android: Android Studio with Gradle
+
+</details>
+
+```bash
+npm install
+npm run build     # core -> codegen -> generate -> transports -> demos
+```
 
 ### Web (iframe + MessagePort)
 
 ```bash
-cd demos/host/web && npm run build && npm run serve
+cd demos/host/web && npm run serve
 # Open http://localhost:3000
 ```
-
-The host page runs the RPC server; the sandboxed iframe runs the product client. Communication flows over a MessagePort channel.
 
 ### Electron (MessageChannelMain)
 
@@ -159,11 +158,11 @@ cd demos/host/electron && npm run start
 
 ### iOS (WKWebView)
 
-Open `demos/host/ios/Package.swift` in Xcode. The Swift host implements `HelloBridgeService` and bridges to the product via WKWebView script message handlers.
+Open `demos/host/ios/Package.swift` in Xcode.
 
 ### Android (WebView)
 
-Open `demos/host/android/` in Android Studio. The Kotlin host implements `HelloBridgeService` and bridges to the product via `@JavascriptInterface`.
+Open `demos/host/android/` in Android Studio.
 
 ## Testing
 
@@ -201,18 +200,22 @@ docs/                               Design and architecture docs
 
 ## How It Works
 
-RPC Bridge uses a simple frame-based protocol over platform-native message passing. Each RPC call gets a unique stream ID, and frames flow in both directions to support streaming patterns.
+Each RPC call gets a unique stream ID. Frames flow in both directions over platform-native message passing.
 
-```
-Product (web content)                  Host (native code)
-  │                                     │
-  │─── OPEN {service, method} ─────────▶│
-  │◀── MESSAGE {response payload} ──────│
-  │◀── CLOSE ───────────────────────────│
-  │                                     │
+```mermaid
+sequenceDiagram
+    participant P as Product (web content)
+    participant H as Host (native code)
+
+    P->>H: OPEN {service, method, payload}
+    H->>P: MESSAGE {response payload}
+    H->>P: CLOSE
+
+    Note over P,H: Streaming: multiple MESSAGE frames before CLOSE
+    Note over P,H: Cancellation: either side can send CANCEL
 ```
 
-Frames are JSON-encoded with a `oneof` body discriminator (Open, Message, HalfClose, Close, Cancel, Error). Each platform uses the most efficient channel available: structured clone for web/Electron, JSON strings for iOS/Android.
+Each platform uses the most efficient channel available: structured clone for web/Electron, JSON strings for iOS/Android.
 
 ## Documentation
 
