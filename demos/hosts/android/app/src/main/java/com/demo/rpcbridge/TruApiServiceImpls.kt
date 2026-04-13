@@ -12,17 +12,17 @@ private const val TAG = "TruApiServices"
 class GeneralServiceImpl : GeneralService {
     override suspend fun featureSupported(request: FeatureSupportedRequest): FeatureSupportedResponse {
         Log.d(TAG, "featureSupported")
-        return FeatureSupportedResponse()
+        return FeatureSupportedResponse(result = FeatureSupportedResponseResult.Supported(true))
     }
 
     override suspend fun navigateTo(request: NavigateToRequest): NavigateToResponse {
         Log.d(TAG, "navigateTo: ${request.url}")
-        return NavigateToResponse()
+        return NavigateToResponse(result = NavigateToResponseResult.Ok)
     }
 
     override suspend fun pushNotification(request: PushNotification): PushNotificationResponse {
         Log.d(TAG, "pushNotification: ${request.text}")
-        return PushNotificationResponse()
+        return PushNotificationResponse(result = PushNotificationResponseResult.Ok)
     }
 }
 
@@ -31,22 +31,30 @@ class GeneralServiceImpl : GeneralService {
 class AccountServiceImpl : AccountService {
     override suspend fun getAccount(request: GetAccountRequest): GetAccountResponse {
         Log.d(TAG, "getAccount")
-        return GetAccountResponse()
+        return GetAccountResponse(
+            result = GetAccountResponseResult.Account(Account(publicKey = ByteArray(32), name = "Alice"))
+        )
     }
 
     override suspend fun getAlias(request: GetAliasRequest): GetAliasResponse {
         Log.d(TAG, "getAlias")
-        return GetAliasResponse()
+        return GetAliasResponse(
+            result = GetAliasResponseResult.Alias(ContextualAlias(context = ByteArray(0), alias = ByteArray(0)))
+        )
     }
 
     override suspend fun createProof(request: CreateProofRequest): CreateProofResponse {
         Log.d(TAG, "createProof")
-        return CreateProofResponse()
+        return CreateProofResponse(result = CreateProofResponseResult.Proof(ByteArray(64)))
     }
 
     override suspend fun getNonProductAccounts(request: GetNonProductAccountsRequest): GetNonProductAccountsResponse {
         Log.d(TAG, "getNonProductAccounts")
-        return GetNonProductAccountsResponse()
+        return GetNonProductAccountsResponse(
+            result = GetNonProductAccountsResponseResult.Accounts(
+                AccountList(accounts = listOf(Account(publicKey = ByteArray(32), name = "Bob")))
+            )
+        )
     }
 
     override fun connectionStatusSubscribe(request: ConnectionStatusRequest): Flow<AccountConnectionStatusEvent> = flow {
@@ -56,7 +64,11 @@ class AccountServiceImpl : AccountService {
 
     override suspend fun getUserId(request: GetUserIdRequest): GetUserIdResponse {
         Log.d(TAG, "getUserId")
-        return GetUserIdResponse()
+        return GetUserIdResponse(
+            result = GetUserIdResponseResult.Identity(
+                UserIdentity(dotNsIdentifier = "mock-user", publicKey = ByteArray(32))
+            )
+        )
     }
 }
 
@@ -65,70 +77,95 @@ class AccountServiceImpl : AccountService {
 class ChainServiceImpl : ChainService {
     override fun headFollow(request: ChainHeadFollowRequest): Flow<ChainHeadEvent> = flow {
         Log.d(TAG, "headFollow")
-        // Emit 3 events (all empty since ChainHeadEvent has no oneof fields in codegen)
-        emit(ChainHeadEvent())
-        emit(ChainHeadEvent())
-        emit(ChainHeadEvent())
+        emit(ChainHeadEvent(event = ChainHeadEventEvent.Initialized(
+            Initialized(finalizedBlockHashes = listOf(ByteArray(32)), finalizedBlockRuntime = RuntimeType())
+        )))
+        emit(ChainHeadEvent(event = ChainHeadEventEvent.NewBlock(
+            NewBlock(blockHash = ByteArray(32), parentBlockHash = ByteArray(32), newRuntime = RuntimeType())
+        )))
+        emit(ChainHeadEvent(event = ChainHeadEventEvent.BestBlockChanged(
+            BestBlockChanged(bestBlockHash = ByteArray(32))
+        )))
     }
 
     override suspend fun headHeader(request: ChainHeadBlockRequest): ChainHeadHeaderResponse {
         Log.d(TAG, "headHeader")
-        return ChainHeadHeaderResponse()
+        return ChainHeadHeaderResponse(
+            result = ChainHeadHeaderResponseResult.Value(ChainHeadHeaderValue(header = ByteArray(80)))
+        )
     }
 
     override suspend fun headBody(request: ChainHeadBlockRequest): OperationStartedResponse {
         Log.d(TAG, "headBody")
-        return OperationStartedResponse()
+        return OperationStartedResponse(
+            result = OperationStartedResponseResult.Value(
+                OperationStartedResult(result = OperationStartedResultResult.OperationId("op-1"))
+            )
+        )
     }
 
     override suspend fun headStorage(request: ChainHeadStorageRequest): OperationStartedResponse {
         Log.d(TAG, "headStorage")
-        return OperationStartedResponse()
+        return OperationStartedResponse(
+            result = OperationStartedResponseResult.Value(
+                OperationStartedResult(result = OperationStartedResultResult.OperationId("op-2"))
+            )
+        )
     }
 
     override suspend fun headCall(request: ChainHeadCallRequest): OperationStartedResponse {
         Log.d(TAG, "headCall")
-        return OperationStartedResponse()
+        return OperationStartedResponse(
+            result = OperationStartedResponseResult.Value(
+                OperationStartedResult(result = OperationStartedResultResult.OperationId("op-3"))
+            )
+        )
     }
 
     override suspend fun headUnpin(request: ChainHeadUnpinRequest): ChainVoidResponse {
         Log.d(TAG, "headUnpin")
-        return ChainVoidResponse()
+        return ChainVoidResponse(result = ChainVoidResponseResult.Ok)
     }
 
     override suspend fun headContinue(request: ChainHeadOperationRequest): ChainVoidResponse {
         Log.d(TAG, "headContinue")
-        return ChainVoidResponse()
+        return ChainVoidResponse(result = ChainVoidResponseResult.Ok)
     }
 
     override suspend fun headStopOperation(request: ChainHeadOperationRequest): ChainVoidResponse {
         Log.d(TAG, "headStopOperation")
-        return ChainVoidResponse()
+        return ChainVoidResponse(result = ChainVoidResponseResult.Ok)
     }
 
     override suspend fun specGenesisHash(request: ChainGenesisRequest): ChainBytesResponse {
         Log.d(TAG, "specGenesisHash")
-        return ChainBytesResponse()
+        return ChainBytesResponse(result = ChainBytesResponseResult.Value(ByteArray(32)))
     }
 
     override suspend fun specChainName(request: ChainGenesisRequest): ChainStringResponse {
         Log.d(TAG, "specChainName")
-        return ChainStringResponse()
+        return ChainStringResponse(result = ChainStringResponseResult.Value("Mock Chain"))
     }
 
     override suspend fun specProperties(request: ChainGenesisRequest): ChainStringResponse {
         Log.d(TAG, "specProperties")
-        return ChainStringResponse()
+        return ChainStringResponse(
+            result = ChainStringResponseResult.Value("{\"tokenSymbol\":\"DOT\",\"tokenDecimals\":10}")
+        )
     }
 
     override suspend fun transactionBroadcast(request: ChainTransactionBroadcastRequest): ChainTransactionBroadcastResponse {
         Log.d(TAG, "transactionBroadcast")
-        return ChainTransactionBroadcastResponse()
+        return ChainTransactionBroadcastResponse(
+            result = ChainTransactionBroadcastResponseResult.Value(
+                ChainTransactionBroadcastValue(operationId = "tx-op-1")
+            )
+        )
     }
 
     override suspend fun transactionStop(request: ChainTransactionStopRequest): ChainVoidResponse {
         Log.d(TAG, "transactionStop")
-        return ChainVoidResponse()
+        return ChainVoidResponse(result = ChainVoidResponseResult.Ok)
     }
 }
 
@@ -137,37 +174,49 @@ class ChainServiceImpl : ChainService {
 class ChatServiceImpl : ChatService {
     override suspend fun createRoom(request: ChatRoomRequest): ChatRoomResponse {
         Log.d(TAG, "createRoom")
-        return ChatRoomResponse()
+        return ChatRoomResponse(
+            result = ChatRoomResponseResult.Ok(ChatRoomRegistrationResult())
+        )
     }
 
     override suspend fun createSimpleGroup(request: SimpleGroupChatRequest): SimpleGroupChatResponse {
         Log.d(TAG, "createSimpleGroup")
-        return SimpleGroupChatResponse()
+        return SimpleGroupChatResponse(
+            result = SimpleGroupChatResponseResult.Ok(
+                SimpleGroupChatResult(joinLink = "https://mock.link/join")
+            )
+        )
     }
 
     override suspend fun registerBot(request: ChatBotRequest): ChatBotResponse {
         Log.d(TAG, "registerBot")
-        return ChatBotResponse()
+        return ChatBotResponse(
+            result = ChatBotResponseResult.Ok(ChatBotRegistrationResult())
+        )
     }
 
     override suspend fun postMessage(request: ChatPostMessageRequest): ChatPostMessageResponse {
         Log.d(TAG, "postMessage")
-        return ChatPostMessageResponse()
+        return ChatPostMessageResponse(
+            result = ChatPostMessageResponseResult.Ok(ChatPostMessageResult(messageId = "mock-msg-1"))
+        )
     }
 
     override fun listSubscribe(request: ChatListRequest): Flow<ChatRoomList> = flow {
         Log.d(TAG, "listSubscribe")
-        emit(ChatRoomList())
+        emit(ChatRoomList(rooms = listOf(
+            ChatRoom(roomId = "room-1", participatingAs = ChatRoomParticipation.CHAT_ROOM_PARTICIPATION_ROOM_HOST)
+        )))
     }
 
     override fun actionSubscribe(request: ChatActionRequest): Flow<ReceivedChatAction> = flow {
         Log.d(TAG, "actionSubscribe")
-        emit(ReceivedChatAction())
+        emit(ReceivedChatAction(roomId = "room-1", peer = "peer-1", payload = ChatActionPayload()))
     }
 
     override fun customRenderSubscribe(requests: Flow<CustomRendererNode>): Flow<CustomMessageRenderRequest> = flow {
         Log.d(TAG, "customRenderSubscribe")
-        emit(CustomMessageRenderRequest())
+        emit(CustomMessageRenderRequest(messageId = "msg-1", messageType = "mock", payload = ByteArray(0)))
     }
 }
 
@@ -176,26 +225,37 @@ class ChatServiceImpl : ChatService {
 class EntropyServiceImpl : EntropyService {
     override suspend fun deriveEntropy(request: DeriveEntropyRequest): DeriveEntropyResponse {
         Log.d(TAG, "deriveEntropy")
-        return DeriveEntropyResponse()
+        return DeriveEntropyResponse(result = DeriveEntropyResponseResult.Entropy(ByteArray(32)))
     }
 }
 
 // -- LocalStorageService --
 
 class LocalStorageServiceImpl : LocalStorageService {
+    private val store = mutableMapOf<String, ByteArray>()
+
     override suspend fun read(request: StorageReadRequest): StorageReadResponse {
         Log.d(TAG, "storage read: ${request.key}")
-        return StorageReadResponse()
+        val value = store[request.key]
+        return if (value != null) {
+            StorageReadResponse(result = StorageReadResponseResult.Value(StorageReadValue(data = value)))
+        } else {
+            StorageReadResponse(
+                result = StorageReadResponseResult.Error(StorageError(reason = "Key not found"))
+            )
+        }
     }
 
     override suspend fun write(request: StorageWriteRequest): StorageWriteResponse {
         Log.d(TAG, "storage write: ${request.key}")
-        return StorageWriteResponse()
+        store[request.key] = request.value
+        return StorageWriteResponse(result = StorageWriteResponseResult.Ok)
     }
 
     override suspend fun clear(request: StorageClearRequest): StorageClearResponse {
         Log.d(TAG, "storage clear: ${request.key}")
-        return StorageClearResponse()
+        store.remove(request.key)
+        return StorageClearResponse(result = StorageClearResponseResult.Ok)
     }
 }
 
@@ -204,22 +264,30 @@ class LocalStorageServiceImpl : LocalStorageService {
 class PaymentServiceImpl : PaymentService {
     override fun balanceSubscribe(request: PaymentBalanceRequest): Flow<PaymentBalanceEvent> = flow {
         Log.d(TAG, "balanceSubscribe")
-        emit(PaymentBalanceEvent())
+        emit(PaymentBalanceEvent(
+            result = PaymentBalanceEventResult.Balance(
+                PaymentBalance(available = "1000000000000", pending = "0")
+            )
+        ))
     }
 
     override suspend fun topUp(request: PaymentTopUpRequest): PaymentTopUpResponse {
         Log.d(TAG, "topUp: ${request.amount}")
-        return PaymentTopUpResponse()
+        return PaymentTopUpResponse(result = PaymentTopUpResponseResult.Ok)
     }
 
     override suspend fun request(request: PaymentRequestMsg): PaymentRequestResponse {
         Log.d(TAG, "payment request: ${request.amount}")
-        return PaymentRequestResponse()
+        return PaymentRequestResponse(
+            result = PaymentRequestResponseResult.Receipt(PaymentReceipt(id = "mock-receipt-1"))
+        )
     }
 
     override fun statusSubscribe(request: PaymentStatusRequest): Flow<PaymentStatusEvent> = flow {
         Log.d(TAG, "statusSubscribe: ${request.paymentId}")
-        emit(PaymentStatusEvent())
+        emit(PaymentStatusEvent(
+            result = PaymentStatusEventResult.Status(PaymentStatus())
+        ))
     }
 }
 
@@ -228,12 +296,12 @@ class PaymentServiceImpl : PaymentService {
 class PermissionsServiceImpl : PermissionsService {
     override suspend fun devicePermissionRequest(request: DevicePermissionRequestMsg): DevicePermissionResponse {
         Log.d(TAG, "devicePermissionRequest: ${request.permission}")
-        return DevicePermissionResponse()
+        return DevicePermissionResponse(result = DevicePermissionResponseResult.Granted(true))
     }
 
     override suspend fun remotePermissionRequest(request: RemotePermissionRequestMsg): RemotePermissionResponse {
         Log.d(TAG, "remotePermissionRequest")
-        return RemotePermissionResponse()
+        return RemotePermissionResponse(result = RemotePermissionResponseResult.Granted(true))
     }
 }
 
@@ -242,7 +310,7 @@ class PermissionsServiceImpl : PermissionsService {
 class PreimageServiceImpl : PreimageService {
     override fun lookupSubscribe(request: PreimageLookupRequest): Flow<PreimageLookupEvent> = flow {
         Log.d(TAG, "lookupSubscribe")
-        emit(PreimageLookupEvent())
+        emit(PreimageLookupEvent(value = ByteArray(32)))
     }
 }
 
@@ -251,22 +319,30 @@ class PreimageServiceImpl : PreimageService {
 class SigningServiceImpl : SigningService {
     override suspend fun signPayload(request: SigningPayload): SignPayloadResponse {
         Log.d(TAG, "signPayload")
-        return SignPayloadResponse()
+        return SignPayloadResponse(
+            result = SignPayloadResponseResult.Ok(
+                SigningResult(signature = ByteArray(64), signedTransaction = ByteArray(0))
+            )
+        )
     }
 
     override suspend fun signRaw(request: SigningRawPayload): SignRawResponse {
         Log.d(TAG, "signRaw")
-        return SignRawResponse()
+        return SignRawResponse(
+            result = SignRawResponseResult.Ok(
+                SigningResult(signature = ByteArray(64), signedTransaction = ByteArray(0))
+            )
+        )
     }
 
     override suspend fun createTransaction(request: CreateTransactionRequest): CreateTransactionResponse {
         Log.d(TAG, "createTransaction")
-        return CreateTransactionResponse()
+        return CreateTransactionResponse(result = CreateTransactionResponseResult.Transaction(ByteArray(128)))
     }
 
     override suspend fun createTransactionNonProduct(request: CreateTransactionNonProductRequest): CreateTransactionResponse {
         Log.d(TAG, "createTransactionNonProduct")
-        return CreateTransactionResponse()
+        return CreateTransactionResponse(result = CreateTransactionResponseResult.Transaction(ByteArray(128)))
     }
 }
 
@@ -280,11 +356,15 @@ class StatementStoreServiceImpl : StatementStoreService {
 
     override suspend fun createProof(request: StatementCreateProofRequest): StatementCreateProofResponse {
         Log.d(TAG, "statement createProof")
-        return StatementCreateProofResponse()
+        return StatementCreateProofResponse(
+            result = StatementCreateProofResponseResult.Error(
+                StatementProofError(reason = "Not implemented")
+            )
+        )
     }
 
     override suspend fun submit(request: StatementSubmitRequest): StatementSubmitResponse {
         Log.d(TAG, "statement submit")
-        return StatementSubmitResponse()
+        return StatementSubmitResponse(result = StatementSubmitResponseResult.Hash("0xmockhash"))
     }
 }

@@ -1,9 +1,9 @@
 /**
  * iOS Client - JS client running inside WKWebView.
  *
- * Uses WKWebViewTransport with a dedicated handler/callback pair
- * (rpcBridgeClient / __rpcClientReceive). Swift relays frames between
- * this client transport and the server transport.
+ * Uses WKWebViewTransport with default handler/callback names
+ * (rpcBridge / __rpcBridgeReceive) to talk directly to the native
+ * Swift RpcBridgeServer.
  */
 
 import { RpcClient, createConsoleLogger } from '@rpc-bridge/core';
@@ -11,8 +11,6 @@ import { WKWebViewTransport } from '@rpc-bridge/transport-ios';
 import { renderApp } from './setup-client.js';
 
 const transport = new WKWebViewTransport({
-  handlerName: 'rpcBridgeClient',
-  callbackName: '__rpcClientReceive',
   logger: createConsoleLogger('iOS-Client-Transport'),
 });
 
