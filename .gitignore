@@ -23,6 +23,7 @@ demos/host/android/generated/
 .build/
 *.resolved
 **/build/
+**/.swiftpm/
 
 # Test results
 test-results/
