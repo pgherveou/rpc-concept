@@ -29,7 +29,15 @@ npx electron demos/host-playground/dist/host-electron.js
 Requirements:
 - Android SDK at `/opt/android-sdk`
 - JDK 17 at `/usr/lib/jvm/java-17-openjdk`
-- A running Android emulator
+- A running Android emulator with a visible window (not headless)
+
+Before building, check that a device is available (`adb devices`). If the emulator is running headless (check `ps aux | grep emulator` for `-no-window`), kill it and restart with a visible window:
+```
+kill <pid>
+export ANDROID_HOME=/opt/android-sdk
+$ANDROID_HOME/emulator/emulator -avd test &
+```
+Wait for the device to come back online (`adb wait-for-device`).
 
 Build, install, and launch:
 ```
