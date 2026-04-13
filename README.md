@@ -207,21 +207,17 @@ sequenceDiagram
     participant P as Product (web content)
     participant H as Host (native code)
 
-    rect rgba(128,128,128,0.1)
-    Note right of P: Unary
+    Note over P,H: Unary
     P->>H: OPEN (service, method, payload)
     H->>P: MESSAGE (response)
     H->>P: CLOSE
-    end
 
-    rect rgba(128,128,128,0.1)
-    Note right of P: Server streaming
+    Note over P,H: Server streaming
     P->>H: OPEN (service, method, payload)
     H->>P: MESSAGE (event 1)
     H->>P: MESSAGE (event 2)
     H->>P: MESSAGE (event n)
     H->>P: CLOSE
-    end
 ```
 
 Each platform uses the most efficient channel available: structured clone for web/Electron, JSON strings for iOS/Android.
