@@ -15,11 +15,11 @@ RPC Bridge connects sandboxed product apps to their native host through platform
 
 ## Benefits
 
-- **One schema, every platform** -- A single `.proto` defines the entire API. Codegen produces typed stubs for TypeScript, Swift, and Kotlin. No protocol drift, no per-platform re-implementation.
-- **Minimal hand-written code** -- Only service handlers are written by hand. Client stubs, server dispatchers, message types, and serialization are all generated.
-- **Streaming built in** -- Unary, server-streaming, client-streaming, and bidirectional patterns are first-class, with a formal stream lifecycle (open, half-close, close, cancel, error). Subscriptions and push events are just streams.
-- **Platform-native transports** -- MessagePort, WKWebView handlers, Android WebView interfaces, Electron IPC. Structured clone where available, JSON strings where not.
-- **Forward-compatible** -- Unknown fields and frame types are silently ignored. New methods return UNIMPLEMENTED to old clients.
+- **One schema, every platform**: A single `.proto` defines the entire API. Codegen produces typed stubs for TypeScript, Swift, and Kotlin. No protocol drift, no per-platform re-implementation.
+- **Minimal hand-written code**: Only service handlers are written by hand. Client stubs, server dispatchers, message types, and serialization are all generated.
+- **Streaming built in**: Unary, server-streaming, client-streaming, and bidirectional patterns are first-class, with a formal stream lifecycle (open, half-close, close, cancel, error). Subscriptions and push events are just streams.
+- **Platform-native transports**: MessagePort, WKWebView handlers, Android WebView interfaces, Electron IPC. Structured clone where available, JSON strings where not.
+- **Forward-compatible**: Unknown fields and frame types are silently ignored. New methods return UNIMPLEMENTED to old clients.
 
 ## Quick Start
 
@@ -129,7 +129,7 @@ for await (const event of client.watchGreeting({ name: 'World', maxCount: 5, int
   console.log(event.message);
 }
 
-// Bidirectional streaming -- chat() takes an AsyncIterable and returns an AsyncGenerator
+// Bidirectional streaming: chat() takes an AsyncIterable and returns an AsyncGenerator
 async function* outgoing() {
   yield { from: 'guest', text: 'Hello!', seq: 1n, timestamp: BigInt(Date.now()) };
 }
@@ -216,10 +216,10 @@ Frames are JSON-encoded with a `oneof` body discriminator (Open, Message, HalfCl
 
 ## Documentation
 
-- **[Architecture](docs/ARCHITECTURE.md)** -- System design, layers, component interactions
-- **[Wire Protocol](docs/PROTOCOL.md)** -- Frame format, types, stream lifecycle, error codes
-- **[Compatibility](docs/COMPATIBILITY.md)** -- Versioning, forward/backward compatibility
-- **[Code Generation](docs/CODEGEN.md)** -- Proto parser, generated output per language
-- **[Platform Bridges](docs/PLATFORM-BRIDGES.md)** -- Transport implementations, encoding, security
-- **[Tradeoffs](docs/TRADEOFFS.md)** -- Limitations, future extensions, performance
+- **[Architecture](docs/ARCHITECTURE.md)**: System design, layers, component interactions
+- **[Wire Protocol](docs/PROTOCOL.md)**: Frame format, types, stream lifecycle, error codes
+- **[Compatibility](docs/COMPATIBILITY.md)**: Versioning, forward/backward compatibility
+- **[Code Generation](docs/CODEGEN.md)**: Proto parser, generated output per language
+- **[Platform Bridges](docs/PLATFORM-BRIDGES.md)**: Transport implementations, encoding, security
+- **[Tradeoffs](docs/TRADEOFFS.md)**: Limitations, future extensions, performance
 
