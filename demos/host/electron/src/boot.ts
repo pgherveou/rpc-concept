@@ -18,12 +18,12 @@ window.addEventListener('message', (event) => {
 
   const transport = new MessagePortTransport({
     port,
-    logger: createConsoleLogger('Guest-Transport'),
+    logger: createConsoleLogger('Product-Transport'),
   });
 
   const client = new RpcClient({
     transport,
-    logger: createConsoleLogger('Guest-Client'),
+    logger: createConsoleLogger('Product-Client'),
   });
 
   const bootFn = (window as any).__rpcBridgeBoot;

@@ -113,9 +113,5 @@ export function frameToJSON(frame: RpcFrame): string {
 // guarantee requires unknown frame types to pass through (see PROTOCOL.md).
 // Callers use the type guards above; unknown types hit the default/ignore path.
 export function frameFromJSON(json: string): RpcFrame {
-  const obj = JSON.parse(json);
-  if (typeof obj !== 'object' || obj === null || typeof obj.streamId !== 'number') {
-    throw new Error('Invalid RpcFrame: missing or invalid streamId');
-  }
-  return obj as RpcFrame;
+  return JSON.parse(json);
 }

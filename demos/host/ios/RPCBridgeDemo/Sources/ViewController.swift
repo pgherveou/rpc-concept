@@ -75,10 +75,15 @@ class ViewController: UIViewController, WKNavigationDelegate {
         webView = WKWebView(frame: view.bounds, configuration: config)
         webView.autoresizingMask = [.flexibleWidth, .flexibleHeight]
         webView.navigationDelegate = self
+        #if DEBUG
+        if #available(iOS 16.4, *) {
+            webView.isInspectable = true
+        }
+        #endif
         view.addSubview(webView)
 
-        // Load the embedded web UI
-        if let htmlPath = Bundle.main.path(forResource: "index", ofType: "html", inDirectory: "web") {
+        // Load the embedded web UI from the Swift Package resource bundle
+        if let htmlPath = Bundle.module.path(forResource: "index", ofType: "html", inDirectory: "web") {
             let htmlURL = URL(fileURLWithPath: htmlPath)
             webView.loadFileURL(htmlURL, allowingReadAccessTo: htmlURL.deletingLastPathComponent())
         } else {
@@ -144,6 +149,10 @@ class ViewController: UIViewController, WKNavigationDelegate {
     deinit {
         webView?.configuration.userContentController
             .removeScriptMessageHandler(forName: "rpcBridge")
-        transport?.tearDown()
+        // tearDown() is @MainActor-isolated; UIViewController deinit runs
+        // on the main thread, so assumeIsolated is safe here.
+        MainActor.assumeIsolated {
+            transport?.tearDown()
+        }
     }
 }

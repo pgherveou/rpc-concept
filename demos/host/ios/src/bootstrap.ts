@@ -12,7 +12,7 @@ const transport = new WKWebViewTransport({
 
 const client = new RpcClient({
   transport,
-  logger: createConsoleLogger('Guest-Client'),
+  logger: createConsoleLogger('Product-Client'),
 });
 
 (window as any).__rpcBridgeBoot(client, { json: true });
