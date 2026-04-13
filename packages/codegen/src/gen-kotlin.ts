@@ -82,6 +82,10 @@ function lowerFirst(name: string): string {
   return name.charAt(0).toLowerCase() + name.slice(1);
 }
 
+function upperFirst(name: string): string {
+  return name.charAt(0).toUpperCase() + name.slice(1);
+}
+
 // ---------------------------------------------------------------------------
 // Code generation
 // ---------------------------------------------------------------------------
@@ -136,7 +140,7 @@ export function generateKotlin(proto: ProtoFile): string {
 
   // Messages
   for (const msg of proto.messages) {
-    emitMessage(emit, msg, proto.enums);
+    emitMessage(emit, msg, proto.enums, proto.messages, proto.package);
   }
 
   // Services
@@ -176,7 +180,14 @@ function emitMessage(
   emit: (depth: number, line: string) => void,
   msg: MessageDef,
   allEnums: EnumDef[],
+  allMessages: MessageDef[] = [],
+  pkg: string = '',
 ) {
+  if (msg.oneofs.length > 0) {
+    emitOneofMessage(emit, msg, allEnums, allMessages, pkg);
+    return;
+  }
+
   const fields = msg.fields;
 
   emit(0, '@Serializable');
@@ -205,67 +216,7 @@ function emitMessage(
   emit(1, 'fun toJSON(): JSONObject {');
   emit(2, 'val o = JSONObject()');
   for (const f of fields) {
-    if (f.deprecated) continue;
-    const ktName = camelCase(f.name);
-    const isInt64 = KOTLIN_INT64_TYPES.has(f.type);
-    const isBytes = f.type === 'bytes';
-    const isMessage = !PROTO_TO_KOTLIN[f.type] && !allEnums.some(e => e.name === f.type);
-    const isEnum = allEnums.some(e => e.name === f.type);
-
-    if (f.repeated) {
-      emit(2, `if (${ktName}.isNotEmpty()) {`);
-      emit(3, `val arr = JSONArray()`);
-      if (isMessage) {
-        emit(3, `${ktName}.forEach { arr.put(it.toJSON()) }`);
-      } else if (isInt64) {
-        emit(3, `${ktName}.forEach { arr.put(it.toString()) }`);
-      } else if (isBytes) {
-        emit(3, `${ktName}.forEach { arr.put(Base64.encodeToString(it, Base64.NO_WRAP)) }`);
-      } else if (isEnum) {
-        emit(3, `${ktName}.forEach { arr.put(it.value) }`);
-      } else {
-        emit(3, `${ktName}.forEach { arr.put(it) }`);
-      }
-      emit(3, `o.put("${ktName}", arr)`);
-      emit(2, '}');
-    } else if (f.optional) {
-      if (isMessage) {
-        emit(2, `${ktName}?.let { o.put("${ktName}", it.toJSON()) }`);
-      } else if (isInt64) {
-        emit(2, `${ktName}?.let { o.put("${ktName}", it.toString()) }`);
-      } else if (isBytes) {
-        emit(2, `${ktName}?.let { o.put("${ktName}", Base64.encodeToString(it, Base64.NO_WRAP)) }`);
-      } else if (isEnum) {
-        emit(2, `${ktName}?.let { o.put("${ktName}", it.value) }`);
-      } else {
-        emit(2, `${ktName}?.let { o.put("${ktName}", it) }`);
-      }
-    } else {
-      // Non-optional, skip default values
-      if (isMessage) {
-        emit(2, `o.put("${ktName}", ${ktName}.toJSON())`);
-      } else if (isInt64) {
-        const kt = kotlinType(f.type);
-        const defZero = kt === 'ULong' ? '0uL' : '0L';
-        emit(2, `if (${ktName} != ${defZero}) o.put("${ktName}", ${ktName}.toString())`);
-      } else if (isBytes) {
-        emit(2, `if (${ktName}.isNotEmpty()) o.put("${ktName}", Base64.encodeToString(${ktName}, Base64.NO_WRAP))`);
-      } else if (isEnum) {
-        emit(2, `if (${ktName}.value != 0) o.put("${ktName}", ${ktName}.value)`);
-      } else {
-        const kt = kotlinType(f.type);
-        let zeroCheck: string;
-        switch (kt) {
-          case 'String': zeroCheck = `${ktName}.isNotEmpty()`; break;
-          case 'Boolean': zeroCheck = `${ktName}`; break;
-          case 'Int': case 'UInt': zeroCheck = `${ktName} != ${kt === 'UInt' ? '0u' : '0'}`; break;
-          case 'Float': zeroCheck = `${ktName} != 0.0f`; break;
-          case 'Double': zeroCheck = `${ktName} != 0.0`; break;
-          default: zeroCheck = `true`; break;
-        }
-        emit(2, `if (${zeroCheck}) o.put("${ktName}", ${ktName})`);
-      }
-    }
+    emitFieldToJSON(emit, f, allEnums);
   }
   emit(2, 'return o');
   emit(1, '}');
@@ -279,95 +230,340 @@ function emitMessage(
   emit(3, `return ${msg.name}(`);
   for (let i = 0; i < fields.length; i++) {
     const f = fields[i];
-    if (f.deprecated) continue;
-    const ktName = camelCase(f.name);
-    const kt = kotlinType(f.type);
-    const isInt64 = KOTLIN_INT64_TYPES.has(f.type);
-    const isBytes = f.type === 'bytes';
-    const isMessage = !PROTO_TO_KOTLIN[f.type] && !allEnums.some(e => e.name === f.type);
-    const isEnum = allEnums.some(e => e.name === f.type);
     const comma = i < fields.length - 1 ? ',' : '';
-
-    if (f.repeated) {
-      if (isMessage) {
-        emit(4, `${ktName} = o.optJSONArray("${ktName}")?.let { arr -> (0 until arr.length()).map { ${kt}.fromJSON(arr.getJSONObject(it)) } } ?: emptyList()${comma}`);
-      } else if (isInt64) {
-        const conv = kt === 'ULong' ? 'toULong()' : 'toLong()';
-        emit(4, `${ktName} = o.optJSONArray("${ktName}")?.let { arr -> (0 until arr.length()).map { arr.getString(it).${conv} } } ?: emptyList()${comma}`);
-      } else if (isBytes) {
-        emit(4, `${ktName} = o.optJSONArray("${ktName}")?.let { arr -> (0 until arr.length()).map { Base64.decode(arr.getString(it), Base64.NO_WRAP) } } ?: emptyList()${comma}`);
-      } else if (isEnum) {
-        emit(4, `${ktName} = o.optJSONArray("${ktName}")?.let { arr -> (0 until arr.length()).map { ${kt}.fromValue(arr.getInt(it)) } } ?: emptyList()${comma}`);
-      } else {
-        let getter: string;
-        switch (kt) {
-          case 'String': getter = 'getString'; break;
-          case 'Boolean': getter = 'getBoolean'; break;
-          case 'Int': getter = 'getInt'; break;
-          case 'UInt': getter = 'getInt'; break;
-          case 'Float': getter = 'getDouble'; break;
-          case 'Double': getter = 'getDouble'; break;
-          default: getter = 'get'; break;
-        }
-        const cast = kt === 'UInt' ? '.toUInt()' : kt === 'Float' ? '.toFloat()' : '';
-        emit(4, `${ktName} = o.optJSONArray("${ktName}")?.let { arr -> (0 until arr.length()).map { arr.${getter}(it)${cast} } } ?: emptyList()${comma}`);
-      }
-    } else if (f.optional) {
-      if (isMessage) {
-        emit(4, `${ktName} = o.optJSONObject("${ktName}")?.let { ${kt}.fromJSON(it) }${comma}`);
-      } else if (isInt64) {
-        const conv = kt === 'ULong' ? 'toULong()' : 'toLong()';
-        emit(4, `${ktName} = o.opt("${ktName}")?.let { v -> when (v) { is String -> v.${conv}; is Number -> v.toLong()${kt === 'ULong' ? '.toULong()' : ''} ; else -> null } }${comma}`);
-      } else if (isBytes) {
-        emit(4, `${ktName} = o.optString("${ktName}", null)?.let { Base64.decode(it, Base64.NO_WRAP) }${comma}`);
-      } else if (isEnum) {
-        emit(4, `${ktName} = if (o.has("${ktName}")) ${kt}.fromValue(o.getInt("${ktName}")) else null${comma}`);
-      } else {
-        let getter: string;
-        switch (kt) {
-          case 'String': getter = `o.optString("${ktName}", null)`; break;
-          case 'Boolean': getter = `if (o.has("${ktName}")) o.getBoolean("${ktName}") else null`; break;
-          case 'Int': getter = `if (o.has("${ktName}")) o.getInt("${ktName}") else null`; break;
-          case 'UInt': getter = `if (o.has("${ktName}")) o.getInt("${ktName}").toUInt() else null`; break;
-          case 'Float': getter = `if (o.has("${ktName}")) o.getDouble("${ktName}").toFloat() else null`; break;
-          case 'Double': getter = `if (o.has("${ktName}")) o.getDouble("${ktName}") else null`; break;
-          default: getter = `o.opt("${ktName}")`; break;
-        }
-        emit(4, `${ktName} = ${getter}${comma}`);
-      }
-    } else {
-      // Non-optional field
-      if (isMessage) {
-        emit(4, `${ktName} = o.optJSONObject("${ktName}")?.let { ${kt}.fromJSON(it) } ?: ${kt}()${comma}`);
-      } else if (isInt64) {
-        const conv = kt === 'ULong' ? 'toULong()' : 'toLong()';
-        const defVal = kt === 'ULong' ? '0uL' : '0L';
-        emit(4, `${ktName} = o.opt("${ktName}")?.let { v -> when (v) { is String -> v.${conv}; is Number -> v.toLong()${kt === 'ULong' ? '.toULong()' : ''}; else -> ${defVal} } } ?: ${defVal}${comma}`);
-      } else if (isBytes) {
-        emit(4, `${ktName} = o.optString("${ktName}", null)?.let { Base64.decode(it, Base64.NO_WRAP) } ?: ByteArray(0)${comma}`);
-      } else if (isEnum) {
-        emit(4, `${ktName} = if (o.has("${ktName}")) ${kt}.fromValue(o.getInt("${ktName}")) else ${kt}.fromValue(0)${comma}`);
-      } else {
-        let defVal = defaultValue(f, allEnums);
-        let getter: string;
-        switch (kt) {
-          case 'String': getter = `o.optString("${ktName}", "")`; break;
-          case 'Boolean': getter = `o.optBoolean("${ktName}", false)`; break;
-          case 'Int': getter = `o.optInt("${ktName}", 0)`; break;
-          case 'UInt': getter = `o.optInt("${ktName}", 0).toUInt()`; break;
-          case 'Float': getter = `o.optDouble("${ktName}", 0.0).toFloat()`; break;
-          case 'Double': getter = `o.optDouble("${ktName}", 0.0)`; break;
-          default: getter = `o.opt("${ktName}") as? ${kt} ?: ${defVal}`; break;
-        }
-        emit(4, `${ktName} = ${getter}${comma}`);
-      }
-    }
+    emitFieldFromJSON(emit, f, allEnums, comma);
   }
   emit(3, ')');
   emit(2, '}');
   emit(1, '}');
   emit(0, '}');
   emit(0, '');
+}
+
+// ---------------------------------------------------------------------------
+// Oneof message generation
+// ---------------------------------------------------------------------------
+
+function emitOneofMessage(
+  emit: (depth: number, line: string) => void,
+  msg: MessageDef,
+  allEnums: EnumDef[],
+  allMessages: MessageDef[],
+  pkg: string,
+) {
+  const oo = msg.oneofs[0]; // support the first oneof
+  const sealedName = `${msg.name}${upperFirst(oo.name)}`;
+
+  // Collect variant names to detect collisions with type names
+  const variantNames = new Set(oo.fields.map(f => upperFirst(camelCase(f.name))));
+
+  /** Qualify a type name if it collides with a sealed class variant name. */
+  const qualifyType = (typeName: string): string => {
+    const kt = kotlinType(typeName);
+    return variantNames.has(kt) && pkg ? `${pkg}.${kt}` : kt;
+  };
+
+  // Sealed class for the oneof variants
+  emit(0, `sealed class ${sealedName} {`);
+  for (const f of oo.fields) {
+    const caseName = upperFirst(camelCase(f.name));
+    const isPrimitive = !!PROTO_TO_KOTLIN[f.type];
+    const isEnum = allEnums.some(e => e.name === f.type);
+    const msgDef = allMessages.find(m => m.name === f.type);
+    const isEmpty = msgDef && msgDef.fields.length === 0 && msgDef.oneofs.length === 0;
+
+    if (isEmpty) {
+      emit(1, `data object ${caseName} : ${sealedName}()`);
+    } else {
+      const valType = isPrimitive || isEnum ? kotlinType(f.type) : qualifyType(f.type);
+      emit(1, `data class ${caseName}(val value: ${valType}) : ${sealedName}()`);
+    }
+  }
+  emit(1, `data object Unknown : ${sealedName}()`);
+  emit(0, '}');
+  emit(0, '');
+
+  // Data class
+  const fields = msg.fields;
+  const allProps: string[] = [];
+  for (const f of fields) {
+    const ktName = camelCase(f.name);
+    const ktType = kotlinFieldType(f, allEnums);
+    const defVal = defaultValue(f, allEnums);
+    allProps.push(`val ${ktName}: ${ktType} = ${defVal}`);
+  }
+  allProps.push(`@kotlinx.serialization.Transient val ${camelCase(oo.name)}: ${sealedName} = ${sealedName}.Unknown`);
+
+  emit(0, '@Serializable');
+  emit(0, `data class ${msg.name}(`);
+  for (let i = 0; i < allProps.length; i++) {
+    const comma = i < allProps.length - 1 ? ',' : '';
+    emit(1, `${allProps[i]}${comma}`);
+  }
+  emit(0, ') {');
+
+  // encode() - not fully supported for oneof with protobuf serialization
+  emit(0, '');
+  emit(1, `fun encode(): ByteArray = toJSON().toString().toByteArray()`);
+
+  // toJSON()
+  emit(0, '');
+  emit(1, 'fun toJSON(): JSONObject {');
+  emit(2, 'val o = JSONObject()');
+  for (const f of fields) {
+    emitFieldToJSON(emit, f, allEnums);
+  }
+  // Encode oneof
+  emit(2, `when (${camelCase(oo.name)}) {`);
+  for (const f of oo.fields) {
+    const caseName = upperFirst(camelCase(f.name));
+    const jsonKey = camelCase(f.name);
+    const isPrimitive = !!PROTO_TO_KOTLIN[f.type];
+    const isEnum = allEnums.some(e => e.name === f.type);
+    const msgDef = allMessages.find(m => m.name === f.type);
+    const isEmpty = msgDef && msgDef.fields.length === 0 && msgDef.oneofs.length === 0;
+    const isBytes = f.type === 'bytes';
+    const isInt64 = KOTLIN_INT64_TYPES.has(f.type);
+
+    if (isEmpty) {
+      emit(3, `is ${sealedName}.${caseName} -> o.put("${jsonKey}", JSONObject())`);
+    } else if (isBytes) {
+      emit(3, `is ${sealedName}.${caseName} -> o.put("${jsonKey}", Base64.encodeToString(${camelCase(oo.name)}.value, Base64.NO_WRAP))`);
+    } else if (isInt64) {
+      emit(3, `is ${sealedName}.${caseName} -> o.put("${jsonKey}", ${camelCase(oo.name)}.value.toString())`);
+    } else if (isEnum) {
+      emit(3, `is ${sealedName}.${caseName} -> o.put("${jsonKey}", ${camelCase(oo.name)}.value.value)`);
+    } else if (isPrimitive) {
+      emit(3, `is ${sealedName}.${caseName} -> o.put("${jsonKey}", ${camelCase(oo.name)}.value)`);
+    } else {
+      emit(3, `is ${sealedName}.${caseName} -> o.put("${jsonKey}", ${camelCase(oo.name)}.value.toJSON())`);
+    }
+  }
+  emit(3, `is ${sealedName}.Unknown -> {}`);
+  emit(2, '}');
+  emit(2, 'return o');
+  emit(1, '}');
+
+  // companion object with decode() and fromJSON()
+  emit(0, '');
+  emit(1, 'companion object {');
+  emit(2, `fun decode(data: ByteArray): ${msg.name} = fromJSON(JSONObject(String(data)))`);
+  emit(0, '');
+  emit(2, `fun fromJSON(o: JSONObject): ${msg.name} {`);
+
+  // Decode regular fields
+  const regularFieldExprs: string[] = [];
+  for (const f of fields) {
+    regularFieldExprs.push(fieldFromJSONExpr(f, allEnums));
+  }
+
+  // Decode oneof
+  emit(3, `val ${camelCase(oo.name)}: ${sealedName} = run {`);
+  for (let i = 0; i < oo.fields.length; i++) {
+    const f = oo.fields[i];
+    const caseName = upperFirst(camelCase(f.name));
+    const jsonKey = camelCase(f.name);
+    const kt = kotlinType(f.type);
+    const qkt = qualifyType(f.type);
+    const isPrimitive = !!PROTO_TO_KOTLIN[f.type];
+    const isEnum = allEnums.some(e => e.name === f.type);
+    const msgDef = allMessages.find(m => m.name === f.type);
+    const isEmpty = msgDef && msgDef.fields.length === 0 && msgDef.oneofs.length === 0;
+    const isBytes = f.type === 'bytes';
+    const isInt64 = KOTLIN_INT64_TYPES.has(f.type);
+    const prefix = i === 0 ? 'if' : '} else if';
+
+    if (isEmpty) {
+      emit(4, `${prefix} (o.has("${jsonKey}")) {`);
+      emit(5, `${sealedName}.${caseName}`);
+    } else if (isBytes) {
+      emit(4, `${prefix} (o.has("${jsonKey}")) {`);
+      emit(5, `${sealedName}.${caseName}(Base64.decode(o.getString("${jsonKey}"), Base64.NO_WRAP))`);
+    } else if (isInt64) {
+      const conv = kt === 'ULong' ? 'toULong()' : 'toLong()';
+      emit(4, `${prefix} (o.has("${jsonKey}")) {`);
+      emit(5, `${sealedName}.${caseName}(o.getString("${jsonKey}").${conv})`);
+    } else if (isEnum) {
+      emit(4, `${prefix} (o.has("${jsonKey}")) {`);
+      emit(5, `${sealedName}.${caseName}(${qkt}.fromValue(o.getInt("${jsonKey}")))`);
+    } else if (isPrimitive) {
+      emit(4, `${prefix} (o.has("${jsonKey}")) {`);
+      let getter: string;
+      switch (kt) {
+        case 'String': getter = `o.getString("${jsonKey}")`; break;
+        case 'Boolean': getter = `o.getBoolean("${jsonKey}")`; break;
+        case 'Int': getter = `o.getInt("${jsonKey}")`; break;
+        case 'UInt': getter = `o.getInt("${jsonKey}").toUInt()`; break;
+        case 'Float': getter = `o.getDouble("${jsonKey}").toFloat()`; break;
+        case 'Double': getter = `o.getDouble("${jsonKey}")`; break;
+        default: getter = `o.get("${jsonKey}") as ${kt}`; break;
+      }
+      emit(5, `${sealedName}.${caseName}(${getter})`);
+    } else {
+      emit(4, `${prefix} (o.has("${jsonKey}")) {`);
+      emit(5, `${sealedName}.${caseName}(${qkt}.fromJSON(o.getJSONObject("${jsonKey}")))`);
+    }
+  }
+  if (oo.fields.length > 0) {
+    emit(4, '} else {');
+    emit(5, `${sealedName}.Unknown`);
+    emit(4, '}');
+  } else {
+    emit(4, `${sealedName}.Unknown`);
+  }
+  emit(3, '}');
+
+  emit(3, `return ${msg.name}(`);
+  for (const expr of regularFieldExprs) {
+    emit(4, `${expr},`);
+  }
+  emit(4, `${camelCase(oo.name)} = ${camelCase(oo.name)},`);
+  emit(3, ')');
+  emit(2, '}');
+  emit(1, '}');
+  emit(0, '}');
+  emit(0, '');
+}
+
+/** Returns the expression for reading a field from JSON (for use in constructor call). */
+function fieldFromJSONExpr(f: FieldDef, allEnums: EnumDef[]): string {
+  const ktName = camelCase(f.name);
+  const kt = kotlinType(f.type);
+  const isInt64 = KOTLIN_INT64_TYPES.has(f.type);
+  const isBytes = f.type === 'bytes';
+  const isMessage = !PROTO_TO_KOTLIN[f.type] && !allEnums.some(e => e.name === f.type);
+  const isEnum = allEnums.some(e => e.name === f.type);
+
+  if (f.repeated) {
+    if (isMessage) return `${ktName} = o.optJSONArray("${ktName}")?.let { arr -> (0 until arr.length()).map { ${kt}.fromJSON(arr.getJSONObject(it)) } } ?: emptyList()`;
+    if (isInt64) { const conv = kt === 'ULong' ? 'toULong()' : 'toLong()'; return `${ktName} = o.optJSONArray("${ktName}")?.let { arr -> (0 until arr.length()).map { arr.getString(it).${conv} } } ?: emptyList()`; }
+    if (isBytes) return `${ktName} = o.optJSONArray("${ktName}")?.let { arr -> (0 until arr.length()).map { Base64.decode(arr.getString(it), Base64.NO_WRAP) } } ?: emptyList()`;
+    if (isEnum) return `${ktName} = o.optJSONArray("${ktName}")?.let { arr -> (0 until arr.length()).map { ${kt}.fromValue(arr.getInt(it)) } } ?: emptyList()`;
+    let getter: string;
+    switch (kt) {
+      case 'String': getter = 'getString'; break;
+      case 'Boolean': getter = 'getBoolean'; break;
+      case 'Int': getter = 'getInt'; break;
+      case 'UInt': getter = 'getInt'; break;
+      case 'Float': getter = 'getDouble'; break;
+      case 'Double': getter = 'getDouble'; break;
+      default: getter = 'get'; break;
+    }
+    const cast = kt === 'UInt' ? '.toUInt()' : kt === 'Float' ? '.toFloat()' : '';
+    return `${ktName} = o.optJSONArray("${ktName}")?.let { arr -> (0 until arr.length()).map { arr.${getter}(it)${cast} } } ?: emptyList()`;
+  }
+
+  if (f.optional) {
+    if (isMessage) return `${ktName} = o.optJSONObject("${ktName}")?.let { ${kt}.fromJSON(it) }`;
+    if (isInt64) { const conv = kt === 'ULong' ? 'toULong()' : 'toLong()'; return `${ktName} = o.opt("${ktName}")?.let { v -> when (v) { is String -> v.${conv}; is Number -> v.toLong()${kt === 'ULong' ? '.toULong()' : ''} ; else -> null } }`; }
+    if (isBytes) return `${ktName} = o.optString("${ktName}", null)?.let { Base64.decode(it, Base64.NO_WRAP) }`;
+    if (isEnum) return `${ktName} = if (o.has("${ktName}")) ${kt}.fromValue(o.getInt("${ktName}")) else null`;
+    switch (kt) {
+      case 'String': return `${ktName} = o.optString("${ktName}", null)`;
+      case 'Boolean': return `${ktName} = if (o.has("${ktName}")) o.getBoolean("${ktName}") else null`;
+      case 'Int': return `${ktName} = if (o.has("${ktName}")) o.getInt("${ktName}") else null`;
+      case 'UInt': return `${ktName} = if (o.has("${ktName}")) o.getInt("${ktName}").toUInt() else null`;
+      case 'Float': return `${ktName} = if (o.has("${ktName}")) o.getDouble("${ktName}").toFloat() else null`;
+      case 'Double': return `${ktName} = if (o.has("${ktName}")) o.getDouble("${ktName}") else null`;
+      default: return `${ktName} = o.opt("${ktName}")`;
+    }
+  }
+
+  // Non-optional
+  if (isMessage) return `${ktName} = o.optJSONObject("${ktName}")?.let { ${kt}.fromJSON(it) } ?: ${kt}()`;
+  if (isInt64) { const conv = kt === 'ULong' ? 'toULong()' : 'toLong()'; const defVal = kt === 'ULong' ? '0uL' : '0L'; return `${ktName} = o.opt("${ktName}")?.let { v -> when (v) { is String -> v.${conv}; is Number -> v.toLong()${kt === 'ULong' ? '.toULong()' : ''}; else -> ${defVal} } } ?: ${defVal}`; }
+  if (isBytes) return `${ktName} = o.optString("${ktName}", null)?.let { Base64.decode(it, Base64.NO_WRAP) } ?: ByteArray(0)`;
+  if (isEnum) return `${ktName} = if (o.has("${ktName}")) ${kt}.fromValue(o.getInt("${ktName}")) else ${kt}.fromValue(0)`;
+  switch (kt) {
+    case 'String': return `${ktName} = o.optString("${ktName}", "")`;
+    case 'Boolean': return `${ktName} = o.optBoolean("${ktName}", false)`;
+    case 'Int': return `${ktName} = o.optInt("${ktName}", 0)`;
+    case 'UInt': return `${ktName} = o.optInt("${ktName}", 0).toUInt()`;
+    case 'Float': return `${ktName} = o.optDouble("${ktName}", 0.0).toFloat()`;
+    case 'Double': return `${ktName} = o.optDouble("${ktName}", 0.0)`;
+    default: return `${ktName} = o.opt("${ktName}") as? ${kt} ?: ${defaultValue(f, allEnums)}`;
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Field JSON serialization helpers
+// ---------------------------------------------------------------------------
+
+function emitFieldToJSON(
+  emit: (depth: number, line: string) => void,
+  f: FieldDef,
+  allEnums: EnumDef[],
+) {
+  if (f.deprecated) return;
+  const ktName = camelCase(f.name);
+  const isInt64 = KOTLIN_INT64_TYPES.has(f.type);
+  const isBytes = f.type === 'bytes';
+  const isMessage = !PROTO_TO_KOTLIN[f.type] && !allEnums.some(e => e.name === f.type);
+  const isEnum = allEnums.some(e => e.name === f.type);
+
+  if (f.repeated) {
+    emit(2, `if (${ktName}.isNotEmpty()) {`);
+    emit(3, `val arr = JSONArray()`);
+    if (isMessage) {
+      emit(3, `${ktName}.forEach { arr.put(it.toJSON()) }`);
+    } else if (isInt64) {
+      emit(3, `${ktName}.forEach { arr.put(it.toString()) }`);
+    } else if (isBytes) {
+      emit(3, `${ktName}.forEach { arr.put(Base64.encodeToString(it, Base64.NO_WRAP)) }`);
+    } else if (isEnum) {
+      emit(3, `${ktName}.forEach { arr.put(it.value) }`);
+    } else {
+      emit(3, `${ktName}.forEach { arr.put(it) }`);
+    }
+    emit(3, `o.put("${ktName}", arr)`);
+    emit(2, '}');
+  } else if (f.optional) {
+    if (isMessage) {
+      emit(2, `${ktName}?.let { o.put("${ktName}", it.toJSON()) }`);
+    } else if (isInt64) {
+      emit(2, `${ktName}?.let { o.put("${ktName}", it.toString()) }`);
+    } else if (isBytes) {
+      emit(2, `${ktName}?.let { o.put("${ktName}", Base64.encodeToString(it, Base64.NO_WRAP)) }`);
+    } else if (isEnum) {
+      emit(2, `${ktName}?.let { o.put("${ktName}", it.value) }`);
+    } else {
+      emit(2, `${ktName}?.let { o.put("${ktName}", it) }`);
+    }
+  } else {
+    if (isMessage) {
+      emit(2, `o.put("${ktName}", ${ktName}.toJSON())`);
+    } else if (isInt64) {
+      const kt = kotlinType(f.type);
+      const defZero = kt === 'ULong' ? '0uL' : '0L';
+      emit(2, `if (${ktName} != ${defZero}) o.put("${ktName}", ${ktName}.toString())`);
+    } else if (isBytes) {
+      emit(2, `if (${ktName}.isNotEmpty()) o.put("${ktName}", Base64.encodeToString(${ktName}, Base64.NO_WRAP))`);
+    } else if (isEnum) {
+      emit(2, `if (${ktName}.value != 0) o.put("${ktName}", ${ktName}.value)`);
+    } else {
+      const kt = kotlinType(f.type);
+      let zeroCheck: string;
+      switch (kt) {
+        case 'String': zeroCheck = `${ktName}.isNotEmpty()`; break;
+        case 'Boolean': zeroCheck = `${ktName}`; break;
+        case 'Int': case 'UInt': zeroCheck = `${ktName} != ${kt === 'UInt' ? '0u' : '0'}`; break;
+        case 'Float': zeroCheck = `${ktName} != 0.0f`; break;
+        case 'Double': zeroCheck = `${ktName} != 0.0`; break;
+        default: zeroCheck = `true`; break;
+      }
+      emit(2, `if (${zeroCheck}) o.put("${ktName}", ${ktName})`);
+    }
+  }
+}
+
+function emitFieldFromJSON(
+  emit: (depth: number, line: string) => void,
+  f: FieldDef,
+  allEnums: EnumDef[],
+  comma: string,
+) {
+  if (f.deprecated) return;
+  emit(4, `${fieldFromJSONExpr(f, allEnums)}${comma}`);
 }
 
 // ---------------------------------------------------------------------------

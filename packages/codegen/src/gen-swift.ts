@@ -259,7 +259,9 @@ function generateMessageStruct(msg: MessageDef, enumNames: Set<string>, allMessa
       const key = escapeSwiftKeyword(camel);
       const st = swiftType(f.type, enumNames);
 
-      if (isOptionalField(f.type)) {
+      if (f.repeated) {
+        lines.push(`        self.${prop} = (try? container.decode([${st}].self, forKey: .${key})) ?? []`);
+      } else if (isOptionalField(f.type)) {
         lines.push(`        self.${prop} = try? container.decode(${st}.self, forKey: .${key})`);
       } else if (isStringEncodedInJSON(f.type)) {
         lines.push(`        if let v = try? container.decode(${st}.self, forKey: .${key}) {`);
@@ -315,11 +317,12 @@ function generateOneofMessageStruct(
   lines.push(`public enum ${enumName}: Sendable {`);
   for (const f of oo.fields) {
     const camel = snakeToCamel(f.name);
+    const caseName = escapeSwiftKeyword(camel);
     const msgDef = allMessages.find((m) => m.name === f.type);
     if (msgDef && msgDef.fields.length === 0) {
-      lines.push(`    case ${camel}`);
+      lines.push(`    case ${caseName}`);
     } else {
-      lines.push(`    case ${camel}(${f.type})`);
+      lines.push(`    case ${caseName}(${swiftType(f.type, enumNames)})`);
     }
   }
   lines.push('    case unknown');
@@ -364,10 +367,10 @@ function generateOneofMessageStruct(
   lines.push('');
   lines.push('    enum CodingKeys: String, CodingKey {');
   for (const f of msg.fields) {
-    lines.push(`        case ${snakeToCamel(f.name)}`);
+    lines.push(`        case ${escapeSwiftKeyword(snakeToCamel(f.name))}`);
   }
   for (const f of oo.fields) {
-    lines.push(`        case ${snakeToCamel(f.name)}`);
+    lines.push(`        case ${escapeSwiftKeyword(snakeToCamel(f.name))}`);
   }
   lines.push('    }');
 
@@ -377,23 +380,25 @@ function generateOneofMessageStruct(
   lines.push('        let container = try decoder.container(keyedBy: CodingKeys.self)');
   for (const f of msg.fields) {
     const camel = snakeToCamel(f.name);
+    const key = escapeSwiftKeyword(camel);
     const st = swiftType(f.type, enumNames);
-    lines.push(`        self.${camel} = (try? container.decode(${st}.self, forKey: .${camel})) ?? ${swiftDefault(f.type, enumNames)}`);
+    lines.push(`        self.${camel} = (try? container.decode(${st}.self, forKey: .${key})) ?? ${swiftDefault(f.type, enumNames)}`);
   }
   // Decode oneofs
   for (let i = 0; i < oo.fields.length; i++) {
     const f = oo.fields[i];
     const camel = snakeToCamel(f.name);
+    const caseName = escapeSwiftKeyword(camel);
     const msgDef = allMessages.find((m) => m.name === f.type);
     const isEmpty = msgDef && msgDef.fields.length === 0;
     const prefix = i === 0 ? 'if' : '} else if';
 
     if (isEmpty) {
-      lines.push(`        ${prefix} container.contains(.${camel}) {`);
-      lines.push(`            self.${oo.name} = .${camel}`);
+      lines.push(`        ${prefix} container.contains(.${caseName}) {`);
+      lines.push(`            self.${oo.name} = .${caseName}`);
     } else {
-      lines.push(`        ${prefix} let v = try? container.decode(${f.type}.self, forKey: .${camel}) {`);
-      lines.push(`            self.${oo.name} = .${camel}(v)`);
+      lines.push(`        ${prefix} let v = try? container.decode(${swiftType(f.type, enumNames)}.self, forKey: .${caseName}) {`);
+      lines.push(`            self.${oo.name} = .${caseName}(v)`);
     }
   }
   if (oo.fields.length > 0) {
@@ -409,19 +414,21 @@ function generateOneofMessageStruct(
   lines.push('        var container = encoder.container(keyedBy: CodingKeys.self)');
   for (const f of msg.fields) {
     const camel = snakeToCamel(f.name);
-    lines.push(`        try container.encode(${camel}, forKey: .${camel})`);
+    const key = escapeSwiftKeyword(camel);
+    lines.push(`        try container.encode(${camel}, forKey: .${key})`);
   }
   lines.push(`        switch ${oo.name} {`);
   for (const f of oo.fields) {
     const camel = snakeToCamel(f.name);
+    const caseName = escapeSwiftKeyword(camel);
     const msgDef = allMessages.find((m) => m.name === f.type);
     const isEmpty = msgDef && msgDef.fields.length === 0;
     if (isEmpty) {
-      lines.push(`        case .${camel}:`);
-      lines.push(`            try container.encode(${f.type}(), forKey: .${camel})`);
+      lines.push(`        case .${caseName}:`);
+      lines.push(`            try container.encode(${f.type}(), forKey: .${caseName})`);
     } else {
-      lines.push(`        case .${camel}(let v):`);
-      lines.push(`            try container.encode(v, forKey: .${camel})`);
+      lines.push(`        case .${caseName}(let v):`);
+      lines.push(`            try container.encode(v, forKey: .${caseName})`);
     }
   }
   lines.push('        case .unknown: break');

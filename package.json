@@ -5,25 +5,26 @@
   "description": "Cross-platform RPC bridge framework using protobuf service definitions",
   "workspaces": [
     "packages/*",
-    "demos/host-playground",
+    "demos/playground-app",
+    "demos/hosts",
     "tests"
   ],
   "scripts": {
-    "build": "npm run build:core && npm run build:codegen && npm run generate && npm run build:transports && npm run build:playground",
+    "build": "npm run build:core && npm run build:codegen && npm run generate && npm run build:transports && npm run build:playground-app && npm run build:hosts",
     "build:core": "cd packages/rpc-core && npm run build",
     "build:codegen": "cd packages/codegen && npm run build",
-    "build:transports": "npm run build:transport-web && npm run build:transport-ios && npm run build:transport-android && npm run build:transport-electron",
+    "build:transports": "npm run build:transport-web && npm run build:transport-native && npm run build:transport-electron",
     "build:transport-web": "cd packages/transport-web && npm run build",
-    "build:transport-ios": "cd packages/transport-ios && npm run build",
-    "build:transport-android": "cd packages/transport-android && npm run build",
+    "build:transport-native": "cd packages/transport-native && npm run build",
     "build:transport-electron": "cd packages/transport-electron && npm run build",
-    "build:playground": "cd demos/host-playground && npm run build",
+    "build:playground-app": "cd demos/playground-app && npm run build",
+    "build:hosts": "cd demos/hosts && npm run build",
     "generate": "cd packages/codegen && npm run generate",
     "test": "cd tests && npm test",
     "e2e:web": "npx playwright test --project=web",
     "e2e:electron": "npx playwright test --project=electron",
     "e2e:android": "npx playwright test --project=android",
-    "clean": "rm -rf packages/*/dist packages/*/*.tsbuildinfo demos/host-playground/dist tests/dist"
+    "clean": "rm -rf packages/*/dist packages/*/*.tsbuildinfo demos/playground-app/dist demos/hosts/dist tests/dist"
   },
   "devDependencies": {
     "@playwright/test": "^1.59.1",

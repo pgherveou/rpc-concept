@@ -137,8 +137,8 @@ Each platform has a transport adapter that bridges the `Transport` interface to 
 |---------|----------|-----------|----------|
 | `transport-web` | Browser | `MessagePort` | Structured clone (object) |
 | `transport-web` | Browser | `postMessage` | JSON string |
-| `transport-ios` | iOS WKWebView | `webkit.messageHandlers` + `evaluateJavaScript` | JSON string |
-| `transport-android` | Android WebView | `@JavascriptInterface` + `evaluateJavascript` | JSON string |
+| `transport-native` | iOS WKWebView | `webkit.messageHandlers` + `evaluateJavaScript` | JSON string |
+| `transport-native` | Android WebView | `@JavascriptInterface` + `evaluateJavascript` | JSON string (base64) |
 | `transport-electron` | Electron | `MessagePort` / `MessageChannelMain` | Structured clone (object) |
 
 ### Layer 6: Demo Applications
@@ -166,8 +166,7 @@ rpc-concept/
     rpc-core-swift/                 Swift package (frame codec, server runtime, WKWebView transport)
     rpc-core-android/               Android library (frame codec, server runtime, WebView transport)
     transport-web/                  Browser transports (MessagePort, postMessage)
-    transport-ios/                  iOS WKWebView transport (JS side)
-    transport-android/              Android WebView transport (JS side)
+    transport-native/               Native WebView transport (JS side, iOS + Android)
     transport-electron/             Electron transports (preload + main)
   demos/                          # Demo applications
     proto/hello.proto               Demo service proto definition (shared by product + host)

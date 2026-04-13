@@ -9,15 +9,15 @@ packages/*/dist/
 tests/dist/
 
 # Built web assets copied/bundled into native hosts
-demos/host/ios/RPCBridgeDemo/web/*.js
-demos/host/ios/RPCBridgeDemo/web/*.js.map
-demos/host/android/app/src/main/assets/web/*.js
-demos/host/android/app/src/main/assets/web/*.js.map
+demos/hosts/ios/RPCBridgeDemo/web/*.js
+demos/hosts/ios/RPCBridgeDemo/web/*.js.map
+demos/hosts/android/app/src/main/assets/web/*.js
+demos/hosts/android/app/src/main/assets/web/*.js.map
 
 # Generated code from proto definitions
 demos/proto/generated/
-demos/host/ios/RPCBridgeDemo/generated/
-demos/host/android/generated/
+demos/hosts/ios/RPCBridgeDemo/generated/
+demos/hosts/android/generated/
 
 # Swift build artifacts
 .build/
@@ -41,5 +41,5 @@ Thumbs.db
 .vscode/
 *.swp
 *.swo
-demos/host/android/.gradle/
+demos/hosts/android/.gradle/
 packages/rpc-core-android/.gradle/

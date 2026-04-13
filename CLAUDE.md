@@ -26,22 +26,27 @@ packages/                       # Framework code only
   rpc-core-swift/                 Swift package: frame codec, server runtime, WKWebView transport
   rpc-core-android/               Android library: frame codec, server runtime, WebView transport
   transport-web/                  Browser transports (MessagePort, postMessage)
-  transport-ios/                  iOS WKWebView transport (JS side)
-  transport-android/              Android WebView transport (JS side)
+  transport-native/               Native WebView transport (JS side, iOS + Android)
   transport-electron/             Electron transports (preload + main)
 
 demos/                          # Demo application code
-  proto/hello.proto               Demo service proto definition (shared by product + host)
+  proto/truapi/v02/*.proto        TruAPI v0.2 service definitions (11 services)
   proto/generated/                Generated TS messages, client stubs, server interfaces
-  product-app/                      Shared product web client (React, embedded in all platform hosts)
-    src/main.ts                     Registers __rpcBridgeBoot callback (no transport knowledge)
+  playground-app/                 Product UI (React app, embedded in all platform hosts)
+    src/setup-client.ts             Creates typed clients and renders the React UI
     src/App.tsx                     Root React component
-    build.js                        Bundles src/main.ts -> dist/product.js (IIFE)
-  host/                           Each host has a boot script that creates transport + RpcClient
-    web/                          Web host (host page with iframe, boot.ts for MessagePort)
-    ios/                          iOS host (Swift app with WKWebView, bootstrap.ts)
-    electron/                     Electron host (main process, boot.ts for MessagePort)
-    android/                      Android host (Gradle project)
+    src/main.ts                     Web/Electron entry (MessagePort)
+    src/bootstrap-native.ts         iOS/Android entry (native WebView transport)
+  hosts/                          Host implementations (RPC servers with mock services)
+    src/setup-server.ts             Registers all 11 mock services on an RpcServer
+    src/mocks/                      Mock handler implementations per service
+    src/host.ts                     Web host (MessagePort to iframe)
+    src/host-electron.ts            Electron host (MessageChannelMain)
+    src/host-ios.ts                 iOS host (WKWebView)
+    src/host-android.ts             Android host (WebView)
+    web/                            Static HTML for the web host
+    ios/                            Xcode project (Swift, WKWebView)
+    android/                        Android Studio project (Gradle, WebView)
 
 proto/rpc/bridge/v1/frame.proto # Core wire protocol definition
 tests/                          # Unit and integration tests
@@ -52,7 +57,7 @@ e2e/                            # Playwright e2e tests
 
 ```bash
 npm install
-npm run build     # core -> codegen -> generate -> transports -> product-app
+npm run build     # core -> codegen -> generate -> transports -> playground-app -> hosts
 ```
 
 Build order matters: each step depends on the previous.

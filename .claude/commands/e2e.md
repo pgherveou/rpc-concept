@@ -15,7 +15,7 @@ Requirements: Playwright chromium installed (`npx playwright install chromium`)
 
 Run: `npx playwright test --project=web`
 
-The web tests serve `demos/host-playground/dist/` on port 3456 and test via iframe.
+The web tests serve `demos/hosts/dist/` on port 3456 and test via iframe.
 
 ## Platform: electron
 
@@ -23,7 +23,7 @@ Requirements: `electron` devDependency (already in package.json)
 
 Run: `npx playwright test --project=electron`
 
-Tests launch the app via `_electron.launch()` using `demos/host-playground/dist/host-electron.js`.
+Tests launch the app via `_electron.launch()` using `demos/hosts/dist/host-electron.js`.
 
 ## Platform: android
 
@@ -40,7 +40,7 @@ $ANDROID_HOME/emulator/emulator -avd <avd-name> &
 
 Before running tests, build and install the APK:
 ```
-cd demos/host-playground/android && ./copy-assets.sh
+cd demos/hosts/android && ./copy-assets.sh
 export ANDROID_HOME=/opt/android-sdk JAVA_HOME=/usr/lib/jvm/java-17-openjdk
 export PATH="$ANDROID_HOME/platform-tools:$JAVA_HOME/bin:$PATH"
 ./gradlew installDebug
