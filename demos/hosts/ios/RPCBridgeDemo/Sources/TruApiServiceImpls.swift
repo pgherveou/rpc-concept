@@ -214,11 +214,17 @@ final class PaymentServiceImpl: TruapiV02.PaymentServiceProvider, @unchecked Sen
 
     func balanceSubscribe(_ request: TruapiV02.PaymentBalanceRequest) -> AsyncThrowingStream<TruapiV02.PaymentBalanceEvent, Error> {
         AsyncThrowingStream { continuation in
-            var balance = TruapiV02.PaymentBalance()
-            balance.available = "1000000000000"
-            balance.pending = "0"
-            continuation.yield(TruapiV02.PaymentBalanceEvent(result: .balance(balance)))
-            // Keep stream open (production pushes updates as balance changes).
+            let task = Task {
+                var balance = TruapiV02.PaymentBalance()
+                balance.available = "1000000000000"
+                balance.pending = "0"
+                continuation.yield(TruapiV02.PaymentBalanceEvent(result: .balance(balance)))
+                // Keep stream open (production pushes updates as balance changes).
+                while !Task.isCancelled {
+                    try await Task.sleep(nanoseconds: UInt64.max)
+                }
+            }
+            continuation.onTermination = { _ in task.cancel() }
         }
     }
 
@@ -237,8 +243,14 @@ final class PaymentServiceImpl: TruapiV02.PaymentServiceProvider, @unchecked Sen
 
     func statusSubscribe(_ request: TruapiV02.PaymentStatusRequest) -> AsyncThrowingStream<TruapiV02.PaymentStatusEvent, Error> {
         AsyncThrowingStream { continuation in
-            continuation.yield(TruapiV02.PaymentStatusEvent(result: .status))
-            // Keep stream open (production pushes updates as payment progresses).
+            let task = Task {
+                continuation.yield(TruapiV02.PaymentStatusEvent(result: .status))
+                // Keep stream open (production pushes updates as payment progresses).
+                while !Task.isCancelled {
+                    try await Task.sleep(nanoseconds: UInt64.max)
+                }
+            }
+            continuation.onTermination = { _ in task.cancel() }
         }
     }
 }
