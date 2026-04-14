@@ -25,13 +25,30 @@ final class GeneralServiceImpl: TruapiV02.GeneralServiceProvider, Sendable {
 
 final class AccountServiceImpl: TruapiV02.AccountServiceProvider, Sendable {
 
-    // Mock root public key (deterministic, base64-encoded).
-    private static let mockRootKey = AnyCodable("qrs=")
+    // Mock root public key (deterministic): 32 bytes, first two 0xaa 0xbb, rest zeros.
+    private static let mockRootKey: AnyCodable = {
+        var key = Data(count: 32)
+        key[0] = 0xAA
+        key[1] = 0xBB
+        return AnyCodable(key.base64EncodedString())
+    }()
+
+    // Derive a deterministic mock public key from dotNsIdentifier and derivationIndex.
+    private static func deriveProductKey(_ dotNsIdentifier: String, _ derivationIndex: Int) -> AnyCodable {
+        var key = Data(count: 32)
+        let utf8 = Array(dotNsIdentifier.utf8)
+        for i in 0..<min(utf8.count, 30) {
+            key[i] = utf8[i]
+        }
+        key[30] = UInt8((derivationIndex >> 8) & 0xFF)
+        key[31] = UInt8(derivationIndex & 0xFF)
+        return AnyCodable(key.base64EncodedString())
+    }
 
     func getAccount(_ request: TruapiV02.GetAccountRequest) async throws -> TruapiV02.GetAccountResponse {
-        // Derive a deterministic mock key from the request identifier
+        let publicKey = Self.deriveProductKey(request.account.dotNsIdentifier, Int(request.account.derivationIndex))
         var account = TruapiV02.Account()
-        account.publicKey = AnyCodable(request.account.dotNsIdentifier)
+        account.publicKey = publicKey
         account.name = "Alice"
         return TruapiV02.GetAccountResponse(result: .account(account))
     }
