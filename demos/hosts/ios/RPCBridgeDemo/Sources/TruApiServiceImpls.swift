@@ -32,7 +32,7 @@ final class AccountServiceImpl: TruapiV02.AccountServiceProvider, Sendable {
         // Derive a deterministic mock key from the request identifier
         var account = TruapiV02.Account()
         account.publicKey = AnyCodable(request.account.dotNsIdentifier)
-        account.name = "Alice (derived)"
+        account.name = "Alice"
         return TruapiV02.GetAccountResponse(result: .account(account))
     }
 

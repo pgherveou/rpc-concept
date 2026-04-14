@@ -48,7 +48,7 @@ class AccountServiceImpl : AccountService {
         Log.d(TAG, "getAccount: ${request.account.dotNsIdentifier} index ${request.account.derivationIndex}")
         val publicKey = deriveProductKey(request.account.dotNsIdentifier, request.account.derivationIndex.toInt())
         return GetAccountResponse(
-            result = GetAccountResponseResult.Account(Account(publicKey = publicKey, name = "Alice (derived)"))
+            result = GetAccountResponseResult.Account(Account(publicKey = publicKey, name = "Alice"))
         )
     }
 

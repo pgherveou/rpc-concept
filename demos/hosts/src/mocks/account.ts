@@ -8,8 +8,8 @@ import {
   type GetNonProductAccountsResponse,
   type AccountConnectionStatusEvent,
   type GetUserIdResponse,
-  type RequestCredentialsErrorCode,
-  type CreateProofErrorCode,
+  RequestCredentialsErrorCode,
+  CreateProofErrorCode,
 } from '../../../proto/generated/messages.js';
 
 // Mock root public key (deterministic).
@@ -32,7 +32,7 @@ export const accountHandler: IAccountServiceHandler = {
   async getAccount(request: GetAccountRequest): Promise<GetAccountResponse> {
     const { dotNsIdentifier, derivationIndex } = request.account;
     const publicKey = deriveProductKey(dotNsIdentifier, derivationIndex);
-    return { result: { case: 'account', value: { publicKey, name: 'Alice (derived)' } } };
+    return { result: { case: 'account', value: { publicKey, name: 'Alice' } } };
   },
 
   async getAlias(): Promise<GetAliasResponse> {
@@ -40,7 +40,7 @@ export const accountHandler: IAccountServiceHandler = {
     return {
       result: {
         case: 'error',
-        value: { code: 4 as RequestCredentialsErrorCode, reason: 'Ring VRF alias not yet implemented' },
+        value: { code: RequestCredentialsErrorCode.REQUEST_CREDENTIALS_ERROR_CODE_UNKNOWN, reason: 'Ring VRF alias not yet implemented' },
       },
     };
   },
@@ -50,7 +50,7 @@ export const accountHandler: IAccountServiceHandler = {
     return {
       result: {
         case: 'error',
-        value: { code: 3 as CreateProofErrorCode, reason: 'Ring VRF proof not yet implemented' },
+        value: { code: CreateProofErrorCode.CREATE_PROOF_ERROR_CODE_UNKNOWN, reason: 'Ring VRF proof not yet implemented' },
       },
     };
   },
