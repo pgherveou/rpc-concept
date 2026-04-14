@@ -298,17 +298,19 @@ final class StatementStoreServiceImpl: TruapiV02.StatementStoreServiceProvider, 
             let expiry = UInt64(Date().timeIntervalSince1970) + 3600
 
             var stmt1 = TruapiV02.SignedStatement()
-            stmt1.proof = TruapiV02.StatementProof(proof: .sr25519(TruapiV02.Sr25519Proof(
-                signature: Self.mockSignature, signer: Self.mockSigner
-            )))
+            var sr25519Proof1 = TruapiV02.Sr25519Proof()
+            sr25519Proof1.signature = Self.mockSignature
+            sr25519Proof1.signer = Self.mockSigner
+            stmt1.proof = TruapiV02.StatementProof(proof: .sr25519(sr25519Proof1))
             stmt1.expiry = expiry
             stmt1.topics = [Self.mockTopicA]
             stmt1.data = AnyCodable("eyJ0eXBlIjoicHJvZmlsZSIsIm5hbWUiOiJBbGljZSJ9")
 
             var stmt2 = TruapiV02.SignedStatement()
-            stmt2.proof = TruapiV02.StatementProof(proof: .ed25519(TruapiV02.Ed25519Proof(
-                signature: Self.mockSignature, signer: Self.mockSigner2
-            )))
+            var ed25519Proof = TruapiV02.Ed25519Proof()
+            ed25519Proof.signature = Self.mockSignature
+            ed25519Proof.signer = Self.mockSigner2
+            stmt2.proof = TruapiV02.StatementProof(proof: .ed25519(ed25519Proof))
             stmt2.decryptionKey = AnyCodable("AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=")
             stmt2.expiry = expiry + 3600
             stmt2.topics = [Self.mockTopicA, Self.mockTopicB]
@@ -322,9 +324,10 @@ final class StatementStoreServiceImpl: TruapiV02.StatementStoreServiceProvider, 
             Task {
                 try await Task.sleep(nanoseconds: 1_500_000_000)
                 var stmt3 = TruapiV02.SignedStatement()
-                stmt3.proof = TruapiV02.StatementProof(proof: .sr25519(TruapiV02.Sr25519Proof(
-                    signature: Self.mockSignature, signer: Self.mockSigner
-                )))
+                var sr25519Proof3 = TruapiV02.Sr25519Proof()
+                sr25519Proof3.signature = Self.mockSignature
+                sr25519Proof3.signer = Self.mockSigner
+                stmt3.proof = TruapiV02.StatementProof(proof: .sr25519(sr25519Proof3))
                 stmt3.expiry = UInt64(Date().timeIntervalSince1970) + 1800
                 stmt3.topics = [Self.mockTopicB]
                 stmt3.data = AnyCodable("eyJ0eXBlIjoidXBkYXRlIiwic2VxIjoxfQ==")
