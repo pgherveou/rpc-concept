@@ -47,8 +47,12 @@ function setupBridge(win: BrowserWindow): void {
 
   const generalHandler = createGeneralHandler({
     onNavigate: (url) => shell.openExternal(url),
-    onNotification: (text) => {
-      new Notification({ title: 'TruAPI Playground', body: text }).show();
+    onNotification: (text, deeplink) => {
+      const notif = new Notification({ title: 'TruAPI Playground', body: text });
+      if (deeplink) {
+        notif.on('click', () => shell.openExternal(deeplink));
+      }
+      notif.show();
     },
   });
 

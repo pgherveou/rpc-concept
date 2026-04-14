@@ -9,7 +9,10 @@ private const val TAG = "TruApiServices"
 
 // -- GeneralService --
 
-class GeneralServiceImpl : GeneralService {
+class GeneralServiceImpl(
+    private val onNavigate: (String) -> Unit = {},
+    private val onNotification: (String, String) -> Unit = { _, _ -> },
+) : GeneralService {
     override suspend fun featureSupported(request: FeatureSupportedRequest): FeatureSupportedResponse {
         // Chain features are always supported in the playground.
         val supported = request.feature.feature is FeatureFeature.Chain
@@ -27,11 +30,13 @@ class GeneralServiceImpl : GeneralService {
             )
         }
         Log.d(TAG, "navigateTo: ${request.url}")
+        onNavigate(request.url)
         return NavigateToResponse(result = NavigateToResponseResult.Ok)
     }
 
     override suspend fun pushNotification(request: PushNotification): PushNotificationResponse {
-        Log.d(TAG, "pushNotification: ${request.text} ${request.deeplink ?: ""}")
+        Log.d(TAG, "pushNotification: ${request.text} ${request.deeplink}")
+        onNotification(request.text, request.deeplink)
         return PushNotificationResponse(result = PushNotificationResponseResult.Ok)
     }
 }

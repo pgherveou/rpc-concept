@@ -2,6 +2,8 @@
 // Returns sensible stub data for demo / playground use.
 
 import Foundation
+import UIKit
+import UserNotifications
 import RpcBridge
 
 // MARK: - GeneralServiceImpl
@@ -17,18 +19,25 @@ final class GeneralServiceImpl: TruapiV02.GeneralServiceProvider, Sendable {
     }
 
     func navigateTo(_ request: TruapiV02.NavigateToRequest) async throws -> TruapiV02.NavigateToResponse {
-        guard !request.url.isEmpty else {
+        guard let url = URL(string: request.url), !request.url.isEmpty else {
             var err = TruapiV02.NavigateToError()
             err.code = .unknown
-            err.reason = "Empty URL"
+            err.reason = "Invalid URL"
             return TruapiV02.NavigateToResponse(result: .error(err))
         }
-        print("[host] navigateTo: \(request.url)")
+        await MainActor.run { UIApplication.shared.open(url) }
         return TruapiV02.NavigateToResponse(result: .ok)
     }
 
     func pushNotification(_ request: TruapiV02.PushNotification) async throws -> TruapiV02.PushNotificationResponse {
-        print("[host] Push notification: \(request.text) \(request.deeplink)")
+        let content = UNMutableNotificationContent()
+        content.title = "RPC Playground"
+        content.body = request.text
+        if !request.deeplink.isEmpty {
+            content.userInfo = ["deeplink": request.deeplink]
+        }
+        let req = UNNotificationRequest(identifier: UUID().uuidString, content: content, trigger: nil)
+        try? await UNUserNotificationCenter.current().add(req)
         return TruapiV02.PushNotificationResponse(result: .ok)
     }
 }
