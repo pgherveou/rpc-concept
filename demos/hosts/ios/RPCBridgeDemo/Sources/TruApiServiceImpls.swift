@@ -28,7 +28,7 @@ final class GeneralServiceImpl: TruapiV02.GeneralServiceProvider, Sendable {
     }
 
     func pushNotification(_ request: TruapiV02.PushNotification) async throws -> TruapiV02.PushNotificationResponse {
-        print("[host] Push notification: \(request.text) \(request.deeplink ?? "")")
+        print("[host] Push notification: \(request.text) \(request.deeplink)")
         return TruapiV02.PushNotificationResponse(result: .ok)
     }
 }
