@@ -266,8 +266,19 @@ final class PreimageServiceImpl: TruapiV02.PreimageServiceProvider, @unchecked S
         return Data((0..<32).map { i in key.indices.contains(i % keyLen) ? key[i % keyLen] ^ 0xff : 0xff })
     }
 
+    private func keyData(from request: TruapiV02.PreimageLookupRequest) -> Data {
+        guard let b64 = request.key?.value as? String else { return Data() }
+        return Data(base64Encoded: b64) ?? Data()
+    }
+
+    private func makeEvent(_ data: Data) -> TruapiV02.PreimageLookupEvent {
+        var event = TruapiV02.PreimageLookupEvent()
+        event.value = AnyCodable(data.base64EncodedString())
+        return event
+    }
+
     func lookupSubscribe(_ request: TruapiV02.PreimageLookupRequest) -> AsyncThrowingStream<TruapiV02.PreimageLookupEvent, Error> {
-        let keyData = (request.key as? AnyCodable).flatMap { Data(base64Encoded: $0.value as? String ?? "") } ?? Data()
+        let keyData = keyData(from: request)
         let keyHex = toHex(keyData)
 
         return AsyncThrowingStream { continuation in
@@ -279,15 +290,13 @@ final class PreimageServiceImpl: TruapiV02.PreimageServiceProvider, @unchecked S
 
             if let cached {
                 print("[host] preimage cache hit for key=0x\(keyHex)")
-                var event = TruapiV02.PreimageLookupEvent()
-                event.value = AnyCodable(cached.base64EncodedString())
-                continuation.yield(event)
+                continuation.yield(self.makeEvent(cached))
                 continuation.finish()
                 return
             }
 
-            // Not cached: emit empty event (preimage pending)
-            continuation.yield(TruapiV02.PreimageLookupEvent())
+            // Not cached: emit empty value (preimage pending)
+            continuation.yield(self.makeEvent(Data()))
 
             let task = Task {
                 do {
@@ -295,14 +304,12 @@ final class PreimageServiceImpl: TruapiV02.PreimageServiceProvider, @unchecked S
                     try await Task.sleep(nanoseconds: 2_000_000_000)
 
                     let resolved = self.deriveMockPreimage(keyData)
-                    lock.lock()
-                    defer { lock.unlock() }
+                    self.lock.lock()
                     self.cache[keyHex] = resolved
+                    self.lock.unlock()
                     print("[host] preimage resolved for key=0x\(keyHex)")
 
-                    var event = TruapiV02.PreimageLookupEvent()
-                    event.value = AnyCodable(resolved.base64EncodedString())
-                    continuation.yield(event)
+                    continuation.yield(self.makeEvent(resolved))
                     continuation.finish()
                 } catch {
                     continuation.finish(throwing: error)
