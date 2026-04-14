@@ -321,22 +321,27 @@ final class StatementStoreServiceImpl: TruapiV02.StatementStoreServiceProvider, 
             continuation.yield(list)
 
             // Simulate a delayed update
-            Task {
-                try await Task.sleep(nanoseconds: 1_500_000_000)
-                var stmt3 = TruapiV02.SignedStatement()
-                var sr25519Proof3 = TruapiV02.Sr25519Proof()
-                sr25519Proof3.signature = Self.mockSignature
-                sr25519Proof3.signer = Self.mockSigner
-                stmt3.proof = TruapiV02.StatementProof(proof: .sr25519(sr25519Proof3))
-                stmt3.expiry = UInt64(Date().timeIntervalSince1970) + 1800
-                stmt3.topics = [Self.mockTopicB]
-                stmt3.data = AnyCodable("eyJ0eXBlIjoidXBkYXRlIiwic2VxIjoxfQ==")
+            let task = Task {
+                do {
+                    try await Task.sleep(nanoseconds: 1_500_000_000)
+                    var stmt3 = TruapiV02.SignedStatement()
+                    var sr25519Proof3 = TruapiV02.Sr25519Proof()
+                    sr25519Proof3.signature = Self.mockSignature
+                    sr25519Proof3.signer = Self.mockSigner
+                    stmt3.proof = TruapiV02.StatementProof(proof: .sr25519(sr25519Proof3))
+                    stmt3.expiry = UInt64(Date().timeIntervalSince1970) + 1800
+                    stmt3.topics = [Self.mockTopicB]
+                    stmt3.data = AnyCodable("eyJ0eXBlIjoidXBkYXRlIiwic2VxIjoxfQ==")
 
-                var list2 = TruapiV02.StatementList()
-                list2.statements = [stmt3]
-                continuation.yield(list2)
-                continuation.finish()
+                    var list2 = TruapiV02.StatementList()
+                    list2.statements = [stmt3]
+                    continuation.yield(list2)
+                    continuation.finish()
+                } catch {
+                    continuation.finish(throwing: error)
+                }
             }
+            continuation.onTermination = { _ in task.cancel() }
         }
     }
 
