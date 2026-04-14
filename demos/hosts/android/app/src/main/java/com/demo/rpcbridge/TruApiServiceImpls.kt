@@ -106,23 +106,88 @@ class AccountServiceImpl : AccountService {
 // -- ChainService --
 
 class ChainServiceImpl : ChainService {
+
+    // Polkadot genesis hash
+    private val polkadotGenesis = hexToBytes(
+        "91b171bb158e2d3848fa23a9f1c25182fb8e20313b2c1eb49219da7a70ce90c3"
+    )
+
+    private var opCounter = java.util.concurrent.atomic.AtomicInteger(0)
+    private fun nextOpId(): String = "op-${opCounter.incrementAndGet()}"
+
+    private fun polkadotRuntime(): RuntimeType = RuntimeType(
+        runtime = RuntimeTypeRuntime.Valid(
+            RuntimeSpec(
+                specName = "polkadot",
+                implName = "parity-polkadot",
+                specVersion = 1_003_004u,
+                implVersion = 0u,
+                transactionVersion = 26u,
+                apis = listOf(
+                    RuntimeApi(name = "Core", version = 5u),
+                    RuntimeApi(name = "Metadata", version = 2u),
+                    RuntimeApi(name = "BlockBuilder", version = 6u),
+                    RuntimeApi(name = "TaggedTransactionQueue", version = 3u),
+                    RuntimeApi(name = "AccountNonceApi", version = 1u),
+                    RuntimeApi(name = "TransactionPaymentApi", version = 4u),
+                )
+            )
+        )
+    )
+
     override fun headFollow(request: ChainHeadFollowRequest): Flow<ChainHeadEvent> = flow {
         Log.d(TAG, "headFollow")
+        val finalizedHash = randomHash()
+
+        // Initialized event
         emit(ChainHeadEvent(event = ChainHeadEventEvent.Initialized(
-            Initialized(finalizedBlockHashes = listOf(ByteArray(32)), finalizedBlockRuntime = RuntimeType())
+            Initialized(
+                finalizedBlockHashes = listOf(finalizedHash),
+                finalizedBlockRuntime = polkadotRuntime()
+            )
         )))
-        emit(ChainHeadEvent(event = ChainHeadEventEvent.NewBlock(
-            NewBlock(blockHash = ByteArray(32), parentBlockHash = ByteArray(32), newRuntime = RuntimeType())
-        )))
-        emit(ChainHeadEvent(event = ChainHeadEventEvent.BestBlockChanged(
-            BestBlockChanged(bestBlockHash = ByteArray(32))
-        )))
+
+        // Simulate 5 new blocks arriving every ~2s
+        var parentHash = finalizedHash
+        val pendingHashes = mutableListOf<ByteArray>()
+
+        for (i in 0 until 5) {
+            kotlinx.coroutines.delay(2000)
+
+            val blockHash = randomHash()
+            pendingHashes.add(blockHash)
+
+            emit(ChainHeadEvent(event = ChainHeadEventEvent.NewBlock(
+                NewBlock(blockHash = blockHash, parentBlockHash = parentHash)
+            )))
+
+            emit(ChainHeadEvent(event = ChainHeadEventEvent.BestBlockChanged(
+                BestBlockChanged(bestBlockHash = blockHash)
+            )))
+
+            // Finalize every 2 blocks
+            if (pendingHashes.size >= 2) {
+                emit(ChainHeadEvent(event = ChainHeadEventEvent.Finalized(
+                    Finalized(finalizedBlockHashes = pendingHashes.toList())
+                )))
+                pendingHashes.clear()
+            }
+
+            parentHash = blockHash
+        }
+
+        // Finalize remaining
+        if (pendingHashes.isNotEmpty()) {
+            emit(ChainHeadEvent(event = ChainHeadEventEvent.Finalized(
+                Finalized(finalizedBlockHashes = pendingHashes.toList())
+            )))
+        }
     }
 
     override suspend fun headHeader(request: ChainHeadBlockRequest): ChainHeadHeaderResponse {
         Log.d(TAG, "headHeader")
         return ChainHeadHeaderResponse(
-            result = ChainHeadHeaderResponseResult.Value(ChainHeadHeaderValue(header = ByteArray(80)))
+            result = ChainHeadHeaderResponseResult.Value(ChainHeadHeaderValue(header = randomHash() + randomHash() + ByteArray(16)))
         )
     }
 
@@ -130,7 +195,7 @@ class ChainServiceImpl : ChainService {
         Log.d(TAG, "headBody")
         return OperationStartedResponse(
             result = OperationStartedResponseResult.Value(
-                OperationStartedResult(result = OperationStartedResultResult.OperationId("op-1"))
+                OperationStartedResult(result = OperationStartedResultResult.OperationId(nextOpId()))
             )
         )
     }
@@ -139,7 +204,7 @@ class ChainServiceImpl : ChainService {
         Log.d(TAG, "headStorage")
         return OperationStartedResponse(
             result = OperationStartedResponseResult.Value(
-                OperationStartedResult(result = OperationStartedResultResult.OperationId("op-2"))
+                OperationStartedResult(result = OperationStartedResultResult.OperationId(nextOpId()))
             )
         )
     }
@@ -148,7 +213,7 @@ class ChainServiceImpl : ChainService {
         Log.d(TAG, "headCall")
         return OperationStartedResponse(
             result = OperationStartedResponseResult.Value(
-                OperationStartedResult(result = OperationStartedResultResult.OperationId("op-3"))
+                OperationStartedResult(result = OperationStartedResultResult.OperationId(nextOpId()))
             )
         )
     }
@@ -170,18 +235,18 @@ class ChainServiceImpl : ChainService {
 
     override suspend fun specGenesisHash(request: ChainGenesisRequest): ChainBytesResponse {
         Log.d(TAG, "specGenesisHash")
-        return ChainBytesResponse(result = ChainBytesResponseResult.Value(ByteArray(32)))
+        return ChainBytesResponse(result = ChainBytesResponseResult.Value(polkadotGenesis))
     }
 
     override suspend fun specChainName(request: ChainGenesisRequest): ChainStringResponse {
         Log.d(TAG, "specChainName")
-        return ChainStringResponse(result = ChainStringResponseResult.Value("Mock Chain"))
+        return ChainStringResponse(result = ChainStringResponseResult.Value("Polkadot"))
     }
 
     override suspend fun specProperties(request: ChainGenesisRequest): ChainStringResponse {
         Log.d(TAG, "specProperties")
         return ChainStringResponse(
-            result = ChainStringResponseResult.Value("{\"tokenSymbol\":\"DOT\",\"tokenDecimals\":10}")
+            result = ChainStringResponseResult.Value("{\"ss58Format\":0,\"tokenDecimals\":10,\"tokenSymbol\":\"DOT\"}")
         )
     }
 
@@ -189,7 +254,7 @@ class ChainServiceImpl : ChainService {
         Log.d(TAG, "transactionBroadcast")
         return ChainTransactionBroadcastResponse(
             result = ChainTransactionBroadcastResponseResult.Value(
-                ChainTransactionBroadcastValue(operationId = "tx-op-1")
+                ChainTransactionBroadcastValue(operationId = nextOpId())
             )
         )
     }
@@ -197,6 +262,16 @@ class ChainServiceImpl : ChainService {
     override suspend fun transactionStop(request: ChainTransactionStopRequest): ChainVoidResponse {
         Log.d(TAG, "transactionStop")
         return ChainVoidResponse(result = ChainVoidResponseResult.Ok)
+    }
+
+    companion object {
+        private fun hexToBytes(hex: String): ByteArray {
+            return ByteArray(hex.length / 2) { i ->
+                hex.substring(i * 2, i * 2 + 2).toInt(16).toByte()
+            }
+        }
+
+        private fun randomHash(): ByteArray = ByteArray(32).also { java.security.SecureRandom().nextBytes(it) }
     }
 }
 

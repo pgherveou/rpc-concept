@@ -100,29 +100,109 @@ final class AccountServiceImpl: TruapiV02.AccountServiceProvider, Sendable {
 
 final class ChainServiceImpl: TruapiV02.ChainServiceProvider, Sendable {
 
+    // Polkadot genesis hash
+    private static let polkadotGenesis = "0x91b171bb158e2d3848fa23a9f1c25182fb8e20313b2c1eb49219da7a70ce90c3"
+
+    private static func polkadotRuntime() -> TruapiV02.RuntimeType {
+        var spec = TruapiV02.RuntimeSpec()
+        spec.specName = "polkadot"
+        spec.implName = "parity-polkadot"
+        spec.specVersion = 1_003_004
+        spec.implVersion = 0
+        spec.transactionVersion = 26
+        spec.apis = [
+            { var a = TruapiV02.RuntimeApi(); a.name = "Core"; a.version = 5; return a }(),
+            { var a = TruapiV02.RuntimeApi(); a.name = "Metadata"; a.version = 2; return a }(),
+            { var a = TruapiV02.RuntimeApi(); a.name = "BlockBuilder"; a.version = 6; return a }(),
+            { var a = TruapiV02.RuntimeApi(); a.name = "TaggedTransactionQueue"; a.version = 3; return a }(),
+            { var a = TruapiV02.RuntimeApi(); a.name = "AccountNonceApi"; a.version = 1; return a }(),
+            { var a = TruapiV02.RuntimeApi(); a.name = "TransactionPaymentApi"; a.version = 4; return a }(),
+        ]
+        return TruapiV02.RuntimeType(runtime: .valid(spec))
+    }
+
+    private static func randomHex() -> String {
+        let bytes = (0..<32).map { _ in UInt8.random(in: 0...255) }
+        return "0x" + bytes.map { String(format: "%02x", $0) }.joined()
+    }
+
+    private let opCounter = OpCounter()
+
     func headFollow(_ request: TruapiV02.ChainHeadFollowRequest) -> AsyncThrowingStream<TruapiV02.ChainHeadEvent, Error> {
-        AsyncThrowingStream { continuation in
-            continuation.yield(TruapiV02.ChainHeadEvent(event: .initialized(TruapiV02.Initialized())))
-            continuation.yield(TruapiV02.ChainHeadEvent(event: .newBlock(TruapiV02.NewBlock())))
-            continuation.yield(TruapiV02.ChainHeadEvent(event: .bestBlockChanged(TruapiV02.BestBlockChanged())))
-            continuation.finish()
+        let opCounter = self.opCounter
+        return AsyncThrowingStream { continuation in
+            let task = Task {
+                do {
+                    let finalizedHash = Self.randomHex()
+
+                    // Initialized event
+                    var init_ = TruapiV02.Initialized()
+                    init_.finalizedBlockHashes = [AnyCodable(finalizedHash)]
+                    init_.finalizedBlockRuntime = Self.polkadotRuntime()
+                    continuation.yield(TruapiV02.ChainHeadEvent(event: .initialized(init_)))
+
+                    // Simulate 5 new blocks
+                    var parentHash = finalizedHash
+                    var pendingHashes: [String] = []
+
+                    for i in 0..<5 {
+                        try await Task.sleep(nanoseconds: 2_000_000_000)
+
+                        let blockHash = Self.randomHex()
+                        pendingHashes.append(blockHash)
+
+                        var newBlock = TruapiV02.NewBlock()
+                        newBlock.blockHash = AnyCodable(blockHash)
+                        newBlock.parentBlockHash = AnyCodable(parentHash)
+                        continuation.yield(TruapiV02.ChainHeadEvent(event: .newBlock(newBlock)))
+
+                        var best = TruapiV02.BestBlockChanged()
+                        best.bestBlockHash = AnyCodable(blockHash)
+                        continuation.yield(TruapiV02.ChainHeadEvent(event: .bestBlockChanged(best)))
+
+                        // Finalize every 2 blocks
+                        if pendingHashes.count >= 2 {
+                            var fin = TruapiV02.Finalized()
+                            fin.finalizedBlockHashes = pendingHashes.map { AnyCodable($0) }
+                            continuation.yield(TruapiV02.ChainHeadEvent(event: .finalized(fin)))
+                            pendingHashes.removeAll()
+                        }
+
+                        parentHash = blockHash
+                    }
+
+                    // Finalize remaining
+                    if !pendingHashes.isEmpty {
+                        var fin = TruapiV02.Finalized()
+                        fin.finalizedBlockHashes = pendingHashes.map { AnyCodable($0) }
+                        continuation.yield(TruapiV02.ChainHeadEvent(event: .finalized(fin)))
+                    }
+
+                    continuation.finish()
+                } catch {
+                    continuation.finish(throwing: error)
+                }
+            }
+            continuation.onTermination = { _ in task.cancel() }
         }
     }
 
     func headHeader(_ request: TruapiV02.ChainHeadBlockRequest) async throws -> TruapiV02.ChainHeadHeaderResponse {
-        TruapiV02.ChainHeadHeaderResponse(result: .value(TruapiV02.ChainHeadHeaderValue()))
+        var headerValue = TruapiV02.ChainHeadHeaderValue()
+        headerValue.header = AnyCodable(Self.randomHex())
+        return TruapiV02.ChainHeadHeaderResponse(result: .value(headerValue))
     }
 
     func headBody(_ request: TruapiV02.ChainHeadBlockRequest) async throws -> TruapiV02.OperationStartedResponse {
-        TruapiV02.OperationStartedResponse(result: .value)
+        TruapiV02.OperationStartedResponse(result: .value(TruapiV02.OperationStartedResult(result: .operationId(opCounter.next()))))
     }
 
     func headStorage(_ request: TruapiV02.ChainHeadStorageRequest) async throws -> TruapiV02.OperationStartedResponse {
-        TruapiV02.OperationStartedResponse(result: .value)
+        TruapiV02.OperationStartedResponse(result: .value(TruapiV02.OperationStartedResult(result: .operationId(opCounter.next()))))
     }
 
     func headCall(_ request: TruapiV02.ChainHeadCallRequest) async throws -> TruapiV02.OperationStartedResponse {
-        TruapiV02.OperationStartedResponse(result: .value)
+        TruapiV02.OperationStartedResponse(result: .value(TruapiV02.OperationStartedResult(result: .operationId(opCounter.next()))))
     }
 
     func headUnpin(_ request: TruapiV02.ChainHeadUnpinRequest) async throws -> TruapiV02.ChainVoidResponse {
@@ -138,25 +218,38 @@ final class ChainServiceImpl: TruapiV02.ChainServiceProvider, Sendable {
     }
 
     func specGenesisHash(_ request: TruapiV02.ChainGenesisRequest) async throws -> TruapiV02.ChainBytesResponse {
-        TruapiV02.ChainBytesResponse(result: .value(AnyCodable("0x0000")))
+        TruapiV02.ChainBytesResponse(result: .value(AnyCodable(Self.polkadotGenesis)))
     }
 
     func specChainName(_ request: TruapiV02.ChainGenesisRequest) async throws -> TruapiV02.ChainStringResponse {
-        TruapiV02.ChainStringResponse(result: .value("Mock Chain"))
+        TruapiV02.ChainStringResponse(result: .value("Polkadot"))
     }
 
     func specProperties(_ request: TruapiV02.ChainGenesisRequest) async throws -> TruapiV02.ChainStringResponse {
-        TruapiV02.ChainStringResponse(result: .value("{\"tokenDecimals\":10,\"tokenSymbol\":\"DOT\"}"))
+        TruapiV02.ChainStringResponse(result: .value("{\"ss58Format\":0,\"tokenDecimals\":10,\"tokenSymbol\":\"DOT\"}"))
     }
 
     func transactionBroadcast(_ request: TruapiV02.ChainTransactionBroadcastRequest) async throws -> TruapiV02.ChainTransactionBroadcastResponse {
         var value = TruapiV02.ChainTransactionBroadcastValue()
-        value.operationId = "op-1"
+        value.operationId = opCounter.next()
         return TruapiV02.ChainTransactionBroadcastResponse(result: .value(value))
     }
 
     func transactionStop(_ request: TruapiV02.ChainTransactionStopRequest) async throws -> TruapiV02.ChainVoidResponse {
         TruapiV02.ChainVoidResponse(result: .ok)
+    }
+}
+
+// Thread-safe operation counter shared across service impls.
+private final class OpCounter: @unchecked Sendable {
+    private let lock = NSLock()
+    private var _value: Int = 0
+
+    func next() -> String {
+        lock.lock()
+        defer { lock.unlock() }
+        _value += 1
+        return "op-\(_value)"
     }
 }
 
@@ -268,7 +361,7 @@ final class PaymentServiceImpl: TruapiV02.PaymentServiceProvider, Sendable {
 
     func statusSubscribe(_ request: TruapiV02.PaymentStatusRequest) -> AsyncThrowingStream<TruapiV02.PaymentStatusEvent, Error> {
         AsyncThrowingStream { continuation in
-            continuation.yield(TruapiV02.PaymentStatusEvent(result: .status))
+            continuation.yield(TruapiV02.PaymentStatusEvent(result: .status(TruapiV02.PaymentStatus(status: .completed))))
             continuation.finish()
         }
     }
@@ -332,7 +425,7 @@ final class StatementStoreServiceImpl: TruapiV02.StatementStoreServiceProvider, 
     }
 
     func createProof(_ request: TruapiV02.StatementCreateProofRequest) async throws -> TruapiV02.StatementCreateProofResponse {
-        TruapiV02.StatementCreateProofResponse(result: .proof)
+        TruapiV02.StatementCreateProofResponse(result: .proof(TruapiV02.StatementProof()))
     }
 
     func submit(_ request: TruapiV02.StatementSubmitRequest) async throws -> TruapiV02.StatementSubmitResponse {
