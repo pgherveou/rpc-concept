@@ -308,18 +308,38 @@ class PermissionsServiceImpl : PermissionsService {
 // -- PreimageService --
 
 class PreimageServiceImpl : PreimageService {
-    override fun lookupSubscribe(request: PreimageLookupRequest): Flow<PreimageLookupEvent> = flow {
-        Log.d(TAG, "lookupSubscribe key=${request.key.size} bytes")
+    private val cache = mutableMapOf<String, ByteArray>()
 
-        // First event: preimage not yet available
+    private fun toHex(bytes: ByteArray): String =
+        bytes.joinToString("") { "%02x".format(it) }
+
+    private fun deriveMockPreimage(key: ByteArray): ByteArray {
+        val keySize = key.size.coerceAtLeast(1)
+        return ByteArray(32) { i -> ((key.getOrElse(i % keySize) { 0 }).toInt() xor 0xff).toByte() }
+    }
+
+    override fun lookupSubscribe(request: PreimageLookupRequest): Flow<PreimageLookupEvent> = flow {
+        val keyHex = toHex(request.key)
+        Log.d(TAG, "lookupSubscribe key=0x$keyHex")
+
+        val cached = cache[keyHex]
+        if (cached != null) {
+            Log.d(TAG, "preimage cache hit for key=0x$keyHex")
+            emit(PreimageLookupEvent(value = cached))
+            return@flow
+        }
+
+        // Not cached: emit empty value (preimage pending)
         emit(PreimageLookupEvent(value = ByteArray(0)))
 
-        // Simulate network fetch delay, then resolve with mock data
-        kotlinx.coroutines.delay(500)
-        val keySize = request.key.size.coerceAtLeast(1)
-        val mockData = ByteArray(64) { i -> ((request.key.getOrElse(i % keySize) { 0 }).toInt() xor 0xff).toByte() }
-        Log.d(TAG, "preimage resolved")
-        emit(PreimageLookupEvent(value = mockData))
+        // Simulate IPFS fetch delay
+        kotlinx.coroutines.delay(2000)
+
+        // Resolve, cache, and emit
+        val resolved = deriveMockPreimage(request.key)
+        cache[keyHex] = resolved
+        Log.d(TAG, "preimage resolved for key=0x$keyHex")
+        emit(PreimageLookupEvent(value = resolved))
     }
 }
 
