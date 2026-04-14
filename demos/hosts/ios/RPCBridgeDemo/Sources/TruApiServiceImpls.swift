@@ -644,20 +644,36 @@ final class PreimageServiceImpl: TruapiV02.PreimageServiceProvider, @unchecked S
 
 final class SigningServiceImpl: TruapiV02.SigningServiceProvider, Sendable {
 
+    private static let mockSignature = Data(count: 64)
+    private static let mockTransaction = Data(count: 128)
+
     func signPayload(_ request: TruapiV02.SigningPayload) async throws -> TruapiV02.SignPayloadResponse {
-        TruapiV02.SignPayloadResponse(result: .ok(TruapiV02.SigningResult()))
+        print("[host] signPayload: account=\(request.account.dotNsIdentifier)/\(request.account.derivationIndex)")
+
+        var result = TruapiV02.SigningResult()
+        result.signature = AnyCodable(Self.mockSignature)
+        if request.withSignedTransaction {
+            result.signedTransaction = AnyCodable(Self.mockTransaction)
+        }
+        return TruapiV02.SignPayloadResponse(result: .ok(result))
     }
 
     func signRaw(_ request: TruapiV02.SigningRawPayload) async throws -> TruapiV02.SignRawResponse {
-        TruapiV02.SignRawResponse(result: .ok(TruapiV02.SigningResult()))
+        print("[host] signRaw: account=\(request.account.dotNsIdentifier)/\(request.account.derivationIndex)")
+
+        var result = TruapiV02.SigningResult()
+        result.signature = AnyCodable(Self.mockSignature)
+        return TruapiV02.SignRawResponse(result: .ok(result))
     }
 
     func createTransaction(_ request: TruapiV02.CreateTransactionRequest) async throws -> TruapiV02.CreateTransactionResponse {
-        TruapiV02.CreateTransactionResponse(result: .transaction(AnyCodable("0xmocktx")))
+        print("[host] createTransaction: account=\(request.account.dotNsIdentifier)/\(request.account.derivationIndex)")
+        return TruapiV02.CreateTransactionResponse(result: .transaction(AnyCodable(Self.mockTransaction)))
     }
 
     func createTransactionNonProduct(_ request: TruapiV02.CreateTransactionNonProductRequest) async throws -> TruapiV02.CreateTransactionResponse {
-        TruapiV02.CreateTransactionResponse(result: .transaction(AnyCodable("0xmocktx")))
+        print("[host] createTransactionNonProduct")
+        return TruapiV02.CreateTransactionResponse(result: .transaction(AnyCodable(Self.mockTransaction)))
     }
 }
 

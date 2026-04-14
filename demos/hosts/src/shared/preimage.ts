@@ -1,13 +1,17 @@
 import type { IPreimageServiceHandler } from '../../../proto/generated/server.js';
 <<<<<<< HEAD
 <<<<<<< HEAD
+<<<<<<< HEAD
 =======
 >>>>>>> origin/pg/issue-11-permissions-service
+=======
+>>>>>>> origin/pg/impl-signing-service
 import type { PreimageLookupEvent } from '../../../proto/generated/messages.js';
 
 export const preimageHandler: IPreimageServiceHandler = {
   async *lookupSubscribe(): AsyncGenerator<PreimageLookupEvent> {
     yield { value: new Uint8Array(32) };
+<<<<<<< HEAD
 <<<<<<< HEAD
 =======
 import type { PreimageLookupRequest, PreimageLookupEvent } from '../../../proto/generated/messages.js';
@@ -58,5 +62,7 @@ export const preimageHandler: IPreimageServiceHandler = {
 >>>>>>> origin/pg/impl-preimage-service
 =======
 >>>>>>> origin/pg/issue-11-permissions-service
+=======
+>>>>>>> origin/pg/impl-signing-service
   },
 };

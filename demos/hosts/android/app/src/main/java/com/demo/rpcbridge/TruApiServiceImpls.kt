@@ -571,32 +571,44 @@ class PreimageServiceImpl : PreimageService {
 // -- SigningService --
 
 class SigningServiceImpl : SigningService {
+    private val mockSignature = ByteArray(64)
+    private val mockTransaction = ByteArray(128)
+
     override suspend fun signPayload(request: SigningPayload): SignPayloadResponse {
-        Log.d(TAG, "signPayload")
+        Log.d(TAG, "signPayload: account=${request.account.dotNsIdentifier}/${request.account.derivationIndex}")
+
         return SignPayloadResponse(
             result = SignPayloadResponseResult.Ok(
-                SigningResult(signature = ByteArray(64), signedTransaction = ByteArray(0))
+                SigningResult(
+                    signature = mockSignature,
+                    signedTransaction = if (request.withSignedTransaction) mockTransaction else ByteArray(0)
+                )
             )
         )
     }
 
     override suspend fun signRaw(request: SigningRawPayload): SignRawResponse {
-        Log.d(TAG, "signRaw")
+        Log.d(TAG, "signRaw: account=${request.account.dotNsIdentifier}/${request.account.derivationIndex}")
+
         return SignRawResponse(
             result = SignRawResponseResult.Ok(
-                SigningResult(signature = ByteArray(64), signedTransaction = ByteArray(0))
+                SigningResult(signature = mockSignature, signedTransaction = ByteArray(0))
             )
         )
     }
 
     override suspend fun createTransaction(request: CreateTransactionRequest): CreateTransactionResponse {
-        Log.d(TAG, "createTransaction")
-        return CreateTransactionResponse(result = CreateTransactionResponseResult.Transaction(ByteArray(128)))
+        Log.d(TAG, "createTransaction: account=${request.account.dotNsIdentifier}/${request.account.derivationIndex}")
+        return CreateTransactionResponse(
+            result = CreateTransactionResponseResult.Transaction(mockTransaction)
+        )
     }
 
     override suspend fun createTransactionNonProduct(request: CreateTransactionNonProductRequest): CreateTransactionResponse {
         Log.d(TAG, "createTransactionNonProduct")
-        return CreateTransactionResponse(result = CreateTransactionResponseResult.Transaction(ByteArray(128)))
+        return CreateTransactionResponse(
+            result = CreateTransactionResponseResult.Transaction(mockTransaction)
+        )
     }
 }
 
