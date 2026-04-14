@@ -28,6 +28,22 @@ function mockSignature(len: number): Uint8Array {
   return sig;
 }
 
+function matchesFilter(s: SignedStatement, filter: TopicFilter): boolean {
+  return filter.topics.every((entry, i) => {
+    if (!entry.topic || entry.topic.length === 0) return true;
+    const sTopic = s.topics[i];
+    if (!sTopic) return false;
+    return sTopic.every((b, j) => b === entry.topic![j]);
+  });
+}
+
+function applyFilter(statements: SignedStatement[], filter: TopicFilter): SignedStatement[] {
+  if (filter.topics.length > 0) {
+    return statements.filter((s) => matchesFilter(s, filter));
+  }
+  return statements;
+}
+
 function makeSignedStatements(filter: TopicFilter): SignedStatement[] {
   const now = BigInt(Math.floor(Date.now() / 1000));
   const statements: SignedStatement[] = [
@@ -49,20 +65,7 @@ function makeSignedStatements(filter: TopicFilter): SignedStatement[] {
     },
   ];
 
-  // If a topic filter is provided, only return statements matching at least
-  // the positional topics (absent/empty entries act as wildcards).
-  if (filter.topics.length > 0) {
-    return statements.filter((s) =>
-      filter.topics.every((entry, i) => {
-        if (!entry.topic || entry.topic.length === 0) return true;
-        const sTopic = s.topics[i];
-        if (!sTopic) return false;
-        return sTopic.every((b, j) => b === entry.topic![j]);
-      }),
-    );
-  }
-
-  return statements;
+  return applyFilter(statements, filter);
 }
 
 let submitCounter = 0;
@@ -75,8 +78,8 @@ export const statementStoreHandler: IStatementStoreServiceHandler = {
     // Simulate a delayed second update after a short pause
     await new Promise((r) => setTimeout(r, 1500));
     const now = BigInt(Math.floor(Date.now() / 1000));
-    yield {
-      statements: [
+    const delayed = applyFilter(
+      [
         {
           proof: { proof: { case: 'sr25519', value: { signature: mockSignature(64), signer: MOCK_SIGNER } } },
           decryptionKey: new Uint8Array(0),
@@ -86,7 +89,12 @@ export const statementStoreHandler: IStatementStoreServiceHandler = {
           data: new TextEncoder().encode('{"type":"update","seq":1}'),
         },
       ],
-    };
+      request,
+    );
+
+    if (delayed.length > 0) {
+      yield { statements: delayed };
+    }
   },
 
   async createProof(): Promise<StatementCreateProofResponse> {

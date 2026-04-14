@@ -77,15 +77,15 @@ final class ChainServiceImpl: TruapiV02.ChainServiceProvider, Sendable {
     }
 
     func headBody(_ request: TruapiV02.ChainHeadBlockRequest) async throws -> TruapiV02.OperationStartedResponse {
-        TruapiV02.OperationStartedResponse(result: .value)
+        TruapiV02.OperationStartedResponse(result: .value(TruapiV02.OperationStartedResult()))
     }
 
     func headStorage(_ request: TruapiV02.ChainHeadStorageRequest) async throws -> TruapiV02.OperationStartedResponse {
-        TruapiV02.OperationStartedResponse(result: .value)
+        TruapiV02.OperationStartedResponse(result: .value(TruapiV02.OperationStartedResult()))
     }
 
     func headCall(_ request: TruapiV02.ChainHeadCallRequest) async throws -> TruapiV02.OperationStartedResponse {
-        TruapiV02.OperationStartedResponse(result: .value)
+        TruapiV02.OperationStartedResponse(result: .value(TruapiV02.OperationStartedResult()))
     }
 
     func headUnpin(_ request: TruapiV02.ChainHeadUnpinRequest) async throws -> TruapiV02.ChainVoidResponse {
@@ -231,7 +231,7 @@ final class PaymentServiceImpl: TruapiV02.PaymentServiceProvider, Sendable {
 
     func statusSubscribe(_ request: TruapiV02.PaymentStatusRequest) -> AsyncThrowingStream<TruapiV02.PaymentStatusEvent, Error> {
         AsyncThrowingStream { continuation in
-            continuation.yield(TruapiV02.PaymentStatusEvent(result: .status))
+            continuation.yield(TruapiV02.PaymentStatusEvent(result: .status(TruapiV02.PaymentStatus())))
             continuation.finish()
         }
     }
@@ -358,9 +358,12 @@ final class StatementStoreServiceImpl: TruapiV02.StatementStoreServiceProvider, 
                     stmt3.topics = [Self.mockTopicB]
                     stmt3.data = AnyCodable("eyJ0eXBlIjoidXBkYXRlIiwic2VxIjoxfQ==")
 
-                    var list2 = TruapiV02.StatementList()
-                    list2.statements = [stmt3]
-                    continuation.yield(list2)
+                    let filtered = [stmt3].filter { Self.matchesFilter($0, request) }
+                    if !filtered.isEmpty {
+                        var list2 = TruapiV02.StatementList()
+                        list2.statements = filtered
+                        continuation.yield(list2)
+                    }
                     continuation.finish()
                 } catch {
                     continuation.finish(throwing: error)
@@ -371,7 +374,12 @@ final class StatementStoreServiceImpl: TruapiV02.StatementStoreServiceProvider, 
     }
 
     func createProof(_ request: TruapiV02.StatementCreateProofRequest) async throws -> TruapiV02.StatementCreateProofResponse {
-        TruapiV02.StatementCreateProofResponse(result: .proof)
+        var sr25519Proof = TruapiV02.Sr25519Proof()
+        sr25519Proof.signature = Self.mockSignature
+        sr25519Proof.signer = Self.mockSigner
+        return TruapiV02.StatementCreateProofResponse(result: .proof(
+            TruapiV02.StatementProof(proof: .sr25519(sr25519Proof))
+        ))
     }
 
     private static func mockSignatureBytes(_ len: Int) -> [UInt8] {

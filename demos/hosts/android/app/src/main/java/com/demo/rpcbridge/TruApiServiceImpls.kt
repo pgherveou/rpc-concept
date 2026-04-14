@@ -412,7 +412,11 @@ class StatementStoreServiceImpl : StatementStoreService {
             topics = listOf(mockTopicB),
             data = """{"type":"update","seq":1}""".toByteArray()
         )
-        emit(StatementList(statements = listOf(stmt3)))
+        val filtered = if (request.topics.isEmpty()) listOf(stmt3)
+            else listOf(stmt3).filter { matchesFilter(it, request) }
+        if (filtered.isNotEmpty()) {
+            emit(StatementList(statements = filtered))
+        }
     }
 
     override suspend fun createProof(request: StatementCreateProofRequest): StatementCreateProofResponse {
