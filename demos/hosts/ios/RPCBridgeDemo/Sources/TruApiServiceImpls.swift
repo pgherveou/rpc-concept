@@ -266,87 +266,36 @@ final class PreimageServiceImpl: TruapiV02.PreimageServiceProvider, Sendable {
 
 final class SigningServiceImpl: TruapiV02.SigningServiceProvider, Sendable {
 
-    func signPayload(_ request: TruapiV02.SigningPayload) async throws -> TruapiV02.SignPayloadResponse {
-        let account = request.account
-        print("[host] signPayload: account=\(account.dotNsIdentifier)/\(account.derivationIndex)")
+    private static let mockSignature = Data(count: 64)
+    private static let mockTransaction = Data(count: 128)
 
-        let methodData = Self.dataFromAnyCodable(request.method)
-        let signature = Self.mockSignature(seed: methodData)
+    func signPayload(_ request: TruapiV02.SigningPayload) async throws -> TruapiV02.SignPayloadResponse {
+        print("[host] signPayload: account=\(request.account.dotNsIdentifier)/\(request.account.derivationIndex)")
+
         var result = TruapiV02.SigningResult()
-        result.signature = AnyCodable(signature)
+        result.signature = AnyCodable(Self.mockSignature)
         if request.withSignedTransaction {
-            result.signedTransaction = AnyCodable(Self.mockSignedTransaction(signature: signature, callData: methodData))
+            result.signedTransaction = AnyCodable(Self.mockTransaction)
         }
         return TruapiV02.SignPayloadResponse(result: .ok(result))
     }
 
     func signRaw(_ request: TruapiV02.SigningRawPayload) async throws -> TruapiV02.SignRawResponse {
-        let account = request.account
-        print("[host] signRaw: account=\(account.dotNsIdentifier)/\(account.derivationIndex)")
-
-        let seed: Data
-        switch request.data.payload {
-        case .rawBytes(let bytes):
-            seed = Self.dataFromAnyCodable(bytes)
-        case .message(let msg):
-            seed = Data(msg.utf8)
-        default:
-            seed = Data()
-        }
+        print("[host] signRaw: account=\(request.account.dotNsIdentifier)/\(request.account.derivationIndex)")
 
         var result = TruapiV02.SigningResult()
-        result.signature = AnyCodable(Self.mockSignature(seed: seed))
+        result.signature = AnyCodable(Self.mockSignature)
         return TruapiV02.SignRawResponse(result: .ok(result))
     }
 
     func createTransaction(_ request: TruapiV02.CreateTransactionRequest) async throws -> TruapiV02.CreateTransactionResponse {
-        let account = request.account
-        print("[host] createTransaction: account=\(account.dotNsIdentifier)/\(account.derivationIndex)")
-
-        let callData = Self.extractCallData(from: request.payload)
-        let signature = Self.mockSignature(seed: callData)
-        let transaction = Self.mockSignedTransaction(signature: signature, callData: callData)
-        return TruapiV02.CreateTransactionResponse(result: .transaction(AnyCodable(transaction)))
+        print("[host] createTransaction: account=\(request.account.dotNsIdentifier)/\(request.account.derivationIndex)")
+        return TruapiV02.CreateTransactionResponse(result: .transaction(AnyCodable(Self.mockTransaction)))
     }
 
     func createTransactionNonProduct(_ request: TruapiV02.CreateTransactionNonProductRequest) async throws -> TruapiV02.CreateTransactionResponse {
         print("[host] createTransactionNonProduct")
-
-        let callData = Self.extractCallData(from: request.payload)
-        let signature = Self.mockSignature(seed: callData)
-        let transaction = Self.mockSignedTransaction(signature: signature, callData: callData)
-        return TruapiV02.CreateTransactionResponse(result: .transaction(AnyCodable(transaction)))
-    }
-
-    // MARK: - Helpers
-
-    private static func dataFromAnyCodable(_ value: AnyCodable?) -> Data {
-        if let data = value?.value as? Data { return data }
-        if let string = value?.value as? String { return Data(string.utf8) }
-        return Data()
-    }
-
-    private static func mockSignature(seed: Data) -> Data {
-        var sig = Data(count: 64)
-        for i in 0..<64 {
-            sig[i] = seed.isEmpty ? UInt8(i &* 3) : seed[i % seed.count] ^ UInt8(i &* 7)
-        }
-        return sig
-    }
-
-    private static func mockSignedTransaction(signature: Data, callData: Data) -> Data {
-        var tx = Data(capacity: 1 + signature.count + callData.count)
-        tx.append(0x84) // extrinsic version prefix
-        tx.append(signature)
-        tx.append(callData)
-        return tx
-    }
-
-    private static func extractCallData(from payload: TruapiV02.VersionedTxPayload) -> Data {
-        if case .v1(let v1) = payload.version {
-            return dataFromAnyCodable(v1.callData)
-        }
-        return Data()
+        return TruapiV02.CreateTransactionResponse(result: .transaction(AnyCodable(Self.mockTransaction)))
     }
 }
 
