@@ -2,6 +2,7 @@
 // Returns sensible stub data for demo / playground use.
 
 import Foundation
+import CryptoKit
 import RpcBridge
 
 // MARK: - GeneralServiceImpl
@@ -375,8 +376,30 @@ private actor ChatState {
 
 final class EntropyServiceImpl: TruapiV02.EntropyServiceProvider, Sendable {
 
+    // Fixed 32-byte mock root seed simulating BIP-39 root entropy.
+    private static let mockRootSeed = Data([
+        0x4d, 0x6f, 0x63, 0x6b, 0x52, 0x6f, 0x6f, 0x74,
+        0x53, 0x65, 0x65, 0x64, 0x5f, 0x30, 0x31, 0x32,
+        0x33, 0x34, 0x35, 0x36, 0x37, 0x38, 0x39, 0x61,
+        0x62, 0x63, 0x64, 0x65, 0x66, 0x30, 0x31, 0x32,
+    ])
+
     func deriveEntropy(_ request: TruapiV02.DeriveEntropyRequest) async throws -> TruapiV02.DeriveEntropyResponse {
-        TruapiV02.DeriveEntropyResponse(result: .entropy(AnyCodable("AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=")))
+        // Deterministic derivation: SHA-256(rootSeed || key) as a stand-in for
+        // the real three-layer BLAKE2b-256 keyed hashing scheme.
+        let keyData: Data
+        if let d = request.key?.value as? Data {
+            keyData = d
+        } else if let s = request.key?.value as? String, let d = Data(base64Encoded: s) {
+            keyData = d
+        } else {
+            keyData = Data()
+        }
+        var hasher = SHA256()
+        hasher.update(data: Self.mockRootSeed)
+        hasher.update(data: keyData)
+        let entropy = Data(hasher.finalize())
+        return TruapiV02.DeriveEntropyResponse(result: .entropy(AnyCodable(entropy)))
     }
 }
 
