@@ -4,6 +4,7 @@
  */
 
 import type { RpcServer } from '@rpc-bridge/core';
+import type { IGeneralServiceHandler } from '../../../proto/generated/server.js';
 import {
   registerGeneralService,
   registerPermissionsService,
@@ -16,24 +17,25 @@ import {
   registerChainService,
   registerPaymentService,
   registerEntropyService,
-} from '../../proto/generated/server.js';
-import { generalHandler } from './mocks/general.js';
-import { permissionsHandler } from './mocks/permissions.js';
-import { localStorageHandler } from './mocks/local-storage.js';
-import { accountHandler } from './mocks/account.js';
-import { signingHandler } from './mocks/signing.js';
-import { chatHandler } from './mocks/chat.js';
-import { statementStoreHandler } from './mocks/statement-store.js';
-import { preimageHandler } from './mocks/preimage.js';
-import { chainHandler } from './mocks/chain.js';
-import { paymentHandler } from './mocks/payment.js';
-import { entropyHandler } from './mocks/entropy.js';
+} from '../../../proto/generated/server.js';
+import { createGeneralHandler } from './general.js';
+import { permissionsHandler } from './permissions.js';
+import { localStorageHandler } from './local-storage.js';
+import { accountHandler } from './account.js';
+import { signingHandler } from './signing.js';
+import { chatHandler } from './chat.js';
+import { statementStoreHandler } from './statement-store.js';
+import { preimageHandler } from './preimage.js';
+import { chainHandler } from './chain.js';
+import { paymentHandler } from './payment.js';
+import { entropyHandler } from './entropy.js';
 
 export function registerAllServices(
   server: RpcServer,
-  opts?: { json?: boolean },
+  opts?: { json?: boolean; generalHandler?: IGeneralServiceHandler },
 ): void {
-  server.registerService(registerGeneralService(generalHandler, opts));
+  const general = opts?.generalHandler ?? createGeneralHandler();
+  server.registerService(registerGeneralService(general, opts));
   server.registerService(registerPermissionsService(permissionsHandler, opts));
   server.registerService(registerLocalStorageService(localStorageHandler, opts));
   server.registerService(registerAccountService(accountHandler, opts));

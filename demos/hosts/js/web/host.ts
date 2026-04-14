@@ -7,7 +7,8 @@
 
 import { RpcServer, createConsoleLogger } from '@rpc-bridge/core';
 import { MessagePortTransport } from '@rpc-bridge/transport-web';
-import { registerAllServices } from './setup-server.js';
+import { registerAllServices } from '../shared/setup-server.js';
+import { createGeneralHandler } from '../shared/general.js';
 
 const logger = createConsoleLogger('Host');
 
@@ -26,7 +27,30 @@ function setupBridge(): void {
     logger: createConsoleLogger('Host-Server'),
   });
 
-  registerAllServices(server);
+  const generalHandler = createGeneralHandler({
+    onNavigate: (url) => window.open(url, '_blank'),
+    onNotification: (text, deeplink) => {
+      if ('Notification' in window && Notification.permission === 'granted') {
+        const n = new Notification('TruAPI Playground', { body: text });
+        if (deeplink) {
+          n.onclick = () => window.open(deeplink, '_blank');
+        }
+      } else if ('Notification' in window && Notification.permission !== 'denied') {
+        Notification.requestPermission().then(perm => {
+          if (perm === 'granted') {
+            const n = new Notification('TruAPI Playground', { body: text });
+            if (deeplink) {
+              n.onclick = () => window.open(deeplink, '_blank');
+            }
+          }
+        });
+      } else {
+        console.log('[host] Notification:', text, deeplink ?? '');
+      }
+    },
+  });
+
+  registerAllServices(server, { generalHandler });
 
   logger.info('Server ready with 11 mock services');
   updateStatus('Connected');

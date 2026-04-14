@@ -2,6 +2,9 @@
 // Returns sensible stub data for demo / playground use.
 
 import Foundation
+import UIKit
+import UserNotifications
+import CryptoKit
 import RpcBridge
 
 // MARK: - GeneralServiceImpl
@@ -9,15 +12,34 @@ import RpcBridge
 final class GeneralServiceImpl: TruapiV02.GeneralServiceProvider, Sendable {
 
     func featureSupported(_ request: TruapiV02.FeatureSupportedRequest) async throws -> TruapiV02.FeatureSupportedResponse {
-        TruapiV02.FeatureSupportedResponse(result: .supported(true))
+        // Chain features are always supported in the playground.
+        if case .chain = request.feature.feature {
+            return TruapiV02.FeatureSupportedResponse(result: .supported(true))
+        }
+        return TruapiV02.FeatureSupportedResponse(result: .supported(false))
     }
 
     func navigateTo(_ request: TruapiV02.NavigateToRequest) async throws -> TruapiV02.NavigateToResponse {
-        TruapiV02.NavigateToResponse(result: .ok)
+        guard let url = URL(string: request.url), !request.url.isEmpty else {
+            var err = TruapiV02.NavigateToError()
+            err.code = .unknown
+            err.reason = "Invalid URL"
+            return TruapiV02.NavigateToResponse(result: .error(err))
+        }
+        await MainActor.run { UIApplication.shared.open(url) }
+        return TruapiV02.NavigateToResponse(result: .ok)
     }
 
     func pushNotification(_ request: TruapiV02.PushNotification) async throws -> TruapiV02.PushNotificationResponse {
-        TruapiV02.PushNotificationResponse(result: .ok)
+        let content = UNMutableNotificationContent()
+        content.title = "RPC Playground"
+        content.body = request.text
+        if !request.deeplink.isEmpty {
+            content.userInfo = ["deeplink": request.deeplink]
+        }
+        let req = UNNotificationRequest(identifier: UUID().uuidString, content: content, trigger: nil)
+        try? await UNUserNotificationCenter.current().add(req)
+        return TruapiV02.PushNotificationResponse(result: .ok)
     }
 }
 
@@ -25,25 +47,61 @@ final class GeneralServiceImpl: TruapiV02.GeneralServiceProvider, Sendable {
 
 final class AccountServiceImpl: TruapiV02.AccountServiceProvider, Sendable {
 
+    // Mock root public key (deterministic): 32 bytes, first two 0xaa 0xbb, rest zeros.
+    private static let mockRootKey: AnyCodable = {
+        var key = Data(count: 32)
+        key[0] = 0xAA
+        key[1] = 0xBB
+        return AnyCodable(key.base64EncodedString())
+    }()
+
+    // Derive a deterministic mock public key from dotNsIdentifier and derivationIndex.
+    private static func deriveProductKey(_ dotNsIdentifier: String, _ derivationIndex: Int) -> AnyCodable {
+        var key = Data(count: 32)
+        let utf8 = Array(dotNsIdentifier.utf8)
+        for i in 0..<min(utf8.count, 30) {
+            key[i] = utf8[i]
+        }
+        key[30] = UInt8((derivationIndex >> 8) & 0xFF)
+        key[31] = UInt8(derivationIndex & 0xFF)
+        return AnyCodable(key.base64EncodedString())
+    }
+
     func getAccount(_ request: TruapiV02.GetAccountRequest) async throws -> TruapiV02.GetAccountResponse {
+        let publicKey = Self.deriveProductKey(request.account.dotNsIdentifier, Int(request.account.derivationIndex))
         var account = TruapiV02.Account()
+        account.publicKey = publicKey
         account.name = "Alice"
         return TruapiV02.GetAccountResponse(result: .account(account))
     }
 
     func getAlias(_ request: TruapiV02.GetAliasRequest) async throws -> TruapiV02.GetAliasResponse {
-        TruapiV02.GetAliasResponse(result: .alias(TruapiV02.ContextualAlias()))
+        // Ring VRF alias not yet implemented
+        var err = TruapiV02.RequestCredentialsError()
+        err.code = .unknown
+        err.reason = "Ring VRF alias not yet implemented"
+        return TruapiV02.GetAliasResponse(result: .error(err))
     }
 
     func createProof(_ request: TruapiV02.CreateProofRequest) async throws -> TruapiV02.CreateProofResponse {
-        TruapiV02.CreateProofResponse(result: .proof(AnyCodable("mock-proof")))
+        // Ring VRF proof not yet implemented
+        var err = TruapiV02.CreateProofError()
+        err.code = .unknown
+        err.reason = "Ring VRF proof not yet implemented"
+        return TruapiV02.CreateProofResponse(result: .error(err))
     }
 
     func getNonProductAccounts(_ request: TruapiV02.GetNonProductAccountsRequest) async throws -> TruapiV02.GetNonProductAccountsResponse {
-        TruapiV02.GetNonProductAccountsResponse(result: .accounts(TruapiV02.AccountList()))
+        var rootAccount = TruapiV02.Account()
+        rootAccount.publicKey = Self.mockRootKey
+        rootAccount.name = "Alice"
+        var list = TruapiV02.AccountList()
+        list.accounts = [rootAccount]
+        return TruapiV02.GetNonProductAccountsResponse(result: .accounts(list))
     }
 
     func connectionStatusSubscribe(_ request: TruapiV02.ConnectionStatusRequest) -> AsyncThrowingStream<TruapiV02.AccountConnectionStatusEvent, Error> {
+        // Playground is always authenticated
         AsyncThrowingStream { continuation in
             var event = TruapiV02.AccountConnectionStatusEvent()
             event.status = .connected
@@ -55,6 +113,7 @@ final class AccountServiceImpl: TruapiV02.AccountServiceProvider, Sendable {
     func getUserId(_ request: TruapiV02.GetUserIdRequest) async throws -> TruapiV02.GetUserIdResponse {
         var identity = TruapiV02.UserIdentity()
         identity.dotNsIdentifier = "alice.dot"
+        identity.publicKey = Self.mockRootKey
         return TruapiV02.GetUserIdResponse(result: .identity(identity))
     }
 }
@@ -63,29 +122,109 @@ final class AccountServiceImpl: TruapiV02.AccountServiceProvider, Sendable {
 
 final class ChainServiceImpl: TruapiV02.ChainServiceProvider, Sendable {
 
+    // Polkadot genesis hash
+    private static let polkadotGenesis = "0x91b171bb158e2d3848fa23a9f1c25182fb8e20313b2c1eb49219da7a70ce90c3"
+
+    private static func polkadotRuntime() -> TruapiV02.RuntimeType {
+        var spec = TruapiV02.RuntimeSpec()
+        spec.specName = "polkadot"
+        spec.implName = "parity-polkadot"
+        spec.specVersion = 1_003_004
+        spec.implVersion = 0
+        spec.transactionVersion = 26
+        spec.apis = [
+            { var a = TruapiV02.RuntimeApi(); a.name = "Core"; a.version = 5; return a }(),
+            { var a = TruapiV02.RuntimeApi(); a.name = "Metadata"; a.version = 2; return a }(),
+            { var a = TruapiV02.RuntimeApi(); a.name = "BlockBuilder"; a.version = 6; return a }(),
+            { var a = TruapiV02.RuntimeApi(); a.name = "TaggedTransactionQueue"; a.version = 3; return a }(),
+            { var a = TruapiV02.RuntimeApi(); a.name = "AccountNonceApi"; a.version = 1; return a }(),
+            { var a = TruapiV02.RuntimeApi(); a.name = "TransactionPaymentApi"; a.version = 4; return a }(),
+        ]
+        return TruapiV02.RuntimeType(runtime: .valid(spec))
+    }
+
+    private static func randomHex() -> String {
+        let bytes = (0..<32).map { _ in UInt8.random(in: 0...255) }
+        return "0x" + bytes.map { String(format: "%02x", $0) }.joined()
+    }
+
+    private let opCounter = OpCounter()
+
     func headFollow(_ request: TruapiV02.ChainHeadFollowRequest) -> AsyncThrowingStream<TruapiV02.ChainHeadEvent, Error> {
-        AsyncThrowingStream { continuation in
-            continuation.yield(TruapiV02.ChainHeadEvent(event: .initialized(TruapiV02.Initialized())))
-            continuation.yield(TruapiV02.ChainHeadEvent(event: .newBlock(TruapiV02.NewBlock())))
-            continuation.yield(TruapiV02.ChainHeadEvent(event: .bestBlockChanged(TruapiV02.BestBlockChanged())))
-            continuation.finish()
+        let opCounter = self.opCounter
+        return AsyncThrowingStream { continuation in
+            let task = Task {
+                do {
+                    let finalizedHash = Self.randomHex()
+
+                    // Initialized event
+                    var init_ = TruapiV02.Initialized()
+                    init_.finalizedBlockHashes = [AnyCodable(finalizedHash)]
+                    init_.finalizedBlockRuntime = Self.polkadotRuntime()
+                    continuation.yield(TruapiV02.ChainHeadEvent(event: .initialized(init_)))
+
+                    // Simulate 5 new blocks
+                    var parentHash = finalizedHash
+                    var pendingHashes: [String] = []
+
+                    for i in 0..<5 {
+                        try await Task.sleep(nanoseconds: 2_000_000_000)
+
+                        let blockHash = Self.randomHex()
+                        pendingHashes.append(blockHash)
+
+                        var newBlock = TruapiV02.NewBlock()
+                        newBlock.blockHash = AnyCodable(blockHash)
+                        newBlock.parentBlockHash = AnyCodable(parentHash)
+                        continuation.yield(TruapiV02.ChainHeadEvent(event: .newBlock(newBlock)))
+
+                        var best = TruapiV02.BestBlockChanged()
+                        best.bestBlockHash = AnyCodable(blockHash)
+                        continuation.yield(TruapiV02.ChainHeadEvent(event: .bestBlockChanged(best)))
+
+                        // Finalize every 2 blocks
+                        if pendingHashes.count >= 2 {
+                            var fin = TruapiV02.Finalized()
+                            fin.finalizedBlockHashes = pendingHashes.map { AnyCodable($0) }
+                            continuation.yield(TruapiV02.ChainHeadEvent(event: .finalized(fin)))
+                            pendingHashes.removeAll()
+                        }
+
+                        parentHash = blockHash
+                    }
+
+                    // Finalize remaining
+                    if !pendingHashes.isEmpty {
+                        var fin = TruapiV02.Finalized()
+                        fin.finalizedBlockHashes = pendingHashes.map { AnyCodable($0) }
+                        continuation.yield(TruapiV02.ChainHeadEvent(event: .finalized(fin)))
+                    }
+
+                    continuation.finish()
+                } catch {
+                    continuation.finish(throwing: error)
+                }
+            }
+            continuation.onTermination = { _ in task.cancel() }
         }
     }
 
     func headHeader(_ request: TruapiV02.ChainHeadBlockRequest) async throws -> TruapiV02.ChainHeadHeaderResponse {
-        TruapiV02.ChainHeadHeaderResponse(result: .value(TruapiV02.ChainHeadHeaderValue()))
+        var headerValue = TruapiV02.ChainHeadHeaderValue()
+        headerValue.header = AnyCodable(Self.randomHex())
+        return TruapiV02.ChainHeadHeaderResponse(result: .value(headerValue))
     }
 
     func headBody(_ request: TruapiV02.ChainHeadBlockRequest) async throws -> TruapiV02.OperationStartedResponse {
-        TruapiV02.OperationStartedResponse(result: .value)
+        TruapiV02.OperationStartedResponse(result: .value(TruapiV02.OperationStartedResult(result: .operationId(opCounter.next()))))
     }
 
     func headStorage(_ request: TruapiV02.ChainHeadStorageRequest) async throws -> TruapiV02.OperationStartedResponse {
-        TruapiV02.OperationStartedResponse(result: .value)
+        TruapiV02.OperationStartedResponse(result: .value(TruapiV02.OperationStartedResult(result: .operationId(opCounter.next()))))
     }
 
     func headCall(_ request: TruapiV02.ChainHeadCallRequest) async throws -> TruapiV02.OperationStartedResponse {
-        TruapiV02.OperationStartedResponse(result: .value)
+        TruapiV02.OperationStartedResponse(result: .value(TruapiV02.OperationStartedResult(result: .operationId(opCounter.next()))))
     }
 
     func headUnpin(_ request: TruapiV02.ChainHeadUnpinRequest) async throws -> TruapiV02.ChainVoidResponse {
@@ -101,20 +240,20 @@ final class ChainServiceImpl: TruapiV02.ChainServiceProvider, Sendable {
     }
 
     func specGenesisHash(_ request: TruapiV02.ChainGenesisRequest) async throws -> TruapiV02.ChainBytesResponse {
-        TruapiV02.ChainBytesResponse(result: .value(AnyCodable("0x0000")))
+        TruapiV02.ChainBytesResponse(result: .value(AnyCodable(Self.polkadotGenesis)))
     }
 
     func specChainName(_ request: TruapiV02.ChainGenesisRequest) async throws -> TruapiV02.ChainStringResponse {
-        TruapiV02.ChainStringResponse(result: .value("Mock Chain"))
+        TruapiV02.ChainStringResponse(result: .value("Polkadot"))
     }
 
     func specProperties(_ request: TruapiV02.ChainGenesisRequest) async throws -> TruapiV02.ChainStringResponse {
-        TruapiV02.ChainStringResponse(result: .value("{\"tokenDecimals\":10,\"tokenSymbol\":\"DOT\"}"))
+        TruapiV02.ChainStringResponse(result: .value("{\"ss58Format\":0,\"tokenDecimals\":10,\"tokenSymbol\":\"DOT\"}"))
     }
 
     func transactionBroadcast(_ request: TruapiV02.ChainTransactionBroadcastRequest) async throws -> TruapiV02.ChainTransactionBroadcastResponse {
         var value = TruapiV02.ChainTransactionBroadcastValue()
-        value.operationId = "op-1"
+        value.operationId = opCounter.next()
         return TruapiV02.ChainTransactionBroadcastResponse(result: .value(value))
     }
 
@@ -123,56 +262,134 @@ final class ChainServiceImpl: TruapiV02.ChainServiceProvider, Sendable {
     }
 }
 
+// Thread-safe operation counter shared across service impls.
+private final class OpCounter: @unchecked Sendable {
+    private let lock = NSLock()
+    private var _value: Int = 0
+
+    func next() -> String {
+        lock.lock()
+        defer { lock.unlock() }
+        _value += 1
+        return "op-\(_value)"
+    }
+}
+
 // MARK: - ChatServiceImpl
 
-final class ChatServiceImpl: TruapiV02.ChatServiceProvider, Sendable {
+final class ChatServiceImpl: TruapiV02.ChatServiceProvider {
+
+    private let state = ChatState()
 
     func createRoom(_ request: TruapiV02.ChatRoomRequest) async throws -> TruapiV02.ChatRoomResponse {
+        let status = await state.addRoom(id: request.roomId, participation: .roomHost)
         var result = TruapiV02.ChatRoomRegistrationResult()
-        result.status = .new
+        result.status = status
         return TruapiV02.ChatRoomResponse(result: .ok(result))
     }
 
     func createSimpleGroup(_ request: TruapiV02.SimpleGroupChatRequest) async throws -> TruapiV02.SimpleGroupChatResponse {
+        let status = await state.addRoom(id: request.roomId, participation: .roomHost)
         var result = TruapiV02.SimpleGroupChatResult()
-        result.status = .new
+        result.status = status
+        result.joinLink = "https://mock.link/join/\(request.roomId)"
         return TruapiV02.SimpleGroupChatResponse(result: .ok(result))
     }
 
     func registerBot(_ request: TruapiV02.ChatBotRequest) async throws -> TruapiV02.ChatBotResponse {
+        let status = await state.addBot(id: request.botId)
         var result = TruapiV02.ChatBotRegistrationResult()
-        result.status = .new
+        result.status = status
         return TruapiV02.ChatBotResponse(result: .ok(result))
     }
 
     func postMessage(_ request: TruapiV02.ChatPostMessageRequest) async throws -> TruapiV02.ChatPostMessageResponse {
+        let messageId = await state.nextMessageId()
         var result = TruapiV02.ChatPostMessageResult()
-        result.messageId = "msg-1"
+        result.messageId = messageId
         return TruapiV02.ChatPostMessageResponse(result: .ok(result))
     }
 
     func listSubscribe(_ request: TruapiV02.ChatListRequest) -> AsyncThrowingStream<TruapiV02.ChatRoomList, Error> {
-        AsyncThrowingStream { continuation in
-            var room = TruapiV02.ChatRoom()
-            room.roomId = "room-1"
-            room.participatingAs = .roomHost
-            var list = TruapiV02.ChatRoomList()
-            list.rooms = [room]
-            continuation.yield(list)
-            continuation.finish()
+        AsyncThrowingStream { [state] continuation in
+            let task = Task {
+                let stream = await state.roomListStream()
+                for await list in stream {
+                    continuation.yield(list)
+                }
+                continuation.finish()
+            }
+            continuation.onTermination = { _ in task.cancel() }
         }
     }
 
     func actionSubscribe(_ request: TruapiV02.ChatActionRequest) -> AsyncThrowingStream<TruapiV02.ReceivedChatAction, Error> {
-        AsyncThrowingStream { continuation in
-            continuation.finish()
-        }
+        // No real chat peers in the playground, so nothing to emit.
+        AsyncThrowingStream { continuation in continuation.finish() }
     }
 
     func customRenderSubscribe(_ requests: AsyncStream<TruapiV02.CustomRendererNode>) -> AsyncThrowingStream<TruapiV02.CustomMessageRenderRequest, Error> {
+        // No custom message types in the playground. Consume the stream without emitting.
         AsyncThrowingStream { continuation in
-            continuation.finish()
+            let task = Task {
+                for await _ in requests {}
+                continuation.finish()
+            }
+            continuation.onTermination = { _ in task.cancel() }
         }
+    }
+}
+
+// Thread-safe in-memory chat state shared by ChatServiceImpl methods.
+private actor ChatState {
+    private var rooms: [String: TruapiV02.ChatRoom] = [:]
+    private var botIds: Set<String> = []
+    private var msgSeq = 0
+    private var listContinuations: [UUID: AsyncStream<TruapiV02.ChatRoomList>.Continuation] = [:]
+
+    func addRoom(id: String, participation: TruapiV02.ChatRoomParticipation) -> TruapiV02.ChatRoomRegistrationStatus {
+        if rooms[id] != nil { return .exists }
+        var room = TruapiV02.ChatRoom()
+        room.roomId = id
+        room.participatingAs = participation
+        rooms[id] = room
+        notifyListListeners()
+        return .new
+    }
+
+    func addBot(id: String) -> TruapiV02.ChatBotRegistrationStatus {
+        if botIds.contains(id) { return .exists }
+        botIds.insert(id)
+        return .new
+    }
+
+    func nextMessageId() -> String {
+        msgSeq += 1
+        return "msg-\(msgSeq)"
+    }
+
+    func roomListStream() -> AsyncStream<TruapiV02.ChatRoomList> {
+        let id = UUID()
+        return AsyncStream { continuation in
+            // Emit current snapshot immediately.
+            var list = TruapiV02.ChatRoomList()
+            list.rooms = Array(rooms.values)
+            continuation.yield(list)
+            listContinuations[id] = continuation
+            continuation.onTermination = { [weak self] _ in
+                Task { await self?.removeListContinuation(id: id) }
+            }
+        }
+    }
+
+    private func removeListContinuation(id: UUID) {
+        listContinuations.removeValue(forKey: id)
+    }
+
+    private func notifyListListeners() {
+        var list = TruapiV02.ChatRoomList()
+        list.rooms = Array(rooms.values)
+        for cont in listContinuations.values { cont.yield(list) }
     }
 }
 
@@ -180,42 +397,88 @@ final class ChatServiceImpl: TruapiV02.ChatServiceProvider, Sendable {
 
 final class EntropyServiceImpl: TruapiV02.EntropyServiceProvider, Sendable {
 
+    // Fixed 32-byte mock root seed simulating BIP-39 root entropy.
+    private static let mockRootSeed = Data([
+        0x4d, 0x6f, 0x63, 0x6b, 0x52, 0x6f, 0x6f, 0x74,
+        0x53, 0x65, 0x65, 0x64, 0x5f, 0x30, 0x31, 0x32,
+        0x33, 0x34, 0x35, 0x36, 0x37, 0x38, 0x39, 0x61,
+        0x62, 0x63, 0x64, 0x65, 0x66, 0x30, 0x31, 0x32,
+    ])
+
     func deriveEntropy(_ request: TruapiV02.DeriveEntropyRequest) async throws -> TruapiV02.DeriveEntropyResponse {
-        TruapiV02.DeriveEntropyResponse(result: .entropy(AnyCodable("AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=")))
+        // Deterministic derivation: SHA-256(rootSeed || key) as a stand-in for
+        // the real three-layer BLAKE2b-256 keyed hashing scheme.
+        let keyData: Data
+        if let d = request.key?.value as? Data {
+            keyData = d
+        } else if let s = request.key?.value as? String, let d = Data(base64Encoded: s) {
+            keyData = d
+        } else {
+            keyData = Data()
+        }
+        var hasher = SHA256()
+        hasher.update(data: Self.mockRootSeed)
+        hasher.update(data: keyData)
+        let entropy = Data(hasher.finalize())
+        return TruapiV02.DeriveEntropyResponse(result: .entropy(AnyCodable(entropy)))
     }
 }
 
 // MARK: - LocalStorageServiceImpl
 
-final class LocalStorageServiceImpl: TruapiV02.LocalStorageServiceProvider, Sendable {
+final class LocalStorageServiceImpl: TruapiV02.LocalStorageServiceProvider, @unchecked Sendable {
+
+    private let prefix = "truapi:"
+    private let lock = NSLock()
+    private var store: [String: AnyCodable] = [:]
 
     func read(_ request: TruapiV02.StorageReadRequest) async throws -> TruapiV02.StorageReadResponse {
-        var err = TruapiV02.StorageError()
-        err.code = .unspecified
-        err.reason = "Key not found"
-        return TruapiV02.StorageReadResponse(result: .error(err))
+        let key = prefix + request.key
+        lock.lock()
+        let data = store[key]
+        lock.unlock()
+        var value = TruapiV02.StorageReadValue()
+        if let data { value.data = data }
+        return TruapiV02.StorageReadResponse(result: .value(value))
     }
 
     func write(_ request: TruapiV02.StorageWriteRequest) async throws -> TruapiV02.StorageWriteResponse {
-        TruapiV02.StorageWriteResponse(result: .ok)
+        let key = prefix + request.key
+        lock.lock()
+        store[key] = request.value
+        lock.unlock()
+        return TruapiV02.StorageWriteResponse(result: .ok)
     }
 
     func clear(_ request: TruapiV02.StorageClearRequest) async throws -> TruapiV02.StorageClearResponse {
-        TruapiV02.StorageClearResponse(result: .ok)
+        let key = prefix + request.key
+        lock.lock()
+        store.removeValue(forKey: key)
+        lock.unlock()
+        return TruapiV02.StorageClearResponse(result: .ok)
     }
 }
 
 // MARK: - PaymentServiceImpl
 
-final class PaymentServiceImpl: TruapiV02.PaymentServiceProvider, Sendable {
+final class PaymentServiceImpl: TruapiV02.PaymentServiceProvider, @unchecked Sendable {
+
+    private let lock = NSLock()
+    private var paymentCounter = 0
 
     func balanceSubscribe(_ request: TruapiV02.PaymentBalanceRequest) -> AsyncThrowingStream<TruapiV02.PaymentBalanceEvent, Error> {
         AsyncThrowingStream { continuation in
-            var balance = TruapiV02.PaymentBalance()
-            balance.available = "1000000000000"
-            balance.pending = "0"
-            continuation.yield(TruapiV02.PaymentBalanceEvent(result: .balance(balance)))
-            continuation.finish()
+            let task = Task {
+                var balance = TruapiV02.PaymentBalance()
+                balance.available = "1000000000000"
+                balance.pending = "0"
+                continuation.yield(TruapiV02.PaymentBalanceEvent(result: .balance(balance)))
+                // Keep stream open (production pushes updates as balance changes).
+                while !Task.isCancelled {
+                    try await Task.sleep(nanoseconds: UInt64.max)
+                }
+            }
+            continuation.onTermination = { _ in task.cancel() }
         }
     }
 
@@ -224,40 +487,159 @@ final class PaymentServiceImpl: TruapiV02.PaymentServiceProvider, Sendable {
     }
 
     func request(_ request: TruapiV02.PaymentRequestMsg) async throws -> TruapiV02.PaymentRequestResponse {
+        lock.lock()
+        defer { lock.unlock() }
+        paymentCounter += 1
         var receipt = TruapiV02.PaymentReceipt()
-        receipt.id = "receipt-1"
+        receipt.id = "pay-\(paymentCounter)"
         return TruapiV02.PaymentRequestResponse(result: .receipt(receipt))
     }
 
     func statusSubscribe(_ request: TruapiV02.PaymentStatusRequest) -> AsyncThrowingStream<TruapiV02.PaymentStatusEvent, Error> {
         AsyncThrowingStream { continuation in
-            continuation.yield(TruapiV02.PaymentStatusEvent(result: .status))
-            continuation.finish()
+            let task = Task {
+                var paymentStatus = TruapiV02.PaymentStatus()
+                paymentStatus.status = .processing
+                continuation.yield(TruapiV02.PaymentStatusEvent(result: .status(paymentStatus)))
+                // Keep stream open (production pushes updates as payment progresses).
+                while !Task.isCancelled {
+                    try await Task.sleep(nanoseconds: UInt64.max)
+                }
+            }
+            continuation.onTermination = { _ in task.cancel() }
         }
     }
 }
 
 // MARK: - PermissionsServiceImpl
 
-final class PermissionsServiceImpl: TruapiV02.PermissionsServiceProvider, Sendable {
+final class PermissionsServiceImpl: TruapiV02.PermissionsServiceProvider, @unchecked Sendable {
+
+    // Tracks granted device permissions for the session.
+    private var grantedPermissions = Set<TruapiV02.DevicePermission>()
+    private let lock = NSLock()
+
+    // Permissions that the mock host always denies.
+    private static let deniedDevicePermissions: Set<TruapiV02.DevicePermission> = [.biometrics]
 
     func devicePermissionRequest(_ request: TruapiV02.DevicePermissionRequestMsg) async throws -> TruapiV02.DevicePermissionResponse {
-        TruapiV02.DevicePermissionResponse(result: .granted(true))
+        let perm = request.permission
+        print("[PermissionsService] devicePermissionRequest: \(perm)")
+
+        if perm == .unspecified {
+            var err = TruapiV02.GenericError()
+            err.reason = "Permission type is required"
+            return TruapiV02.DevicePermissionResponse(result: .error(err))
+        }
+
+        if Self.deniedDevicePermissions.contains(perm) {
+            return TruapiV02.DevicePermissionResponse(result: .granted(false))
+        }
+
+        lock.withLock { grantedPermissions.insert(perm) }
+        return TruapiV02.DevicePermissionResponse(result: .granted(true))
     }
 
     func remotePermissionRequest(_ request: TruapiV02.RemotePermissionRequestMsg) async throws -> TruapiV02.RemotePermissionResponse {
-        TruapiV02.RemotePermissionResponse(result: .granted(true))
+        let perms = request.permissions
+        print("[PermissionsService] remotePermissionRequest: \(perms.count) permission(s)")
+
+        if perms.isEmpty {
+            var err = TruapiV02.GenericError()
+            err.reason = "At least one permission is required"
+            return TruapiV02.RemotePermissionResponse(result: .error(err))
+        }
+
+        for entry in perms {
+            switch entry.permission {
+            case .remote(let domains):
+                if domains.domains.contains("*") {
+                    print("[PermissionsService] denied: wildcard (*) remote domain")
+                    return TruapiV02.RemotePermissionResponse(result: .granted(false))
+                }
+                print("[PermissionsService] granted remote domains: \(domains.domains.joined(separator: ", "))")
+            case .webRtc:
+                print("[PermissionsService] granted webRtc")
+            case .chainSubmit:
+                print("[PermissionsService] granted chainSubmit")
+            case .statementSubmit:
+                print("[PermissionsService] granted statementSubmit")
+            case .unknown:
+                print("[PermissionsService] unknown remote permission, ignoring")
+            }
+        }
+
+        return TruapiV02.RemotePermissionResponse(result: .granted(true))
     }
 }
 
 // MARK: - PreimageServiceImpl
 
-final class PreimageServiceImpl: TruapiV02.PreimageServiceProvider, Sendable {
+final class PreimageServiceImpl: TruapiV02.PreimageServiceProvider, @unchecked Sendable {
+
+    private let lock = NSLock()
+    private var cache: [String: Data] = [:]
+
+    private func toHex(_ data: Data) -> String {
+        data.map { String(format: "%02x", $0) }.joined()
+    }
+
+    private func deriveMockPreimage(_ key: Data) -> Data {
+        let keyLen = max(key.count, 1)
+        return Data((0..<32).map { i in key.indices.contains(i % keyLen) ? key[i % keyLen] ^ 0xff : 0xff })
+    }
+
+    private func keyData(from request: TruapiV02.PreimageLookupRequest) -> Data {
+        guard let b64 = request.key?.value as? String else { return Data() }
+        return Data(base64Encoded: b64) ?? Data()
+    }
+
+    private func makeEvent(_ data: Data) -> TruapiV02.PreimageLookupEvent {
+        var event = TruapiV02.PreimageLookupEvent()
+        event.value = AnyCodable(data.base64EncodedString())
+        return event
+    }
 
     func lookupSubscribe(_ request: TruapiV02.PreimageLookupRequest) -> AsyncThrowingStream<TruapiV02.PreimageLookupEvent, Error> {
-        AsyncThrowingStream { continuation in
-            continuation.yield(TruapiV02.PreimageLookupEvent())
-            continuation.finish()
+        let keyData = keyData(from: request)
+        let keyHex = toHex(keyData)
+
+        return AsyncThrowingStream { continuation in
+            print("[host] preimage lookupSubscribe key=0x\(keyHex)")
+
+            lock.lock()
+            let cached = self.cache[keyHex]
+            lock.unlock()
+
+            if let cached {
+                print("[host] preimage cache hit for key=0x\(keyHex)")
+                continuation.yield(self.makeEvent(cached))
+                continuation.finish()
+                return
+            }
+
+            // Not cached: emit empty value (preimage pending)
+            continuation.yield(self.makeEvent(Data()))
+
+            let task = Task {
+                do {
+                    // Simulate IPFS fetch delay
+                    try await Task.sleep(nanoseconds: 2_000_000_000)
+
+                    let resolved = self.deriveMockPreimage(keyData)
+                    self.lock.lock()
+                    self.cache[keyHex] = resolved
+                    self.lock.unlock()
+                    print("[host] preimage resolved for key=0x\(keyHex)")
+
+                    continuation.yield(self.makeEvent(resolved))
+                    continuation.finish()
+                } catch {
+                    continuation.finish(throwing: error)
+                }
+            }
+
+            continuation.onTermination = { _ in task.cancel() }
         }
     }
 }
@@ -266,20 +648,36 @@ final class PreimageServiceImpl: TruapiV02.PreimageServiceProvider, Sendable {
 
 final class SigningServiceImpl: TruapiV02.SigningServiceProvider, Sendable {
 
+    private static let mockSignature = Data(count: 64)
+    private static let mockTransaction = Data(count: 128)
+
     func signPayload(_ request: TruapiV02.SigningPayload) async throws -> TruapiV02.SignPayloadResponse {
-        TruapiV02.SignPayloadResponse(result: .ok(TruapiV02.SigningResult()))
+        print("[host] signPayload: account=\(request.account.dotNsIdentifier)/\(request.account.derivationIndex)")
+
+        var result = TruapiV02.SigningResult()
+        result.signature = AnyCodable(Self.mockSignature)
+        if request.withSignedTransaction {
+            result.signedTransaction = AnyCodable(Self.mockTransaction)
+        }
+        return TruapiV02.SignPayloadResponse(result: .ok(result))
     }
 
     func signRaw(_ request: TruapiV02.SigningRawPayload) async throws -> TruapiV02.SignRawResponse {
-        TruapiV02.SignRawResponse(result: .ok(TruapiV02.SigningResult()))
+        print("[host] signRaw: account=\(request.account.dotNsIdentifier)/\(request.account.derivationIndex)")
+
+        var result = TruapiV02.SigningResult()
+        result.signature = AnyCodable(Self.mockSignature)
+        return TruapiV02.SignRawResponse(result: .ok(result))
     }
 
     func createTransaction(_ request: TruapiV02.CreateTransactionRequest) async throws -> TruapiV02.CreateTransactionResponse {
-        TruapiV02.CreateTransactionResponse(result: .transaction(AnyCodable("0xmocktx")))
+        print("[host] createTransaction: account=\(request.account.dotNsIdentifier)/\(request.account.derivationIndex)")
+        return TruapiV02.CreateTransactionResponse(result: .transaction(AnyCodable(Self.mockTransaction)))
     }
 
     func createTransactionNonProduct(_ request: TruapiV02.CreateTransactionNonProductRequest) async throws -> TruapiV02.CreateTransactionResponse {
-        TruapiV02.CreateTransactionResponse(result: .transaction(AnyCodable("0xmocktx")))
+        print("[host] createTransactionNonProduct")
+        return TruapiV02.CreateTransactionResponse(result: .transaction(AnyCodable(Self.mockTransaction)))
     }
 }
 
@@ -287,18 +685,112 @@ final class SigningServiceImpl: TruapiV02.SigningServiceProvider, Sendable {
 
 final class StatementStoreServiceImpl: TruapiV02.StatementStoreServiceProvider, Sendable {
 
+    private static let mockSigner: AnyCodable = AnyCodable("1FRMM8PEiWXYax7rpS6X4XZX1aAAxSWx1CrKTyrVYhV24fg=")
+    private static let mockSigner2: AnyCodable = AnyCodable("jq8AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=")
+    private static let mockSignature: AnyCodable = AnyCodable("q7K50OfF3NrB+dTs6f30IQcS/xn0D+kP3BLqIv0kOSpB")
+    private static let mockTopicA: AnyCodable = AnyCodable("AQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=")
+    private static let mockTopicB: AnyCodable = AnyCodable("AgAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=")
+
+    private let submitLock = NSLock()
+    private var submitCounter = 0
+
+    /// Check if a statement matches the positional topic filter.
+    /// Each filter entry is either a wildcard (absent/empty topic) or must
+    /// match the statement's topic at the same position.
+    private static func matchesFilter(_ statement: TruapiV02.SignedStatement, _ filter: TruapiV02.TopicFilter) -> Bool {
+        for (i, entry) in filter.topics.enumerated() {
+            guard let filterTopic = entry.topic, let filterStr = filterTopic.value as? String, !filterStr.isEmpty else {
+                continue // wildcard
+            }
+            guard i < statement.topics.count, let stmtStr = statement.topics[i].value as? String else {
+                return false
+            }
+            if stmtStr != filterStr { return false }
+        }
+        return true
+    }
+
+    private static func makeSignedStatements(filter: TruapiV02.TopicFilter) -> [TruapiV02.SignedStatement] {
+        let expiry = UInt64(Date().timeIntervalSince1970) + 3600
+
+        var stmt1 = TruapiV02.SignedStatement()
+        var sr25519Proof1 = TruapiV02.Sr25519Proof()
+        sr25519Proof1.signature = mockSignature
+        sr25519Proof1.signer = mockSigner
+        stmt1.proof = TruapiV02.StatementProof(proof: .sr25519(sr25519Proof1))
+        stmt1.expiry = expiry
+        stmt1.topics = [mockTopicA]
+        stmt1.data = AnyCodable("eyJ0eXBlIjoicHJvZmlsZSIsIm5hbWUiOiJBbGljZSJ9")
+
+        var stmt2 = TruapiV02.SignedStatement()
+        var ed25519Proof = TruapiV02.Ed25519Proof()
+        ed25519Proof.signature = mockSignature
+        ed25519Proof.signer = mockSigner2
+        stmt2.proof = TruapiV02.StatementProof(proof: .ed25519(ed25519Proof))
+        stmt2.decryptionKey = AnyCodable("AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=")
+        stmt2.expiry = expiry + 3600
+        stmt2.topics = [mockTopicA, mockTopicB]
+        stmt2.data = AnyCodable("eyJ0eXBlIjoiYXR0ZXN0YXRpb24iLCJzY29yZSI6NDJ9")
+
+        let statements = [stmt1, stmt2]
+        if filter.topics.isEmpty { return statements }
+        return statements.filter { matchesFilter($0, filter) }
+    }
+
     func subscribe(_ request: TruapiV02.TopicFilter) -> AsyncThrowingStream<TruapiV02.StatementList, Error> {
         AsyncThrowingStream { continuation in
-            continuation.yield(TruapiV02.StatementList())
-            continuation.finish()
+            var list = TruapiV02.StatementList()
+            list.statements = Self.makeSignedStatements(filter: request)
+            continuation.yield(list)
+
+            // Simulate a delayed update
+            let task = Task {
+                do {
+                    try await Task.sleep(nanoseconds: 1_500_000_000)
+                    var stmt3 = TruapiV02.SignedStatement()
+                    var sr25519Proof3 = TruapiV02.Sr25519Proof()
+                    sr25519Proof3.signature = Self.mockSignature
+                    sr25519Proof3.signer = Self.mockSigner
+                    stmt3.proof = TruapiV02.StatementProof(proof: .sr25519(sr25519Proof3))
+                    stmt3.expiry = UInt64(Date().timeIntervalSince1970) + 1800
+                    stmt3.topics = [Self.mockTopicB]
+                    stmt3.data = AnyCodable("eyJ0eXBlIjoidXBkYXRlIiwic2VxIjoxfQ==")
+
+                    let filtered = [stmt3].filter { Self.matchesFilter($0, request) }
+                    if !filtered.isEmpty {
+                        var list2 = TruapiV02.StatementList()
+                        list2.statements = filtered
+                        continuation.yield(list2)
+                    }
+                    continuation.finish()
+                } catch {
+                    continuation.finish(throwing: error)
+                }
+            }
+            continuation.onTermination = { _ in task.cancel() }
         }
     }
 
     func createProof(_ request: TruapiV02.StatementCreateProofRequest) async throws -> TruapiV02.StatementCreateProofResponse {
-        TruapiV02.StatementCreateProofResponse(result: .proof)
+        var sr25519Proof = TruapiV02.Sr25519Proof()
+        sr25519Proof.signature = Self.mockSignature
+        sr25519Proof.signer = Self.mockSigner
+        return TruapiV02.StatementCreateProofResponse(result: .proof(
+            TruapiV02.StatementProof(proof: .sr25519(sr25519Proof))
+        ))
+    }
+
+    private static func mockSignatureBytes(_ len: Int) -> [UInt8] {
+        (0..<len).map { i in UInt8((i * 7 + 0xab) & 0xff) }
     }
 
     func submit(_ request: TruapiV02.StatementSubmitRequest) async throws -> TruapiV02.StatementSubmitResponse {
-        TruapiV02.StatementSubmitResponse(result: .hash("0xmockhash"))
+        submitLock.lock()
+        submitCounter += 1
+        let count = submitCounter
+        submitLock.unlock()
+
+        let hash = "0x" + Self.mockSignatureBytes(32).map { String(format: "%02x", $0) }.joined()
+        return TruapiV02.StatementSubmitResponse(result: .hash("\(hash)-\(count)"))
     }
 }

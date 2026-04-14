@@ -56,6 +56,8 @@ public struct AnyCodable: Codable, Sendable {
             try container.encode(int)
         case let double as Double:
             try container.encode(double)
+        case let data as Data:
+            try container.encode(data.base64EncodedString())
         case let string as String:
             try container.encode(string)
         case let array as [Any]:

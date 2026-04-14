@@ -4,6 +4,7 @@
 // TruAPI services natively via RpcBridgeServer + NativeBridgeTransport.
 
 import UIKit
+import UserNotifications
 import WebKit
 import RpcBridge
 
@@ -38,6 +39,7 @@ class ViewController: UIViewController, WKNavigationDelegate {
     override func viewDidLoad() {
         super.viewDidLoad()
         view.backgroundColor = .white
+        UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound]) { _, _ in }
         setupWebView()
         setupBridge()
     }
