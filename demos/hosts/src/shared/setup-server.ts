@@ -16,18 +16,18 @@ import {
   registerChainService,
   registerPaymentService,
   registerEntropyService,
-} from '../../proto/generated/server.js';
-import { generalHandler } from './mocks/general.js';
-import { permissionsHandler } from './mocks/permissions.js';
-import { localStorageHandler } from './mocks/local-storage.js';
-import { accountHandler } from './mocks/account.js';
-import { signingHandler } from './mocks/signing.js';
-import { chatHandler } from './mocks/chat.js';
-import { statementStoreHandler } from './mocks/statement-store.js';
-import { preimageHandler } from './mocks/preimage.js';
-import { chainHandler } from './mocks/chain.js';
-import { paymentHandler } from './mocks/payment.js';
-import { entropyHandler } from './mocks/entropy.js';
+} from '../../../proto/generated/server.js';
+import { generalHandler } from './general.js';
+import { permissionsHandler } from './permissions.js';
+import { localStorageHandler } from './local-storage.js';
+import { accountHandler } from './account.js';
+import { signingHandler } from './signing.js';
+import { chatHandler } from './chat.js';
+import { statementStoreHandler } from './statement-store.js';
+import { preimageHandler } from './preimage.js';
+import { chainHandler } from './chain.js';
+import { paymentHandler } from './payment.js';
+import { entropyHandler } from './entropy.js';
 
 export function registerAllServices(
   server: RpcServer,
