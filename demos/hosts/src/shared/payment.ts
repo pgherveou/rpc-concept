@@ -1,5 +1,8 @@
 import type { IPaymentServiceHandler } from '../../../proto/generated/server.js';
 <<<<<<< HEAD
+<<<<<<< HEAD
+=======
+>>>>>>> origin/pg/impl-preimage-service
 import type {
   PaymentBalanceEvent,
   PaymentTopUpResponse,
@@ -19,6 +22,7 @@ export const paymentHandler: IPaymentServiceHandler = {
   },
   async *statusSubscribe(): AsyncGenerator<PaymentStatusEvent> {
     yield { result: { case: 'status', value: { status: { case: undefined } } } };
+<<<<<<< HEAD
 =======
 import type { PaymentTopUpResponse, PaymentRequestResponse, PaymentRequestMsg } from '../../../proto/generated/messages.js';
 
@@ -52,5 +56,7 @@ export const paymentHandler: IPaymentServiceHandler = {
     // Keep stream open (production pushes updates as payment progresses).
     await new Promise(() => {});
 >>>>>>> origin/pg/impl-payment-service
+=======
+>>>>>>> origin/pg/impl-preimage-service
   },
 };

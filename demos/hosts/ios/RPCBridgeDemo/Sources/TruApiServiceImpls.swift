@@ -522,12 +522,71 @@ final class PermissionsServiceImpl: TruapiV02.PermissionsServiceProvider, Sendab
 
 // MARK: - PreimageServiceImpl
 
-final class PreimageServiceImpl: TruapiV02.PreimageServiceProvider, Sendable {
+final class PreimageServiceImpl: TruapiV02.PreimageServiceProvider, @unchecked Sendable {
+
+    private let lock = NSLock()
+    private var cache: [String: Data] = [:]
+
+    private func toHex(_ data: Data) -> String {
+        data.map { String(format: "%02x", $0) }.joined()
+    }
+
+    private func deriveMockPreimage(_ key: Data) -> Data {
+        let keyLen = max(key.count, 1)
+        return Data((0..<32).map { i in key.indices.contains(i % keyLen) ? key[i % keyLen] ^ 0xff : 0xff })
+    }
+
+    private func keyData(from request: TruapiV02.PreimageLookupRequest) -> Data {
+        guard let b64 = request.key?.value as? String else { return Data() }
+        return Data(base64Encoded: b64) ?? Data()
+    }
+
+    private func makeEvent(_ data: Data) -> TruapiV02.PreimageLookupEvent {
+        var event = TruapiV02.PreimageLookupEvent()
+        event.value = AnyCodable(data.base64EncodedString())
+        return event
+    }
 
     func lookupSubscribe(_ request: TruapiV02.PreimageLookupRequest) -> AsyncThrowingStream<TruapiV02.PreimageLookupEvent, Error> {
-        AsyncThrowingStream { continuation in
-            continuation.yield(TruapiV02.PreimageLookupEvent())
-            continuation.finish()
+        let keyData = keyData(from: request)
+        let keyHex = toHex(keyData)
+
+        return AsyncThrowingStream { continuation in
+            print("[host] preimage lookupSubscribe key=0x\(keyHex)")
+
+            lock.lock()
+            let cached = self.cache[keyHex]
+            lock.unlock()
+
+            if let cached {
+                print("[host] preimage cache hit for key=0x\(keyHex)")
+                continuation.yield(self.makeEvent(cached))
+                continuation.finish()
+                return
+            }
+
+            // Not cached: emit empty value (preimage pending)
+            continuation.yield(self.makeEvent(Data()))
+
+            let task = Task {
+                do {
+                    // Simulate IPFS fetch delay
+                    try await Task.sleep(nanoseconds: 2_000_000_000)
+
+                    let resolved = self.deriveMockPreimage(keyData)
+                    self.lock.lock()
+                    self.cache[keyHex] = resolved
+                    self.lock.unlock()
+                    print("[host] preimage resolved for key=0x\(keyHex)")
+
+                    continuation.yield(self.makeEvent(resolved))
+                    continuation.finish()
+                } catch {
+                    continuation.finish(throwing: error)
+                }
+            }
+
+            continuation.onTermination = { _ in task.cancel() }
         }
     }
 }
