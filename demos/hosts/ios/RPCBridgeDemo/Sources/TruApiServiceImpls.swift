@@ -254,6 +254,7 @@ final class PermissionsServiceImpl: TruapiV02.PermissionsServiceProvider, Sendab
 
 final class PreimageServiceImpl: TruapiV02.PreimageServiceProvider, @unchecked Sendable {
 
+    private let lock = NSLock()
     private var cache: [String: Data] = [:]
 
     private func toHex(_ data: Data) -> String {
@@ -272,7 +273,11 @@ final class PreimageServiceImpl: TruapiV02.PreimageServiceProvider, @unchecked S
         return AsyncThrowingStream { continuation in
             print("[host] preimage lookupSubscribe key=0x\(keyHex)")
 
-            if let cached = self.cache[keyHex] {
+            lock.lock()
+            let cached = self.cache[keyHex]
+            lock.unlock()
+
+            if let cached {
                 print("[host] preimage cache hit for key=0x\(keyHex)")
                 var event = TruapiV02.PreimageLookupEvent()
                 event.value = AnyCodable(cached.base64EncodedString())
@@ -284,19 +289,27 @@ final class PreimageServiceImpl: TruapiV02.PreimageServiceProvider, @unchecked S
             // Not cached: emit empty event (preimage pending)
             continuation.yield(TruapiV02.PreimageLookupEvent())
 
-            Task {
-                // Simulate IPFS fetch delay
-                try await Task.sleep(nanoseconds: 2_000_000_000)
+            let task = Task {
+                do {
+                    // Simulate IPFS fetch delay
+                    try await Task.sleep(nanoseconds: 2_000_000_000)
 
-                let resolved = self.deriveMockPreimage(keyData)
-                self.cache[keyHex] = resolved
-                print("[host] preimage resolved for key=0x\(keyHex)")
+                    let resolved = self.deriveMockPreimage(keyData)
+                    lock.lock()
+                    defer { lock.unlock() }
+                    self.cache[keyHex] = resolved
+                    print("[host] preimage resolved for key=0x\(keyHex)")
 
-                var event = TruapiV02.PreimageLookupEvent()
-                event.value = AnyCodable(resolved.base64EncodedString())
-                continuation.yield(event)
-                continuation.finish()
+                    var event = TruapiV02.PreimageLookupEvent()
+                    event.value = AnyCodable(resolved.base64EncodedString())
+                    continuation.yield(event)
+                    continuation.finish()
+                } catch {
+                    continuation.finish(throwing: error)
+                }
             }
+
+            continuation.onTermination = { _ in task.cancel() }
         }
     }
 }
