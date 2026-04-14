@@ -199,7 +199,7 @@ final class EntropyServiceImpl: TruapiV02.EntropyServiceProvider, Sendable {
         }
         let digest = hasher.finalize()
         let entropy = Data(digest)
-        TruapiV02.DeriveEntropyResponse(result: .entropy(AnyCodable(entropy.base64EncodedString())))
+        return TruapiV02.DeriveEntropyResponse(result: .entropy(AnyCodable(entropy.base64EncodedString())))
     }
 }
 
