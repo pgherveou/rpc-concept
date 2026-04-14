@@ -131,27 +131,15 @@ export const chatHandler: IChatServiceHandler = {
   },
 
   async *actionSubscribe(): AsyncGenerator<ReceivedChatAction> {
-    // Simulate a peer message arriving after a short delay.
-    await new Promise(r => setTimeout(r, 500));
-    yield {
-      roomId: 'room-1',
-      peer: 'alice',
-      payload: {
-        payload: {
-          case: 'messagePosted',
-          value: { content: { case: 'text', value: 'Hello from Alice!' } },
-        },
-      },
-    };
+    // No real chat peers in the playground, so nothing to emit.
   },
 
   async *customRenderSubscribe(
     requests: AsyncIterable<CustomRendererNode>,
   ): AsyncGenerator<CustomMessageRenderRequest> {
-    // Send an initial render request then echo for each incoming node.
-    yield { messageId: 'custom-1', messageType: 'poll', payload: new Uint8Array([0x01]) };
-    for await (const _node of requests) {
-      yield { messageId: 'custom-2', messageType: 'poll-update', payload: new Uint8Array([0x02]) };
+    // No custom message types in the playground. Consume the stream without emitting.
+    for await (const _ of requests) {
+      // no render requests to send
     }
   },
 };

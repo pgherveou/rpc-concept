@@ -254,26 +254,13 @@ class ChatServiceImpl : ChatService {
 
     override fun actionSubscribe(request: ChatActionRequest): Flow<ReceivedChatAction> = flow {
         Log.d(TAG, "actionSubscribe")
-        // Simulate a peer message after a short delay.
-        kotlinx.coroutines.delay(500)
-        emit(ReceivedChatAction(
-            roomId = "room-1",
-            peer = "alice",
-            payload = ChatActionPayload(
-                payload = ChatActionPayloadPayload.MessagePosted(
-                    ChatMessageContent(content = ChatMessageContentContent.Text("Hello from Alice!"))
-                )
-            )
-        ))
+        // No real chat peers in the playground, so nothing to emit.
     }
 
     override fun customRenderSubscribe(requests: Flow<CustomRendererNode>): Flow<CustomMessageRenderRequest> = flow {
         Log.d(TAG, "customRenderSubscribe")
-        // Send an initial render request then echo for each incoming node.
-        emit(CustomMessageRenderRequest(messageId = "custom-1", messageType = "poll", payload = byteArrayOf(0x01)))
-        requests.collect {
-            emit(CustomMessageRenderRequest(messageId = "custom-2", messageType = "poll-update", payload = byteArrayOf(0x02)))
-        }
+        // No custom message types in the playground. Consume the stream without emitting.
+        requests.collect { }
     }
 }
 

@@ -172,39 +172,15 @@ final class ChatServiceImpl: TruapiV02.ChatServiceProvider {
     }
 
     func actionSubscribe(_ request: TruapiV02.ChatActionRequest) -> AsyncThrowingStream<TruapiV02.ReceivedChatAction, Error> {
-        AsyncThrowingStream { continuation in
-            let task = Task {
-                // Simulate a peer message after a short delay.
-                try? await Task.sleep(nanoseconds: 500_000_000)
-                var action = TruapiV02.ReceivedChatAction()
-                action.roomId = "room-1"
-                action.peer = "alice"
-                action.payload = TruapiV02.ChatActionPayload(payload: .messagePosted)
-                continuation.yield(action)
-                continuation.finish()
-            }
-            continuation.onTermination = { _ in task.cancel() }
-        }
+        // No real chat peers in the playground, so nothing to emit.
+        AsyncThrowingStream { continuation in continuation.finish() }
     }
 
     func customRenderSubscribe(_ requests: AsyncStream<TruapiV02.CustomRendererNode>) -> AsyncThrowingStream<TruapiV02.CustomMessageRenderRequest, Error> {
+        // No custom message types in the playground. Consume the stream without emitting.
         AsyncThrowingStream { continuation in
             let task = Task {
-                // Send an initial render request.
-                var req = TruapiV02.CustomMessageRenderRequest()
-                req.messageId = "custom-1"
-                req.messageType = "poll"
-                req.payload = AnyCodable(Data([0x01]).base64EncodedString())
-                continuation.yield(req)
-
-                // Echo a render request for each incoming node.
-                for await _ in requests {
-                    var update = TruapiV02.CustomMessageRenderRequest()
-                    update.messageId = "custom-2"
-                    update.messageType = "poll-update"
-                    update.payload = AnyCodable(Data([0x02]).base64EncodedString())
-                    continuation.yield(update)
-                }
+                for await _ in requests {}
                 continuation.finish()
             }
             continuation.onTermination = { _ in task.cancel() }
