@@ -8,6 +8,7 @@
 import { RpcServer, createConsoleLogger } from '@rpc-bridge/core';
 import { MessagePortTransport } from '@rpc-bridge/transport-web';
 import { registerAllServices } from './setup-server.js';
+import { createGeneralHandler } from './mocks/general.js';
 
 const logger = createConsoleLogger('Host');
 
@@ -26,7 +27,11 @@ function setupBridge(): void {
     logger: createConsoleLogger('Host-Server'),
   });
 
-  registerAllServices(server);
+  const generalHandler = createGeneralHandler({
+    onNavigate: (url) => window.open(url, '_blank'),
+  });
+
+  registerAllServices(server, { generalHandler });
 
   logger.info('Server ready with 11 mock services');
   updateStatus('Connected');

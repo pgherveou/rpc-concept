@@ -5,12 +5,13 @@
  * main and renderer, and runs the RPC server with all TruAPI mock services.
  */
 
-import { app, BrowserWindow, MessageChannelMain } from 'electron';
+import { app, BrowserWindow, MessageChannelMain, shell, Notification } from 'electron';
 import * as path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { RpcServer, createConsoleLogger } from '@rpc-bridge/core';
 import { ElectronMainTransport } from '@rpc-bridge/transport-electron';
 import { registerAllServices } from './setup-server.js';
+import { createGeneralHandler } from './mocks/general.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -44,7 +45,14 @@ function setupBridge(win: BrowserWindow): void {
     logger: createConsoleLogger('Main-Server'),
   });
 
-  registerAllServices(server);
+  const generalHandler = createGeneralHandler({
+    onNavigate: (url) => shell.openExternal(url),
+    onNotification: (text) => {
+      new Notification({ title: 'TruAPI Playground', body: text }).show();
+    },
+  });
+
+  registerAllServices(server, { generalHandler });
 
   logger.info('Server ready with 11 mock services');
 

@@ -4,6 +4,7 @@
  */
 
 import type { RpcServer } from '@rpc-bridge/core';
+import type { IGeneralServiceHandler } from '../../proto/generated/server.js';
 import {
   registerGeneralService,
   registerPermissionsService,
@@ -17,7 +18,7 @@ import {
   registerPaymentService,
   registerEntropyService,
 } from '../../proto/generated/server.js';
-import { generalHandler } from './mocks/general.js';
+import { createGeneralHandler } from './mocks/general.js';
 import { permissionsHandler } from './mocks/permissions.js';
 import { localStorageHandler } from './mocks/local-storage.js';
 import { accountHandler } from './mocks/account.js';
@@ -31,9 +32,10 @@ import { entropyHandler } from './mocks/entropy.js';
 
 export function registerAllServices(
   server: RpcServer,
-  opts?: { json?: boolean },
+  opts?: { json?: boolean; generalHandler?: IGeneralServiceHandler },
 ): void {
-  server.registerService(registerGeneralService(generalHandler, opts));
+  const general = opts?.generalHandler ?? createGeneralHandler();
+  server.registerService(registerGeneralService(general, opts));
   server.registerService(registerPermissionsService(permissionsHandler, opts));
   server.registerService(registerLocalStorageService(localStorageHandler, opts));
   server.registerService(registerAccountService(accountHandler, opts));
