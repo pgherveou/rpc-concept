@@ -38,13 +38,10 @@ demos/                          # Demo application code
     src/main.ts                     Web/Electron entry (MessagePort)
     src/bootstrap-native.ts         iOS/Android entry (native WebView transport)
   hosts/                          Host implementations (RPC servers with mock services)
-    src/setup-server.ts             Registers all 11 mock services on an RpcServer
-    src/mocks/                      Mock handler implementations per service
-    src/host.ts                     Web host (MessagePort to iframe)
-    src/host-electron.ts            Electron host (MessageChannelMain)
-    src/host-ios.ts                 iOS host (WKWebView)
-    src/host-android.ts             Android host (WebView)
-    web/                            Static HTML for the web host
+    js/                             TypeScript host code
+      shared/                        Handler implementations (mock services)
+      web/                           Web host (MessagePort to iframe)
+      electron/                      Electron host (MessageChannelMain)
     ios/                            Xcode project (Swift, WKWebView)
     android/                        Android Studio project (Gradle, WebView)
 

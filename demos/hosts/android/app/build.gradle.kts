@@ -44,6 +44,7 @@ android {
 
 dependencies {
     implementation("androidx.appcompat:appcompat:1.6.1")
+    implementation("androidx.core:core-ktx:1.12.0")
     implementation("androidx.webkit:webkit:1.9.0")
     implementation("com.rpcbridge:rpc-core-android")
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-core:1.7.3")

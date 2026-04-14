@@ -9,7 +9,11 @@ mkdirSync('dist/ios', { recursive: true });
 
 // --- Web (iframe demo, kept at dist root) ---
 await build({
+<<<<<<< HEAD
   entryPoints: ['src/web/host.ts'],
+=======
+  entryPoints: ['js/web/host.ts'],
+>>>>>>> origin/pg/impl-general-service
   bundle: true,
   format: 'iife',
   outfile: 'dist/host.js',
@@ -22,7 +26,11 @@ copyFileSync('web/iframe.html', 'dist/iframe.html');
 
 // --- Electron (per-platform subdir) ---
 await build({
+<<<<<<< HEAD
   entryPoints: ['src/electron/host.ts'],
+=======
+  entryPoints: ['js/electron/host.ts'],
+>>>>>>> origin/pg/impl-general-service
   bundle: true,
   format: 'esm',
   platform: 'node',
@@ -32,7 +40,11 @@ await build({
 });
 
 await build({
+<<<<<<< HEAD
   entryPoints: ['src/electron/preload.ts'],
+=======
+  entryPoints: ['js/electron/preload.ts'],
+>>>>>>> origin/pg/impl-general-service
   bundle: true,
   format: 'cjs',
   platform: 'node',

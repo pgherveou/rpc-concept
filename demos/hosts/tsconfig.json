@@ -6,5 +6,5 @@
     "noUnusedLocals": false,
     "noUnusedParameters": false
   },
-  "include": ["src", "../proto/generated"]
+  "include": ["js", "../proto/generated"]
 }

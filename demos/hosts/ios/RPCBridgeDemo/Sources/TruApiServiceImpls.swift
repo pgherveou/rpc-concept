@@ -2,7 +2,12 @@
 // Returns sensible stub data for demo / playground use.
 
 import Foundation
+<<<<<<< HEAD
 import CryptoKit
+=======
+import UIKit
+import UserNotifications
+>>>>>>> origin/pg/impl-general-service
 import RpcBridge
 
 // MARK: - GeneralServiceImpl
@@ -10,15 +15,34 @@ import RpcBridge
 final class GeneralServiceImpl: TruapiV02.GeneralServiceProvider, Sendable {
 
     func featureSupported(_ request: TruapiV02.FeatureSupportedRequest) async throws -> TruapiV02.FeatureSupportedResponse {
-        TruapiV02.FeatureSupportedResponse(result: .supported(true))
+        // Chain features are always supported in the playground.
+        if case .chain = request.feature.feature {
+            return TruapiV02.FeatureSupportedResponse(result: .supported(true))
+        }
+        return TruapiV02.FeatureSupportedResponse(result: .supported(false))
     }
 
     func navigateTo(_ request: TruapiV02.NavigateToRequest) async throws -> TruapiV02.NavigateToResponse {
-        TruapiV02.NavigateToResponse(result: .ok)
+        guard let url = URL(string: request.url), !request.url.isEmpty else {
+            var err = TruapiV02.NavigateToError()
+            err.code = .unknown
+            err.reason = "Invalid URL"
+            return TruapiV02.NavigateToResponse(result: .error(err))
+        }
+        await MainActor.run { UIApplication.shared.open(url) }
+        return TruapiV02.NavigateToResponse(result: .ok)
     }
 
     func pushNotification(_ request: TruapiV02.PushNotification) async throws -> TruapiV02.PushNotificationResponse {
-        TruapiV02.PushNotificationResponse(result: .ok)
+        let content = UNMutableNotificationContent()
+        content.title = "RPC Playground"
+        content.body = request.text
+        if !request.deeplink.isEmpty {
+            content.userInfo = ["deeplink": request.deeplink]
+        }
+        let req = UNNotificationRequest(identifier: UUID().uuidString, content: content, trigger: nil)
+        try? await UNUserNotificationCenter.current().add(req)
+        return TruapiV02.PushNotificationResponse(result: .ok)
     }
 }
 
