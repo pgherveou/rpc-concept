@@ -11,17 +11,27 @@ private const val TAG = "TruApiServices"
 
 class GeneralServiceImpl : GeneralService {
     override suspend fun featureSupported(request: FeatureSupportedRequest): FeatureSupportedResponse {
-        Log.d(TAG, "featureSupported")
-        return FeatureSupportedResponse(result = FeatureSupportedResponseResult.Supported(true))
+        // Chain features are always supported in the playground.
+        val supported = request.feature.feature is FeatureFeature.Chain
+        Log.d(TAG, "featureSupported: $supported")
+        return FeatureSupportedResponse(result = FeatureSupportedResponseResult.Supported(supported))
     }
 
     override suspend fun navigateTo(request: NavigateToRequest): NavigateToResponse {
+        if (request.url.isEmpty()) {
+            Log.w(TAG, "navigateTo: empty URL")
+            return NavigateToResponse(
+                result = NavigateToResponseResult.Error(
+                    NavigateToError(code = NavigateToErrorCode.NAVIGATE_TO_ERROR_CODE_UNKNOWN, reason = "Empty URL")
+                )
+            )
+        }
         Log.d(TAG, "navigateTo: ${request.url}")
         return NavigateToResponse(result = NavigateToResponseResult.Ok)
     }
 
     override suspend fun pushNotification(request: PushNotification): PushNotificationResponse {
-        Log.d(TAG, "pushNotification: ${request.text}")
+        Log.d(TAG, "pushNotification: ${request.text} ${request.deeplink ?: ""}")
         return PushNotificationResponse(result = PushNotificationResponseResult.Ok)
     }
 }

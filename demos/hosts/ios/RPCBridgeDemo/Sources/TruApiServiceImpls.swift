@@ -9,15 +9,27 @@ import RpcBridge
 final class GeneralServiceImpl: TruapiV02.GeneralServiceProvider, Sendable {
 
     func featureSupported(_ request: TruapiV02.FeatureSupportedRequest) async throws -> TruapiV02.FeatureSupportedResponse {
-        TruapiV02.FeatureSupportedResponse(result: .supported(true))
+        // Chain features are always supported in the playground.
+        if case .chain = request.feature.feature {
+            return TruapiV02.FeatureSupportedResponse(result: .supported(true))
+        }
+        return TruapiV02.FeatureSupportedResponse(result: .supported(false))
     }
 
     func navigateTo(_ request: TruapiV02.NavigateToRequest) async throws -> TruapiV02.NavigateToResponse {
-        TruapiV02.NavigateToResponse(result: .ok)
+        guard !request.url.isEmpty else {
+            var err = TruapiV02.NavigateToError()
+            err.code = .unknown
+            err.reason = "Empty URL"
+            return TruapiV02.NavigateToResponse(result: .error(err))
+        }
+        print("[host] navigateTo: \(request.url)")
+        return TruapiV02.NavigateToResponse(result: .ok)
     }
 
     func pushNotification(_ request: TruapiV02.PushNotification) async throws -> TruapiV02.PushNotificationResponse {
-        TruapiV02.PushNotificationResponse(result: .ok)
+        print("[host] Push notification: \(request.text) \(request.deeplink ?? "")")
+        return TruapiV02.PushNotificationResponse(result: .ok)
     }
 }
 
