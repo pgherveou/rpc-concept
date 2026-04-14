@@ -239,7 +239,11 @@ final class PaymentServiceImpl: TruapiV02.PaymentServiceProvider, Sendable {
 
 // MARK: - PermissionsServiceImpl
 
-final class PermissionsServiceImpl: TruapiV02.PermissionsServiceProvider, Sendable {
+final class PermissionsServiceImpl: TruapiV02.PermissionsServiceProvider, @unchecked Sendable {
+
+    // Tracks granted device permissions for the session.
+    private var grantedPermissions = Set<TruapiV02.DevicePermission>()
+    private let lock = NSLock()
 
     // Permissions that the mock host always denies.
     private static let deniedDevicePermissions: Set<TruapiV02.DevicePermission> = [.biometrics]
@@ -258,6 +262,7 @@ final class PermissionsServiceImpl: TruapiV02.PermissionsServiceProvider, Sendab
             return TruapiV02.DevicePermissionResponse(result: .granted(false))
         }
 
+        lock.withLock { grantedPermissions.insert(perm) }
         return TruapiV02.DevicePermissionResponse(result: .granted(true))
     }
 

@@ -295,6 +295,9 @@ class PaymentServiceImpl : PaymentService {
 
 class PermissionsServiceImpl : PermissionsService {
 
+    // Tracks granted device permissions for the session.
+    private val grantedPermissions = mutableSetOf<DevicePermission>()
+
     // Permissions that the mock host always denies.
     private val deniedDevicePermissions = setOf(DevicePermission.DEVICE_PERMISSION_BIOMETRICS)
 
@@ -312,6 +315,7 @@ class PermissionsServiceImpl : PermissionsService {
             return DevicePermissionResponse(result = DevicePermissionResponseResult.Granted(false))
         }
 
+        grantedPermissions.add(perm)
         return DevicePermissionResponse(result = DevicePermissionResponseResult.Granted(true))
     }
 
