@@ -215,30 +215,33 @@ final class PaymentServiceImpl: TruapiV02.PaymentServiceProvider, @unchecked Sen
     private var knownPayments = Set<String>()
 
     func balanceSubscribe(_ request: TruapiV02.PaymentBalanceRequest) -> AsyncThrowingStream<TruapiV02.PaymentBalanceEvent, Error> {
-        AsyncThrowingStream { [self] continuation in
-            // Emit current balance immediately.
-            var balance = TruapiV02.PaymentBalance()
-            balance.available = String(balanceAvailable)
-            balance.pending = String(balancePending)
-            continuation.yield(TruapiV02.PaymentBalanceEvent(result: .balance(balance)))
+        AsyncThrowingStream { continuation in
+            let task = Task { [self] in
+                // Emit current balance immediately.
+                var balance = TruapiV02.PaymentBalance()
+                balance.available = String(balanceAvailable)
+                balance.pending = String(balancePending)
+                continuation.yield(TruapiV02.PaymentBalanceEvent(result: .balance(balance)))
 
-            // Simulate a pending deposit arriving.
-            try? await Task.sleep(nanoseconds: 1_500_000_000)
-            balancePending = 500_000_000_000
-            var updated = TruapiV02.PaymentBalance()
-            updated.available = String(balanceAvailable)
-            updated.pending = String(balancePending)
-            continuation.yield(TruapiV02.PaymentBalanceEvent(result: .balance(updated)))
+                // Simulate a pending deposit arriving.
+                try? await Task.sleep(nanoseconds: 1_500_000_000)
+                balancePending = 500_000_000_000
+                var updated = TruapiV02.PaymentBalance()
+                updated.available = String(balanceAvailable)
+                updated.pending = String(balancePending)
+                continuation.yield(TruapiV02.PaymentBalanceEvent(result: .balance(updated)))
 
-            // Pending clears into available.
-            try? await Task.sleep(nanoseconds: 1_500_000_000)
-            balanceAvailable += balancePending
-            balancePending = 0
-            var cleared = TruapiV02.PaymentBalance()
-            cleared.available = String(balanceAvailable)
-            cleared.pending = String(balancePending)
-            continuation.yield(TruapiV02.PaymentBalanceEvent(result: .balance(cleared)))
-            continuation.finish()
+                // Pending clears into available.
+                try? await Task.sleep(nanoseconds: 1_500_000_000)
+                balanceAvailable += balancePending
+                balancePending = 0
+                var cleared = TruapiV02.PaymentBalance()
+                cleared.available = String(balanceAvailable)
+                cleared.pending = String(balancePending)
+                continuation.yield(TruapiV02.PaymentBalanceEvent(result: .balance(cleared)))
+                continuation.finish()
+            }
+            continuation.onTermination = { _ in task.cancel() }
         }
     }
 
@@ -279,22 +282,25 @@ final class PaymentServiceImpl: TruapiV02.PaymentServiceProvider, @unchecked Sen
     }
 
     func statusSubscribe(_ request: TruapiV02.PaymentStatusRequest) -> AsyncThrowingStream<TruapiV02.PaymentStatusEvent, Error> {
-        AsyncThrowingStream { [self] continuation in
-            guard !request.paymentId.isEmpty, knownPayments.contains(request.paymentId) else {
-                var err = TruapiV02.PaymentStatusError()
-                err.code = .paymentNotFound
-                err.reason = "Payment not found"
-                continuation.yield(TruapiV02.PaymentStatusEvent(result: .error(err)))
-                continuation.finish()
-                return
-            }
+        AsyncThrowingStream { continuation in
+            let task = Task { [self] in
+                guard !request.paymentId.isEmpty, knownPayments.contains(request.paymentId) else {
+                    var err = TruapiV02.PaymentStatusError()
+                    err.code = .paymentNotFound
+                    err.reason = "Payment not found"
+                    continuation.yield(TruapiV02.PaymentStatusEvent(result: .error(err)))
+                    continuation.finish()
+                    return
+                }
 
-            // Note: the codegen flattens PaymentStatusEvent.status into a signal-only case,
-            // so the inner PaymentStatus lifecycle (processing/completed) is not carried.
-            continuation.yield(TruapiV02.PaymentStatusEvent(result: .status))
-            try? await Task.sleep(nanoseconds: 2_000_000_000)
-            continuation.yield(TruapiV02.PaymentStatusEvent(result: .status))
-            continuation.finish()
+                // Note: the codegen flattens PaymentStatusEvent.status into a signal-only case,
+                // so the inner PaymentStatus lifecycle (processing/completed) is not carried.
+                continuation.yield(TruapiV02.PaymentStatusEvent(result: .status))
+                try? await Task.sleep(nanoseconds: 2_000_000_000)
+                continuation.yield(TruapiV02.PaymentStatusEvent(result: .status))
+                continuation.finish()
+            }
+            continuation.onTermination = { _ in task.cancel() }
         }
     }
 }
