@@ -77,15 +77,15 @@ final class ChainServiceImpl: TruapiV02.ChainServiceProvider, Sendable {
     }
 
     func headBody(_ request: TruapiV02.ChainHeadBlockRequest) async throws -> TruapiV02.OperationStartedResponse {
-        TruapiV02.OperationStartedResponse(result: .value)
+        TruapiV02.OperationStartedResponse(result: .value(TruapiV02.OperationStartedResult(result: .operationId("op-1"))))
     }
 
     func headStorage(_ request: TruapiV02.ChainHeadStorageRequest) async throws -> TruapiV02.OperationStartedResponse {
-        TruapiV02.OperationStartedResponse(result: .value)
+        TruapiV02.OperationStartedResponse(result: .value(TruapiV02.OperationStartedResult(result: .operationId("op-2"))))
     }
 
     func headCall(_ request: TruapiV02.ChainHeadCallRequest) async throws -> TruapiV02.OperationStartedResponse {
-        TruapiV02.OperationStartedResponse(result: .value)
+        TruapiV02.OperationStartedResponse(result: .value(TruapiV02.OperationStartedResult(result: .operationId("op-3"))))
     }
 
     func headUnpin(_ request: TruapiV02.ChainHeadUnpinRequest) async throws -> TruapiV02.ChainVoidResponse {
@@ -244,7 +244,9 @@ final class PaymentServiceImpl: TruapiV02.PaymentServiceProvider, @unchecked Sen
     func statusSubscribe(_ request: TruapiV02.PaymentStatusRequest) -> AsyncThrowingStream<TruapiV02.PaymentStatusEvent, Error> {
         AsyncThrowingStream { continuation in
             let task = Task {
-                continuation.yield(TruapiV02.PaymentStatusEvent(result: .status))
+                var paymentStatus = TruapiV02.PaymentStatus()
+                paymentStatus.status = .processing
+                continuation.yield(TruapiV02.PaymentStatusEvent(result: .status(paymentStatus)))
                 // Keep stream open (production pushes updates as payment progresses).
                 while !Task.isCancelled {
                     try await Task.sleep(nanoseconds: UInt64.max)
@@ -313,7 +315,9 @@ final class StatementStoreServiceImpl: TruapiV02.StatementStoreServiceProvider, 
     }
 
     func createProof(_ request: TruapiV02.StatementCreateProofRequest) async throws -> TruapiV02.StatementCreateProofResponse {
-        TruapiV02.StatementCreateProofResponse(result: .proof)
+        var err = TruapiV02.StatementProofError()
+        err.reason = "Not implemented"
+        return TruapiV02.StatementCreateProofResponse(result: .error(err))
     }
 
     func submit(_ request: TruapiV02.StatementSubmitRequest) async throws -> TruapiV02.StatementSubmitResponse {
