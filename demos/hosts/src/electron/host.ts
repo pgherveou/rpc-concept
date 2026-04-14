@@ -10,8 +10,8 @@ import * as path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { RpcServer, createConsoleLogger } from '@rpc-bridge/core';
 import { ElectronMainTransport } from '@rpc-bridge/transport-electron';
-import { registerAllServices } from './setup-server.js';
-import { createGeneralHandler } from './mocks/general.js';
+import { registerAllServices } from '../shared/setup-server.js';
+import { createGeneralHandler } from '../shared/general.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);

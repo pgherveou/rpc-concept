@@ -7,8 +7,8 @@
 
 import { RpcServer, createConsoleLogger } from '@rpc-bridge/core';
 import { MessagePortTransport } from '@rpc-bridge/transport-web';
-import { registerAllServices } from './setup-server.js';
-import { createGeneralHandler } from './mocks/general.js';
+import { registerAllServices } from '../shared/setup-server.js';
+import { createGeneralHandler } from '../shared/general.js';
 
 const logger = createConsoleLogger('Host');
 
