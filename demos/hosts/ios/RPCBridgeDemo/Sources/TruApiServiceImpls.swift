@@ -209,6 +209,7 @@ final class LocalStorageServiceImpl: TruapiV02.LocalStorageServiceProvider, Send
 
 final class PaymentServiceImpl: TruapiV02.PaymentServiceProvider, @unchecked Sendable {
 
+    private let lock = NSLock()
     private var paymentCounter = 0
 
     func balanceSubscribe(_ request: TruapiV02.PaymentBalanceRequest) -> AsyncThrowingStream<TruapiV02.PaymentBalanceEvent, Error> {
@@ -226,6 +227,8 @@ final class PaymentServiceImpl: TruapiV02.PaymentServiceProvider, @unchecked Sen
     }
 
     func request(_ request: TruapiV02.PaymentRequestMsg) async throws -> TruapiV02.PaymentRequestResponse {
+        lock.lock()
+        defer { lock.unlock() }
         paymentCounter += 1
         var receipt = TruapiV02.PaymentReceipt()
         receipt.id = "pay-\(paymentCounter)"
