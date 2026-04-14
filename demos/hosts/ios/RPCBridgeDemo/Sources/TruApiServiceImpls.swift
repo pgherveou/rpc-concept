@@ -160,45 +160,54 @@ final class ChatServiceImpl: TruapiV02.ChatServiceProvider {
 
     func listSubscribe(_ request: TruapiV02.ChatListRequest) -> AsyncThrowingStream<TruapiV02.ChatRoomList, Error> {
         AsyncThrowingStream { [state] continuation in
-            let stream = await state.roomListStream()
-            for await list in stream {
-                continuation.yield(list)
+            let task = Task {
+                let stream = await state.roomListStream()
+                for await list in stream {
+                    continuation.yield(list)
+                }
+                continuation.finish()
             }
-            continuation.finish()
+            continuation.onTermination = { _ in task.cancel() }
         }
     }
 
     func actionSubscribe(_ request: TruapiV02.ChatActionRequest) -> AsyncThrowingStream<TruapiV02.ReceivedChatAction, Error> {
         AsyncThrowingStream { continuation in
-            // Simulate a peer message after a short delay.
-            try? await Task.sleep(nanoseconds: 500_000_000)
-            var action = TruapiV02.ReceivedChatAction()
-            action.roomId = "room-1"
-            action.peer = "alice"
-            action.payload = TruapiV02.ChatActionPayload(payload: .messagePosted)
-            continuation.yield(action)
-            continuation.finish()
+            let task = Task {
+                // Simulate a peer message after a short delay.
+                try? await Task.sleep(nanoseconds: 500_000_000)
+                var action = TruapiV02.ReceivedChatAction()
+                action.roomId = "room-1"
+                action.peer = "alice"
+                action.payload = TruapiV02.ChatActionPayload(payload: .messagePosted)
+                continuation.yield(action)
+                continuation.finish()
+            }
+            continuation.onTermination = { _ in task.cancel() }
         }
     }
 
     func customRenderSubscribe(_ requests: AsyncStream<TruapiV02.CustomRendererNode>) -> AsyncThrowingStream<TruapiV02.CustomMessageRenderRequest, Error> {
         AsyncThrowingStream { continuation in
-            // Send an initial render request.
-            var req = TruapiV02.CustomMessageRenderRequest()
-            req.messageId = "custom-1"
-            req.messageType = "poll"
-            req.payload = Data([0x01])
-            continuation.yield(req)
+            let task = Task {
+                // Send an initial render request.
+                var req = TruapiV02.CustomMessageRenderRequest()
+                req.messageId = "custom-1"
+                req.messageType = "poll"
+                req.payload = AnyCodable(Data([0x01]).base64EncodedString())
+                continuation.yield(req)
 
-            // Echo a render request for each incoming node.
-            for await _ in requests {
-                var update = TruapiV02.CustomMessageRenderRequest()
-                update.messageId = "custom-2"
-                update.messageType = "poll-update"
-                update.payload = Data([0x02])
-                continuation.yield(update)
+                // Echo a render request for each incoming node.
+                for await _ in requests {
+                    var update = TruapiV02.CustomMessageRenderRequest()
+                    update.messageId = "custom-2"
+                    update.messageType = "poll-update"
+                    update.payload = AnyCodable(Data([0x02]).base64EncodedString())
+                    continuation.yield(update)
+                }
+                continuation.finish()
             }
-            continuation.finish()
+            continuation.onTermination = { _ in task.cancel() }
         }
     }
 }
@@ -208,7 +217,7 @@ private actor ChatState {
     private var rooms: [String: TruapiV02.ChatRoom] = [:]
     private var botIds: Set<String> = []
     private var msgSeq = 0
-    private var listContinuations: [AsyncStream<TruapiV02.ChatRoomList>.Continuation] = []
+    private var listContinuations: [UUID: AsyncStream<TruapiV02.ChatRoomList>.Continuation] = [:]
 
     func addRoom(id: String, participation: TruapiV02.ChatRoomParticipation) -> TruapiV02.ChatRoomRegistrationStatus {
         if rooms[id] != nil { return .exists }
@@ -232,26 +241,27 @@ private actor ChatState {
     }
 
     func roomListStream() -> AsyncStream<TruapiV02.ChatRoomList> {
-        AsyncStream { continuation in
+        let id = UUID()
+        return AsyncStream { continuation in
             // Emit current snapshot immediately.
             var list = TruapiV02.ChatRoomList()
             list.rooms = Array(rooms.values)
             continuation.yield(list)
-            listContinuations.append(continuation)
+            listContinuations[id] = continuation
             continuation.onTermination = { [weak self] _ in
-                Task { await self?.removeListContinuation(continuation) }
+                Task { await self?.removeListContinuation(id: id) }
             }
         }
     }
 
-    private func removeListContinuation(_ cont: AsyncStream<TruapiV02.ChatRoomList>.Continuation) {
-        listContinuations.removeAll { $0 === cont }
+    private func removeListContinuation(id: UUID) {
+        listContinuations.removeValue(forKey: id)
     }
 
     private func notifyListListeners() {
         var list = TruapiV02.ChatRoomList()
         list.rooms = Array(rooms.values)
-        for cont in listContinuations { cont.yield(list) }
+        for cont in listContinuations.values { cont.yield(list) }
     }
 }
 
