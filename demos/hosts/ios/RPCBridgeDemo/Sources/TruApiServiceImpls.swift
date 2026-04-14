@@ -293,31 +293,56 @@ final class StatementStoreServiceImpl: TruapiV02.StatementStoreServiceProvider, 
     private static let mockTopicA: AnyCodable = AnyCodable("AQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=")
     private static let mockTopicB: AnyCodable = AnyCodable("AgAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=")
 
+    private let submitLock = NSLock()
+    private var submitCounter = 0
+
+    /// Check if a statement matches the positional topic filter.
+    /// Each filter entry is either a wildcard (absent/empty topic) or must
+    /// match the statement's topic at the same position.
+    private static func matchesFilter(_ statement: TruapiV02.SignedStatement, _ filter: TruapiV02.TopicFilter) -> Bool {
+        for (i, entry) in filter.topics.enumerated() {
+            guard let filterTopic = entry.topic, let filterStr = filterTopic.value as? String, !filterStr.isEmpty else {
+                continue // wildcard
+            }
+            guard i < statement.topics.count, let stmtStr = statement.topics[i].value as? String else {
+                return false
+            }
+            if stmtStr != filterStr { return false }
+        }
+        return true
+    }
+
+    private static func makeSignedStatements(filter: TruapiV02.TopicFilter) -> [TruapiV02.SignedStatement] {
+        let expiry = UInt64(Date().timeIntervalSince1970) + 3600
+
+        var stmt1 = TruapiV02.SignedStatement()
+        var sr25519Proof1 = TruapiV02.Sr25519Proof()
+        sr25519Proof1.signature = mockSignature
+        sr25519Proof1.signer = mockSigner
+        stmt1.proof = TruapiV02.StatementProof(proof: .sr25519(sr25519Proof1))
+        stmt1.expiry = expiry
+        stmt1.topics = [mockTopicA]
+        stmt1.data = AnyCodable("eyJ0eXBlIjoicHJvZmlsZSIsIm5hbWUiOiJBbGljZSJ9")
+
+        var stmt2 = TruapiV02.SignedStatement()
+        var ed25519Proof = TruapiV02.Ed25519Proof()
+        ed25519Proof.signature = mockSignature
+        ed25519Proof.signer = mockSigner2
+        stmt2.proof = TruapiV02.StatementProof(proof: .ed25519(ed25519Proof))
+        stmt2.decryptionKey = AnyCodable("AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=")
+        stmt2.expiry = expiry + 3600
+        stmt2.topics = [mockTopicA, mockTopicB]
+        stmt2.data = AnyCodable("eyJ0eXBlIjoiYXR0ZXN0YXRpb24iLCJzY29yZSI6NDJ9")
+
+        let statements = [stmt1, stmt2]
+        if filter.topics.isEmpty { return statements }
+        return statements.filter { matchesFilter($0, filter) }
+    }
+
     func subscribe(_ request: TruapiV02.TopicFilter) -> AsyncThrowingStream<TruapiV02.StatementList, Error> {
         AsyncThrowingStream { continuation in
-            let expiry = UInt64(Date().timeIntervalSince1970) + 3600
-
-            var stmt1 = TruapiV02.SignedStatement()
-            var sr25519Proof1 = TruapiV02.Sr25519Proof()
-            sr25519Proof1.signature = Self.mockSignature
-            sr25519Proof1.signer = Self.mockSigner
-            stmt1.proof = TruapiV02.StatementProof(proof: .sr25519(sr25519Proof1))
-            stmt1.expiry = expiry
-            stmt1.topics = [Self.mockTopicA]
-            stmt1.data = AnyCodable("eyJ0eXBlIjoicHJvZmlsZSIsIm5hbWUiOiJBbGljZSJ9")
-
-            var stmt2 = TruapiV02.SignedStatement()
-            var ed25519Proof = TruapiV02.Ed25519Proof()
-            ed25519Proof.signature = Self.mockSignature
-            ed25519Proof.signer = Self.mockSigner2
-            stmt2.proof = TruapiV02.StatementProof(proof: .ed25519(ed25519Proof))
-            stmt2.decryptionKey = AnyCodable("AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=")
-            stmt2.expiry = expiry + 3600
-            stmt2.topics = [Self.mockTopicA, Self.mockTopicB]
-            stmt2.data = AnyCodable("eyJ0eXBlIjoiYXR0ZXN0YXRpb24iLCJzY29yZSI6NDJ9")
-
             var list = TruapiV02.StatementList()
-            list.statements = [stmt1, stmt2]
+            list.statements = Self.makeSignedStatements(filter: request)
             continuation.yield(list)
 
             // Simulate a delayed update
@@ -349,7 +374,17 @@ final class StatementStoreServiceImpl: TruapiV02.StatementStoreServiceProvider, 
         TruapiV02.StatementCreateProofResponse(result: .proof)
     }
 
+    private static func mockSignatureBytes(_ len: Int) -> [UInt8] {
+        (0..<len).map { i in UInt8((i * 7 + 0xab) & 0xff) }
+    }
+
     func submit(_ request: TruapiV02.StatementSubmitRequest) async throws -> TruapiV02.StatementSubmitResponse {
-        TruapiV02.StatementSubmitResponse(result: .hash("0xab2cb9d0e7c5dcda1fc9d4ece9fdf4210712ff19f40fe90fdc12ea22fd24392a"))
+        submitLock.lock()
+        submitCounter += 1
+        let count = submitCounter
+        submitLock.unlock()
+
+        let hash = "0x" + Self.mockSignatureBytes(32).map { String(format: "%02x", $0) }.joined()
+        return TruapiV02.StatementSubmitResponse(result: .hash("\(hash)-\(count)"))
     }
 }
