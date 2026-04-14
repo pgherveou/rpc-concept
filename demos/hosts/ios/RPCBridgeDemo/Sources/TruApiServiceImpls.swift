@@ -192,14 +192,12 @@ final class EntropyServiceImpl: TruapiV02.EntropyServiceProvider, Sendable {
     func deriveEntropy(_ request: TruapiV02.DeriveEntropyRequest) async throws -> TruapiV02.DeriveEntropyResponse {
         // Deterministic derivation: SHA-256(rootSeed || key) as a stand-in for
         // the real three-layer BLAKE2b-256 keyed hashing scheme.
+        let keyData = (request.key?.value as? String).flatMap { Data(base64Encoded: $0) } ?? Data()
         var hasher = SHA256()
         hasher.update(data: Self.mockRootSeed)
-        if let key = request.key?.value as? String, let keyData = Data(base64Encoded: key) {
-            hasher.update(data: keyData)
-        }
-        let digest = hasher.finalize()
-        let entropy = Data(digest)
-        return TruapiV02.DeriveEntropyResponse(result: .entropy(AnyCodable(entropy.base64EncodedString())))
+        hasher.update(data: keyData)
+        let entropy = Data(hasher.finalize())
+        return TruapiV02.DeriveEntropyResponse(result: .entropy(AnyCodable(entropy)))
     }
 }
 
