@@ -189,12 +189,14 @@ final class EntropyServiceImpl: TruapiV02.EntropyServiceProvider, Sendable {
 
 final class LocalStorageServiceImpl: TruapiV02.LocalStorageServiceProvider, @unchecked Sendable {
 
+    private let prefix = "truapi:"
     private let lock = NSLock()
     private var store: [String: AnyCodable] = [:]
 
     func read(_ request: TruapiV02.StorageReadRequest) async throws -> TruapiV02.StorageReadResponse {
+        let key = prefix + request.key
         lock.lock()
-        let data = store[request.key]
+        let data = store[key]
         lock.unlock()
         var value = TruapiV02.StorageReadValue()
         if let data { value.data = data }
@@ -202,15 +204,17 @@ final class LocalStorageServiceImpl: TruapiV02.LocalStorageServiceProvider, @unc
     }
 
     func write(_ request: TruapiV02.StorageWriteRequest) async throws -> TruapiV02.StorageWriteResponse {
+        let key = prefix + request.key
         lock.lock()
-        store[request.key] = request.value
+        store[key] = request.value
         lock.unlock()
         return TruapiV02.StorageWriteResponse(result: .ok)
     }
 
     func clear(_ request: TruapiV02.StorageClearRequest) async throws -> TruapiV02.StorageClearResponse {
+        let key = prefix + request.key
         lock.lock()
-        store.removeValue(forKey: request.key)
+        store.removeValue(forKey: key)
         lock.unlock()
         return TruapiV02.StorageClearResponse(result: .ok)
     }

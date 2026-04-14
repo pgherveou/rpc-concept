@@ -232,25 +232,29 @@ class EntropyServiceImpl : EntropyService {
 // -- LocalStorageService --
 
 class LocalStorageServiceImpl : LocalStorageService {
+    private val prefix = "truapi:"
     private val store = mutableMapOf<String, ByteArray>()
 
     override suspend fun read(request: StorageReadRequest): StorageReadResponse {
-        Log.d(TAG, "storage read: ${request.key}")
-        val data = store[request.key] ?: ByteArray(0)
+        val key = prefix + request.key
+        Log.d(TAG, "storage read: $key")
+        val data = store[key] ?: ByteArray(0)
         return StorageReadResponse(
             result = StorageReadResponseResult.Value(StorageReadValue(data = data))
         )
     }
 
     override suspend fun write(request: StorageWriteRequest): StorageWriteResponse {
-        Log.d(TAG, "storage write: ${request.key}")
-        store[request.key] = request.value
+        val key = prefix + request.key
+        Log.d(TAG, "storage write: $key")
+        store[key] = request.value
         return StorageWriteResponse(result = StorageWriteResponseResult.Ok)
     }
 
     override suspend fun clear(request: StorageClearRequest): StorageClearResponse {
-        Log.d(TAG, "storage clear: ${request.key}")
-        store.remove(request.key)
+        val key = prefix + request.key
+        Log.d(TAG, "storage clear: $key")
+        store.remove(key)
         return StorageClearResponse(result = StorageClearResponseResult.Ok)
     }
 }
