@@ -1,17 +1,4 @@
 import type { IStatementStoreServiceHandler } from '../../../proto/generated/server.js';
-<<<<<<< HEAD
-import type { StatementList, StatementCreateProofResponse, StatementSubmitResponse } from '../../../proto/generated/messages.js';
-
-export const statementStoreHandler: IStatementStoreServiceHandler = {
-  async *subscribe(): AsyncGenerator<StatementList> {
-    yield { statements: [] };
-  },
-  async createProof(): Promise<StatementCreateProofResponse> {
-    return { result: { case: 'error', value: { code: 0, reason: 'Not implemented' } } };
-  },
-  async submit(): Promise<StatementSubmitResponse> {
-    return { result: { case: 'hash', value: '0xmockhash' } };
-=======
 import type {
   StatementList,
   StatementCreateProofResponse,
@@ -128,6 +115,5 @@ export const statementStoreHandler: IStatementStoreServiceHandler = {
     submitCounter++;
     const hash = '0x' + Array.from(mockSignature(32)).map((b) => b.toString(16).padStart(2, '0')).join('');
     return { result: { case: 'hash', value: `${hash}-${submitCounter}` } };
->>>>>>> origin/pg/issue-14-statement-store-service
   },
 };

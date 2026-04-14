@@ -18,11 +18,7 @@ import {
   registerPaymentService,
   registerEntropyService,
 } from '../../../proto/generated/server.js';
-<<<<<<<< HEAD:demos/hosts/src/shared/setup-server.ts
-import { generalHandler } from './general.js';
-========
 import { createGeneralHandler } from './general.js';
->>>>>>>> origin/pg/impl-general-service:demos/hosts/js/shared/setup-server.ts
 import { permissionsHandler } from './permissions.js';
 import { localStorageHandler } from './local-storage.js';
 import { accountHandler } from './account.js';

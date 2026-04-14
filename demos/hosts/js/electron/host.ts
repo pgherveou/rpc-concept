@@ -11,10 +11,7 @@ import { fileURLToPath } from 'node:url';
 import { RpcServer, createConsoleLogger } from '@rpc-bridge/core';
 import { ElectronMainTransport } from '@rpc-bridge/transport-electron';
 import { registerAllServices } from '../shared/setup-server.js';
-<<<<<<<< HEAD:demos/hosts/src/electron/host.ts
-========
 import { createGeneralHandler } from '../shared/general.js';
->>>>>>>> origin/pg/impl-general-service:demos/hosts/js/electron/host.ts
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);

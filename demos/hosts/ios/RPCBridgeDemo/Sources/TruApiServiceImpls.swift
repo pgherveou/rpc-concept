@@ -2,12 +2,9 @@
 // Returns sensible stub data for demo / playground use.
 
 import Foundation
-<<<<<<< HEAD
-import CryptoKit
-=======
 import UIKit
 import UserNotifications
->>>>>>> origin/pg/impl-general-service
+import CryptoKit
 import RpcBridge
 
 // MARK: - GeneralServiceImpl
@@ -219,8 +216,6 @@ final class ChainServiceImpl: TruapiV02.ChainServiceProvider, Sendable {
     }
 
     func headBody(_ request: TruapiV02.ChainHeadBlockRequest) async throws -> TruapiV02.OperationStartedResponse {
-<<<<<<< HEAD
-<<<<<<< HEAD
         TruapiV02.OperationStartedResponse(result: .value(TruapiV02.OperationStartedResult(result: .operationId(opCounter.next()))))
     }
 
@@ -230,28 +225,6 @@ final class ChainServiceImpl: TruapiV02.ChainServiceProvider, Sendable {
 
     func headCall(_ request: TruapiV02.ChainHeadCallRequest) async throws -> TruapiV02.OperationStartedResponse {
         TruapiV02.OperationStartedResponse(result: .value(TruapiV02.OperationStartedResult(result: .operationId(opCounter.next()))))
-=======
-        TruapiV02.OperationStartedResponse(result: .value(TruapiV02.OperationStartedResult(result: .operationId("op-1"))))
-    }
-
-    func headStorage(_ request: TruapiV02.ChainHeadStorageRequest) async throws -> TruapiV02.OperationStartedResponse {
-        TruapiV02.OperationStartedResponse(result: .value(TruapiV02.OperationStartedResult(result: .operationId("op-2"))))
-    }
-
-    func headCall(_ request: TruapiV02.ChainHeadCallRequest) async throws -> TruapiV02.OperationStartedResponse {
-        TruapiV02.OperationStartedResponse(result: .value(TruapiV02.OperationStartedResult(result: .operationId("op-3"))))
->>>>>>> origin/pg/impl-payment-service
-=======
-        TruapiV02.OperationStartedResponse(result: .value(TruapiV02.OperationStartedResult()))
-    }
-
-    func headStorage(_ request: TruapiV02.ChainHeadStorageRequest) async throws -> TruapiV02.OperationStartedResponse {
-        TruapiV02.OperationStartedResponse(result: .value(TruapiV02.OperationStartedResult()))
-    }
-
-    func headCall(_ request: TruapiV02.ChainHeadCallRequest) async throws -> TruapiV02.OperationStartedResponse {
-        TruapiV02.OperationStartedResponse(result: .value(TruapiV02.OperationStartedResult()))
->>>>>>> origin/pg/issue-14-statement-store-service
     }
 
     func headUnpin(_ request: TruapiV02.ChainHeadUnpinRequest) async throws -> TruapiV02.ChainVoidResponse {
@@ -524,14 +497,6 @@ final class PaymentServiceImpl: TruapiV02.PaymentServiceProvider, @unchecked Sen
 
     func statusSubscribe(_ request: TruapiV02.PaymentStatusRequest) -> AsyncThrowingStream<TruapiV02.PaymentStatusEvent, Error> {
         AsyncThrowingStream { continuation in
-<<<<<<< HEAD
-<<<<<<< HEAD
-            continuation.yield(TruapiV02.PaymentStatusEvent(result: .status(TruapiV02.PaymentStatus(status: .completed))))
-=======
-            continuation.yield(TruapiV02.PaymentStatusEvent(result: .status(TruapiV02.PaymentStatus())))
->>>>>>> origin/pg/issue-14-statement-store-service
-            continuation.finish()
-=======
             let task = Task {
                 var paymentStatus = TruapiV02.PaymentStatus()
                 paymentStatus.status = .processing
@@ -542,7 +507,6 @@ final class PaymentServiceImpl: TruapiV02.PaymentServiceProvider, @unchecked Sen
                 }
             }
             continuation.onTermination = { _ in task.cancel() }
->>>>>>> origin/pg/impl-payment-service
         }
     }
 }
@@ -808,15 +772,6 @@ final class StatementStoreServiceImpl: TruapiV02.StatementStoreServiceProvider, 
     }
 
     func createProof(_ request: TruapiV02.StatementCreateProofRequest) async throws -> TruapiV02.StatementCreateProofResponse {
-<<<<<<< HEAD
-<<<<<<< HEAD
-        TruapiV02.StatementCreateProofResponse(result: .proof(TruapiV02.StatementProof()))
-=======
-        var err = TruapiV02.StatementProofError()
-        err.reason = "Not implemented"
-        return TruapiV02.StatementCreateProofResponse(result: .error(err))
->>>>>>> origin/pg/impl-payment-service
-=======
         var sr25519Proof = TruapiV02.Sr25519Proof()
         sr25519Proof.signature = Self.mockSignature
         sr25519Proof.signer = Self.mockSigner
@@ -827,7 +782,6 @@ final class StatementStoreServiceImpl: TruapiV02.StatementStoreServiceProvider, 
 
     private static func mockSignatureBytes(_ len: Int) -> [UInt8] {
         (0..<len).map { i in UInt8((i * 7 + 0xab) & 0xff) }
->>>>>>> origin/pg/issue-14-statement-store-service
     }
 
     func submit(_ request: TruapiV02.StatementSubmitRequest) async throws -> TruapiV02.StatementSubmitResponse {

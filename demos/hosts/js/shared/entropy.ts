@@ -1,31 +1,4 @@
 import type { IEntropyServiceHandler } from '../../../proto/generated/server.js';
-<<<<<<< HEAD
-<<<<<<< HEAD
-<<<<<<< HEAD
-<<<<<<< HEAD
-<<<<<<< HEAD
-<<<<<<< HEAD
-=======
->>>>>>> origin/pg/impl-payment-service
-=======
->>>>>>> origin/pg/impl-preimage-service
-=======
->>>>>>> origin/pg/issue-11-permissions-service
-=======
->>>>>>> origin/pg/impl-signing-service
-=======
->>>>>>> origin/pg/issue-14-statement-store-service
-import type { DeriveEntropyResponse } from '../../../proto/generated/messages.js';
-
-export const entropyHandler: IEntropyServiceHandler = {
-  async deriveEntropy(): Promise<DeriveEntropyResponse> {
-    return { result: { case: 'entropy', value: new Uint8Array(32) } };
-<<<<<<< HEAD
-<<<<<<< HEAD
-<<<<<<< HEAD
-<<<<<<< HEAD
-<<<<<<< HEAD
-=======
 import type { DeriveEntropyRequest, DeriveEntropyResponse } from '../../../proto/generated/messages.js';
 
 // Simulated BIP-39 root entropy (fixed 32-byte seed for the mock host).
@@ -54,16 +27,5 @@ export const entropyHandler: IEntropyServiceHandler = {
   async deriveEntropy(request: DeriveEntropyRequest): Promise<DeriveEntropyResponse> {
     const entropy = await deriveEntropyFromKey(request.key);
     return { result: { case: 'entropy', value: entropy } };
->>>>>>> origin/pg/issue-8-entropy-service
-=======
->>>>>>> origin/pg/impl-payment-service
-=======
->>>>>>> origin/pg/impl-preimage-service
-=======
->>>>>>> origin/pg/issue-11-permissions-service
-=======
->>>>>>> origin/pg/impl-signing-service
-=======
->>>>>>> origin/pg/issue-14-statement-store-service
   },
 };
