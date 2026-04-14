@@ -153,7 +153,8 @@ function extractMessage(type: protobuf.Type): MessageDef {
   for (const field of type.fieldsArray) {
     if (oneofFieldNames.has(field.name)) continue;
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const isExplicitOptional = (field as any).rule === 'optional';
+    const f = field as any;
+    const isExplicitOptional = f.rule === 'optional' || !!(f.partOf && f.partOf.isProto3Optional);
     fields.push({
       name: field.name,
       type: stripPackagePrefix(field.type),

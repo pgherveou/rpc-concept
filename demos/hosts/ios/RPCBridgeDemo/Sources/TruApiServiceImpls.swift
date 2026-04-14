@@ -382,21 +382,36 @@ final class EntropyServiceImpl: TruapiV02.EntropyServiceProvider, Sendable {
 
 // MARK: - LocalStorageServiceImpl
 
-final class LocalStorageServiceImpl: TruapiV02.LocalStorageServiceProvider, Sendable {
+final class LocalStorageServiceImpl: TruapiV02.LocalStorageServiceProvider, @unchecked Sendable {
+
+    private let prefix = "truapi:"
+    private let lock = NSLock()
+    private var store: [String: AnyCodable] = [:]
 
     func read(_ request: TruapiV02.StorageReadRequest) async throws -> TruapiV02.StorageReadResponse {
-        var err = TruapiV02.StorageError()
-        err.code = .unspecified
-        err.reason = "Key not found"
-        return TruapiV02.StorageReadResponse(result: .error(err))
+        let key = prefix + request.key
+        lock.lock()
+        let data = store[key]
+        lock.unlock()
+        var value = TruapiV02.StorageReadValue()
+        if let data { value.data = data }
+        return TruapiV02.StorageReadResponse(result: .value(value))
     }
 
     func write(_ request: TruapiV02.StorageWriteRequest) async throws -> TruapiV02.StorageWriteResponse {
-        TruapiV02.StorageWriteResponse(result: .ok)
+        let key = prefix + request.key
+        lock.lock()
+        store[key] = request.value
+        lock.unlock()
+        return TruapiV02.StorageWriteResponse(result: .ok)
     }
 
     func clear(_ request: TruapiV02.StorageClearRequest) async throws -> TruapiV02.StorageClearResponse {
-        TruapiV02.StorageClearResponse(result: .ok)
+        let key = prefix + request.key
+        lock.lock()
+        store.removeValue(forKey: key)
+        lock.unlock()
+        return TruapiV02.StorageClearResponse(result: .ok)
     }
 }
 
