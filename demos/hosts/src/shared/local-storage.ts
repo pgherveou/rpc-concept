@@ -7,7 +7,7 @@ const store = new Map<string, Uint8Array>();
 export const localStorageHandler: ILocalStorageServiceHandler = {
   async read(req): Promise<StorageReadResponse> {
     const data = store.get(PREFIX + req.key);
-    return { result: { case: 'value', value: { data: data ?? new Uint8Array(0) } } };
+    return { result: { case: 'value', value: { data } } };
   },
   async write(req): Promise<StorageWriteResponse> {
     store.set(PREFIX + req.key, req.value);
