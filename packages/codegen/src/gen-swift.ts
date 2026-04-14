@@ -319,7 +319,7 @@ function generateOneofMessageStruct(
     const camel = snakeToCamel(f.name);
     const caseName = escapeSwiftKeyword(camel);
     const msgDef = allMessages.find((m) => m.name === f.type);
-    if (msgDef && msgDef.fields.length === 0) {
+    if (msgDef && msgDef.fields.length === 0 && msgDef.oneofs.length === 0) {
       lines.push(`    case ${caseName}`);
     } else {
       lines.push(`    case ${caseName}(${swiftType(f.type, enumNames)})`);
@@ -390,7 +390,7 @@ function generateOneofMessageStruct(
     const camel = snakeToCamel(f.name);
     const caseName = escapeSwiftKeyword(camel);
     const msgDef = allMessages.find((m) => m.name === f.type);
-    const isEmpty = msgDef && msgDef.fields.length === 0;
+    const isEmpty = msgDef && msgDef.fields.length === 0 && msgDef.oneofs.length === 0;
     const prefix = i === 0 ? 'if' : '} else if';
 
     if (isEmpty) {
@@ -422,7 +422,7 @@ function generateOneofMessageStruct(
     const camel = snakeToCamel(f.name);
     const caseName = escapeSwiftKeyword(camel);
     const msgDef = allMessages.find((m) => m.name === f.type);
-    const isEmpty = msgDef && msgDef.fields.length === 0;
+    const isEmpty = msgDef && msgDef.fields.length === 0 && msgDef.oneofs.length === 0;
     if (isEmpty) {
       lines.push(`        case .${caseName}:`);
       lines.push(`            try container.encode(${f.type}(), forKey: .${caseName})`);

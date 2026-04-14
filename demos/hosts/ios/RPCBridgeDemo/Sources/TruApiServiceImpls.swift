@@ -195,6 +195,7 @@ final class ChainServiceImpl: TruapiV02.ChainServiceProvider, Sendable {
     }
 
     func headBody(_ request: TruapiV02.ChainHeadBlockRequest) async throws -> TruapiV02.OperationStartedResponse {
+<<<<<<< HEAD
         TruapiV02.OperationStartedResponse(result: .value(TruapiV02.OperationStartedResult(result: .operationId(opCounter.next()))))
     }
 
@@ -204,6 +205,17 @@ final class ChainServiceImpl: TruapiV02.ChainServiceProvider, Sendable {
 
     func headCall(_ request: TruapiV02.ChainHeadCallRequest) async throws -> TruapiV02.OperationStartedResponse {
         TruapiV02.OperationStartedResponse(result: .value(TruapiV02.OperationStartedResult(result: .operationId(opCounter.next()))))
+=======
+        TruapiV02.OperationStartedResponse(result: .value(TruapiV02.OperationStartedResult(result: .operationId("op-1"))))
+    }
+
+    func headStorage(_ request: TruapiV02.ChainHeadStorageRequest) async throws -> TruapiV02.OperationStartedResponse {
+        TruapiV02.OperationStartedResponse(result: .value(TruapiV02.OperationStartedResult(result: .operationId("op-2"))))
+    }
+
+    func headCall(_ request: TruapiV02.ChainHeadCallRequest) async throws -> TruapiV02.OperationStartedResponse {
+        TruapiV02.OperationStartedResponse(result: .value(TruapiV02.OperationStartedResult(result: .operationId("op-3"))))
+>>>>>>> origin/pg/impl-payment-service
     }
 
     func headUnpin(_ request: TruapiV02.ChainHeadUnpinRequest) async throws -> TruapiV02.ChainVoidResponse {
@@ -440,15 +452,24 @@ final class LocalStorageServiceImpl: TruapiV02.LocalStorageServiceProvider, @unc
 
 // MARK: - PaymentServiceImpl
 
-final class PaymentServiceImpl: TruapiV02.PaymentServiceProvider, Sendable {
+final class PaymentServiceImpl: TruapiV02.PaymentServiceProvider, @unchecked Sendable {
+
+    private let lock = NSLock()
+    private var paymentCounter = 0
 
     func balanceSubscribe(_ request: TruapiV02.PaymentBalanceRequest) -> AsyncThrowingStream<TruapiV02.PaymentBalanceEvent, Error> {
         AsyncThrowingStream { continuation in
-            var balance = TruapiV02.PaymentBalance()
-            balance.available = "1000000000000"
-            balance.pending = "0"
-            continuation.yield(TruapiV02.PaymentBalanceEvent(result: .balance(balance)))
-            continuation.finish()
+            let task = Task {
+                var balance = TruapiV02.PaymentBalance()
+                balance.available = "1000000000000"
+                balance.pending = "0"
+                continuation.yield(TruapiV02.PaymentBalanceEvent(result: .balance(balance)))
+                // Keep stream open (production pushes updates as balance changes).
+                while !Task.isCancelled {
+                    try await Task.sleep(nanoseconds: UInt64.max)
+                }
+            }
+            continuation.onTermination = { _ in task.cancel() }
         }
     }
 
@@ -457,15 +478,31 @@ final class PaymentServiceImpl: TruapiV02.PaymentServiceProvider, Sendable {
     }
 
     func request(_ request: TruapiV02.PaymentRequestMsg) async throws -> TruapiV02.PaymentRequestResponse {
+        lock.lock()
+        defer { lock.unlock() }
+        paymentCounter += 1
         var receipt = TruapiV02.PaymentReceipt()
-        receipt.id = "receipt-1"
+        receipt.id = "pay-\(paymentCounter)"
         return TruapiV02.PaymentRequestResponse(result: .receipt(receipt))
     }
 
     func statusSubscribe(_ request: TruapiV02.PaymentStatusRequest) -> AsyncThrowingStream<TruapiV02.PaymentStatusEvent, Error> {
         AsyncThrowingStream { continuation in
+<<<<<<< HEAD
             continuation.yield(TruapiV02.PaymentStatusEvent(result: .status(TruapiV02.PaymentStatus(status: .completed))))
             continuation.finish()
+=======
+            let task = Task {
+                var paymentStatus = TruapiV02.PaymentStatus()
+                paymentStatus.status = .processing
+                continuation.yield(TruapiV02.PaymentStatusEvent(result: .status(paymentStatus)))
+                // Keep stream open (production pushes updates as payment progresses).
+                while !Task.isCancelled {
+                    try await Task.sleep(nanoseconds: UInt64.max)
+                }
+            }
+            continuation.onTermination = { _ in task.cancel() }
+>>>>>>> origin/pg/impl-payment-service
         }
     }
 }
@@ -528,7 +565,13 @@ final class StatementStoreServiceImpl: TruapiV02.StatementStoreServiceProvider, 
     }
 
     func createProof(_ request: TruapiV02.StatementCreateProofRequest) async throws -> TruapiV02.StatementCreateProofResponse {
+<<<<<<< HEAD
         TruapiV02.StatementCreateProofResponse(result: .proof(TruapiV02.StatementProof()))
+=======
+        var err = TruapiV02.StatementProofError()
+        err.reason = "Not implemented"
+        return TruapiV02.StatementCreateProofResponse(result: .error(err))
+>>>>>>> origin/pg/impl-payment-service
     }
 
     func submit(_ request: TruapiV02.StatementSubmitRequest) async throws -> TruapiV02.StatementSubmitResponse {

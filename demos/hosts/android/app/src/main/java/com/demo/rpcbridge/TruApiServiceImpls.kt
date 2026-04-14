@@ -429,6 +429,8 @@ class LocalStorageServiceImpl : LocalStorageService {
 // -- PaymentService --
 
 class PaymentServiceImpl : PaymentService {
+    private var paymentCounter = 0
+
     override fun balanceSubscribe(request: PaymentBalanceRequest): Flow<PaymentBalanceEvent> = flow {
         Log.d(TAG, "balanceSubscribe")
         emit(PaymentBalanceEvent(
@@ -436,6 +438,8 @@ class PaymentServiceImpl : PaymentService {
                 PaymentBalance(available = "1000000000000", pending = "0")
             )
         ))
+        // Keep stream open (production pushes updates as balance changes).
+        kotlinx.coroutines.awaitCancellation()
     }
 
     override suspend fun topUp(request: PaymentTopUpRequest): PaymentTopUpResponse {
@@ -445,16 +449,21 @@ class PaymentServiceImpl : PaymentService {
 
     override suspend fun request(request: PaymentRequestMsg): PaymentRequestResponse {
         Log.d(TAG, "payment request: ${request.amount}")
+        paymentCounter++
         return PaymentRequestResponse(
-            result = PaymentRequestResponseResult.Receipt(PaymentReceipt(id = "mock-receipt-1"))
+            result = PaymentRequestResponseResult.Receipt(PaymentReceipt(id = "pay-$paymentCounter"))
         )
     }
 
     override fun statusSubscribe(request: PaymentStatusRequest): Flow<PaymentStatusEvent> = flow {
         Log.d(TAG, "statusSubscribe: ${request.paymentId}")
         emit(PaymentStatusEvent(
-            result = PaymentStatusEventResult.Status(PaymentStatus())
+            result = PaymentStatusEventResult.Status(
+                PaymentStatus(status = PaymentStatusStatus.Processing)
+            )
         ))
+        // Keep stream open (production pushes updates as payment progresses).
+        kotlinx.coroutines.awaitCancellation()
     }
 }
 
