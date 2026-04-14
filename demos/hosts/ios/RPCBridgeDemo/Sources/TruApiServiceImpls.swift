@@ -94,54 +94,59 @@ final class ChainServiceImpl: TruapiV02.ChainServiceProvider, Sendable {
     func headFollow(_ request: TruapiV02.ChainHeadFollowRequest) -> AsyncThrowingStream<TruapiV02.ChainHeadEvent, Error> {
         let opCounter = self.opCounter
         return AsyncThrowingStream { continuation in
-            Task {
-                let finalizedHash = Self.randomHex()
+            let task = Task {
+                do {
+                    let finalizedHash = Self.randomHex()
 
-                // Initialized event
-                var init_ = TruapiV02.Initialized()
-                init_.finalizedBlockHashes = [AnyCodable(finalizedHash)]
-                init_.finalizedBlockRuntime = Self.polkadotRuntime()
-                continuation.yield(TruapiV02.ChainHeadEvent(event: .initialized(init_)))
+                    // Initialized event
+                    var init_ = TruapiV02.Initialized()
+                    init_.finalizedBlockHashes = [AnyCodable(finalizedHash)]
+                    init_.finalizedBlockRuntime = Self.polkadotRuntime()
+                    continuation.yield(TruapiV02.ChainHeadEvent(event: .initialized(init_)))
 
-                // Simulate 5 new blocks
-                var parentHash = finalizedHash
-                var pendingHashes: [String] = []
+                    // Simulate 5 new blocks
+                    var parentHash = finalizedHash
+                    var pendingHashes: [String] = []
 
-                for i in 0..<5 {
-                    try await Task.sleep(nanoseconds: 2_000_000_000)
+                    for i in 0..<5 {
+                        try await Task.sleep(nanoseconds: 2_000_000_000)
 
-                    let blockHash = Self.randomHex()
-                    pendingHashes.append(blockHash)
+                        let blockHash = Self.randomHex()
+                        pendingHashes.append(blockHash)
 
-                    var newBlock = TruapiV02.NewBlock()
-                    newBlock.blockHash = AnyCodable(blockHash)
-                    newBlock.parentBlockHash = AnyCodable(parentHash)
-                    continuation.yield(TruapiV02.ChainHeadEvent(event: .newBlock(newBlock)))
+                        var newBlock = TruapiV02.NewBlock()
+                        newBlock.blockHash = AnyCodable(blockHash)
+                        newBlock.parentBlockHash = AnyCodable(parentHash)
+                        continuation.yield(TruapiV02.ChainHeadEvent(event: .newBlock(newBlock)))
 
-                    var best = TruapiV02.BestBlockChanged()
-                    best.bestBlockHash = AnyCodable(blockHash)
-                    continuation.yield(TruapiV02.ChainHeadEvent(event: .bestBlockChanged(best)))
+                        var best = TruapiV02.BestBlockChanged()
+                        best.bestBlockHash = AnyCodable(blockHash)
+                        continuation.yield(TruapiV02.ChainHeadEvent(event: .bestBlockChanged(best)))
 
-                    // Finalize every 2 blocks
-                    if pendingHashes.count >= 2 {
+                        // Finalize every 2 blocks
+                        if pendingHashes.count >= 2 {
+                            var fin = TruapiV02.Finalized()
+                            fin.finalizedBlockHashes = pendingHashes.map { AnyCodable($0) }
+                            continuation.yield(TruapiV02.ChainHeadEvent(event: .finalized(fin)))
+                            pendingHashes.removeAll()
+                        }
+
+                        parentHash = blockHash
+                    }
+
+                    // Finalize remaining
+                    if !pendingHashes.isEmpty {
                         var fin = TruapiV02.Finalized()
                         fin.finalizedBlockHashes = pendingHashes.map { AnyCodable($0) }
                         continuation.yield(TruapiV02.ChainHeadEvent(event: .finalized(fin)))
-                        pendingHashes.removeAll()
                     }
 
-                    parentHash = blockHash
+                    continuation.finish()
+                } catch {
+                    continuation.finish(throwing: error)
                 }
-
-                // Finalize remaining
-                if !pendingHashes.isEmpty {
-                    var fin = TruapiV02.Finalized()
-                    fin.finalizedBlockHashes = pendingHashes.map { AnyCodable($0) }
-                    continuation.yield(TruapiV02.ChainHeadEvent(event: .finalized(fin)))
-                }
-
-                continuation.finish()
             }
+            continuation.onTermination = { _ in task.cancel() }
         }
     }
 
@@ -199,7 +204,7 @@ final class ChainServiceImpl: TruapiV02.ChainServiceProvider, Sendable {
 }
 
 // Thread-safe operation counter shared across service impls.
-private final class OpCounter: Sendable {
+private final class OpCounter: @unchecked Sendable {
     private let lock = NSLock()
     private var _value: Int = 0
 
