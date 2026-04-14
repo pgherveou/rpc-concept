@@ -38,7 +38,7 @@ class GeneralServiceImpl(
 
     override suspend fun pushNotification(request: PushNotification): PushNotificationResponse {
         Log.d(TAG, "pushNotification: ${request.text} ${request.deeplink}")
-        onNotification(request.text, request.deeplink)
+        onNotification(request.text, request.deeplink ?: "")
         return PushNotificationResponse(result = PushNotificationResponseResult.Ok)
     }
 }
@@ -597,7 +597,7 @@ class SigningServiceImpl : SigningService {
             result = SignPayloadResponseResult.Ok(
                 SigningResult(
                     signature = mockSignature,
-                    signedTransaction = if (request.withSignedTransaction) mockTransaction else ByteArray(0)
+                    signedTransaction = if (request.withSignedTransaction == true) mockTransaction else ByteArray(0)
                 )
             )
         )
@@ -643,9 +643,10 @@ class StatementStoreServiceImpl : StatementStoreService {
         /** Check if a statement matches the positional topic filter. */
         private fun matchesFilter(statement: SignedStatement, filter: TopicFilter): Boolean {
             for ((i, entry) in filter.topics.withIndex()) {
-                if (entry.topic.isEmpty()) continue // wildcard
+                val filterTopic = entry.topic
+                if (filterTopic == null || filterTopic.isEmpty()) continue // wildcard
                 val sTopic = statement.topics.getOrNull(i) ?: return false
-                if (!sTopic.contentEquals(entry.topic)) return false
+                if (!sTopic.contentEquals(filterTopic)) return false
             }
             return true
         }
