@@ -25,25 +25,61 @@ final class GeneralServiceImpl: TruapiV02.GeneralServiceProvider, Sendable {
 
 final class AccountServiceImpl: TruapiV02.AccountServiceProvider, Sendable {
 
+    // Mock root public key (deterministic): 32 bytes, first two 0xaa 0xbb, rest zeros.
+    private static let mockRootKey: AnyCodable = {
+        var key = Data(count: 32)
+        key[0] = 0xAA
+        key[1] = 0xBB
+        return AnyCodable(key.base64EncodedString())
+    }()
+
+    // Derive a deterministic mock public key from dotNsIdentifier and derivationIndex.
+    private static func deriveProductKey(_ dotNsIdentifier: String, _ derivationIndex: Int) -> AnyCodable {
+        var key = Data(count: 32)
+        let utf8 = Array(dotNsIdentifier.utf8)
+        for i in 0..<min(utf8.count, 30) {
+            key[i] = utf8[i]
+        }
+        key[30] = UInt8((derivationIndex >> 8) & 0xFF)
+        key[31] = UInt8(derivationIndex & 0xFF)
+        return AnyCodable(key.base64EncodedString())
+    }
+
     func getAccount(_ request: TruapiV02.GetAccountRequest) async throws -> TruapiV02.GetAccountResponse {
+        let publicKey = Self.deriveProductKey(request.account.dotNsIdentifier, Int(request.account.derivationIndex))
         var account = TruapiV02.Account()
+        account.publicKey = publicKey
         account.name = "Alice"
         return TruapiV02.GetAccountResponse(result: .account(account))
     }
 
     func getAlias(_ request: TruapiV02.GetAliasRequest) async throws -> TruapiV02.GetAliasResponse {
-        TruapiV02.GetAliasResponse(result: .alias(TruapiV02.ContextualAlias()))
+        // Ring VRF alias not yet implemented
+        var err = TruapiV02.RequestCredentialsError()
+        err.code = .unknown
+        err.reason = "Ring VRF alias not yet implemented"
+        return TruapiV02.GetAliasResponse(result: .error(err))
     }
 
     func createProof(_ request: TruapiV02.CreateProofRequest) async throws -> TruapiV02.CreateProofResponse {
-        TruapiV02.CreateProofResponse(result: .proof(AnyCodable("mock-proof")))
+        // Ring VRF proof not yet implemented
+        var err = TruapiV02.CreateProofError()
+        err.code = .unknown
+        err.reason = "Ring VRF proof not yet implemented"
+        return TruapiV02.CreateProofResponse(result: .error(err))
     }
 
     func getNonProductAccounts(_ request: TruapiV02.GetNonProductAccountsRequest) async throws -> TruapiV02.GetNonProductAccountsResponse {
-        TruapiV02.GetNonProductAccountsResponse(result: .accounts(TruapiV02.AccountList()))
+        var rootAccount = TruapiV02.Account()
+        rootAccount.publicKey = Self.mockRootKey
+        rootAccount.name = "Alice"
+        var list = TruapiV02.AccountList()
+        list.accounts = [rootAccount]
+        return TruapiV02.GetNonProductAccountsResponse(result: .accounts(list))
     }
 
     func connectionStatusSubscribe(_ request: TruapiV02.ConnectionStatusRequest) -> AsyncThrowingStream<TruapiV02.AccountConnectionStatusEvent, Error> {
+        // Playground is always authenticated
         AsyncThrowingStream { continuation in
             var event = TruapiV02.AccountConnectionStatusEvent()
             event.status = .connected
@@ -55,6 +91,7 @@ final class AccountServiceImpl: TruapiV02.AccountServiceProvider, Sendable {
     func getUserId(_ request: TruapiV02.GetUserIdRequest) async throws -> TruapiV02.GetUserIdResponse {
         var identity = TruapiV02.UserIdentity()
         identity.dotNsIdentifier = "alice.dot"
+        identity.publicKey = Self.mockRootKey
         return TruapiV02.GetUserIdResponse(result: .identity(identity))
     }
 }
