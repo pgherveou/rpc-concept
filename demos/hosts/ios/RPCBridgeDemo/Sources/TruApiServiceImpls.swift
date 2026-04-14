@@ -255,54 +255,119 @@ private final class OpCounter: @unchecked Sendable {
 
 // MARK: - ChatServiceImpl
 
-final class ChatServiceImpl: TruapiV02.ChatServiceProvider, Sendable {
+final class ChatServiceImpl: TruapiV02.ChatServiceProvider {
+
+    private let state = ChatState()
 
     func createRoom(_ request: TruapiV02.ChatRoomRequest) async throws -> TruapiV02.ChatRoomResponse {
+        let status = await state.addRoom(id: request.roomId, participation: .roomHost)
         var result = TruapiV02.ChatRoomRegistrationResult()
-        result.status = .new
+        result.status = status
         return TruapiV02.ChatRoomResponse(result: .ok(result))
     }
 
     func createSimpleGroup(_ request: TruapiV02.SimpleGroupChatRequest) async throws -> TruapiV02.SimpleGroupChatResponse {
+        let status = await state.addRoom(id: request.roomId, participation: .roomHost)
         var result = TruapiV02.SimpleGroupChatResult()
-        result.status = .new
+        result.status = status
+        result.joinLink = "https://mock.link/join/\(request.roomId)"
         return TruapiV02.SimpleGroupChatResponse(result: .ok(result))
     }
 
     func registerBot(_ request: TruapiV02.ChatBotRequest) async throws -> TruapiV02.ChatBotResponse {
+        let status = await state.addBot(id: request.botId)
         var result = TruapiV02.ChatBotRegistrationResult()
-        result.status = .new
+        result.status = status
         return TruapiV02.ChatBotResponse(result: .ok(result))
     }
 
     func postMessage(_ request: TruapiV02.ChatPostMessageRequest) async throws -> TruapiV02.ChatPostMessageResponse {
+        let messageId = await state.nextMessageId()
         var result = TruapiV02.ChatPostMessageResult()
-        result.messageId = "msg-1"
+        result.messageId = messageId
         return TruapiV02.ChatPostMessageResponse(result: .ok(result))
     }
 
     func listSubscribe(_ request: TruapiV02.ChatListRequest) -> AsyncThrowingStream<TruapiV02.ChatRoomList, Error> {
-        AsyncThrowingStream { continuation in
-            var room = TruapiV02.ChatRoom()
-            room.roomId = "room-1"
-            room.participatingAs = .roomHost
-            var list = TruapiV02.ChatRoomList()
-            list.rooms = [room]
-            continuation.yield(list)
-            continuation.finish()
+        AsyncThrowingStream { [state] continuation in
+            let task = Task {
+                let stream = await state.roomListStream()
+                for await list in stream {
+                    continuation.yield(list)
+                }
+                continuation.finish()
+            }
+            continuation.onTermination = { _ in task.cancel() }
         }
     }
 
     func actionSubscribe(_ request: TruapiV02.ChatActionRequest) -> AsyncThrowingStream<TruapiV02.ReceivedChatAction, Error> {
-        AsyncThrowingStream { continuation in
-            continuation.finish()
-        }
+        // No real chat peers in the playground, so nothing to emit.
+        AsyncThrowingStream { continuation in continuation.finish() }
     }
 
     func customRenderSubscribe(_ requests: AsyncStream<TruapiV02.CustomRendererNode>) -> AsyncThrowingStream<TruapiV02.CustomMessageRenderRequest, Error> {
+        // No custom message types in the playground. Consume the stream without emitting.
         AsyncThrowingStream { continuation in
-            continuation.finish()
+            let task = Task {
+                for await _ in requests {}
+                continuation.finish()
+            }
+            continuation.onTermination = { _ in task.cancel() }
         }
+    }
+}
+
+// Thread-safe in-memory chat state shared by ChatServiceImpl methods.
+private actor ChatState {
+    private var rooms: [String: TruapiV02.ChatRoom] = [:]
+    private var botIds: Set<String> = []
+    private var msgSeq = 0
+    private var listContinuations: [UUID: AsyncStream<TruapiV02.ChatRoomList>.Continuation] = [:]
+
+    func addRoom(id: String, participation: TruapiV02.ChatRoomParticipation) -> TruapiV02.ChatRoomRegistrationStatus {
+        if rooms[id] != nil { return .exists }
+        var room = TruapiV02.ChatRoom()
+        room.roomId = id
+        room.participatingAs = participation
+        rooms[id] = room
+        notifyListListeners()
+        return .new
+    }
+
+    func addBot(id: String) -> TruapiV02.ChatBotRegistrationStatus {
+        if botIds.contains(id) { return .exists }
+        botIds.insert(id)
+        return .new
+    }
+
+    func nextMessageId() -> String {
+        msgSeq += 1
+        return "msg-\(msgSeq)"
+    }
+
+    func roomListStream() -> AsyncStream<TruapiV02.ChatRoomList> {
+        let id = UUID()
+        return AsyncStream { continuation in
+            // Emit current snapshot immediately.
+            var list = TruapiV02.ChatRoomList()
+            list.rooms = Array(rooms.values)
+            continuation.yield(list)
+            listContinuations[id] = continuation
+            continuation.onTermination = { [weak self] _ in
+                Task { await self?.removeListContinuation(id: id) }
+            }
+        }
+    }
+
+    private func removeListContinuation(id: UUID) {
+        listContinuations.removeValue(forKey: id)
+    }
+
+    private func notifyListListeners() {
+        var list = TruapiV02.ChatRoomList()
+        list.rooms = Array(rooms.values)
+        for cont in listContinuations.values { cont.yield(list) }
     }
 }
 
