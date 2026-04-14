@@ -4,6 +4,7 @@ import type { IEntropyServiceHandler } from '../../../proto/generated/server.js'
 <<<<<<< HEAD
 <<<<<<< HEAD
 <<<<<<< HEAD
+<<<<<<< HEAD
 =======
 >>>>>>> origin/pg/impl-payment-service
 =======
@@ -12,11 +13,14 @@ import type { IEntropyServiceHandler } from '../../../proto/generated/server.js'
 >>>>>>> origin/pg/issue-11-permissions-service
 =======
 >>>>>>> origin/pg/impl-signing-service
+=======
+>>>>>>> origin/pg/issue-14-statement-store-service
 import type { DeriveEntropyResponse } from '../../../proto/generated/messages.js';
 
 export const entropyHandler: IEntropyServiceHandler = {
   async deriveEntropy(): Promise<DeriveEntropyResponse> {
     return { result: { case: 'entropy', value: new Uint8Array(32) } };
+<<<<<<< HEAD
 <<<<<<< HEAD
 <<<<<<< HEAD
 <<<<<<< HEAD
@@ -59,5 +63,7 @@ export const entropyHandler: IEntropyServiceHandler = {
 >>>>>>> origin/pg/issue-11-permissions-service
 =======
 >>>>>>> origin/pg/impl-signing-service
+=======
+>>>>>>> origin/pg/issue-14-statement-store-service
   },
 };

@@ -1,8 +1,11 @@
 import type { IPermissionsServiceHandler } from '../../../proto/generated/server.js';
 <<<<<<< HEAD
 <<<<<<< HEAD
+<<<<<<< HEAD
 =======
 >>>>>>> origin/pg/impl-signing-service
+=======
+>>>>>>> origin/pg/issue-14-statement-store-service
 import type { DevicePermissionResponse, RemotePermissionResponse } from '../../../proto/generated/messages.js';
 
 export const permissionsHandler: IPermissionsServiceHandler = {
@@ -10,6 +13,7 @@ export const permissionsHandler: IPermissionsServiceHandler = {
     return { result: { case: 'granted', value: true } };
   },
   async remotePermissionRequest(): Promise<RemotePermissionResponse> {
+<<<<<<< HEAD
 <<<<<<< HEAD
 =======
 import type {
@@ -84,6 +88,8 @@ export const permissionsHandler: IPermissionsServiceHandler = {
 >>>>>>> origin/pg/issue-11-permissions-service
 =======
 >>>>>>> origin/pg/impl-signing-service
+=======
+>>>>>>> origin/pg/issue-14-statement-store-service
     return { result: { case: 'granted', value: true } };
   },
 };

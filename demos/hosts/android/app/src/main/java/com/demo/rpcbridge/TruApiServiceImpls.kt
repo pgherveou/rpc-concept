@@ -1,6 +1,7 @@
 package com.demo.rpcbridge
 
 import android.util.Log
+import java.util.concurrent.atomic.AtomicInteger
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flow
 import truapi.v02.*
@@ -615,22 +616,92 @@ class SigningServiceImpl : SigningService {
 // -- StatementStoreService --
 
 class StatementStoreServiceImpl : StatementStoreService {
+
+    companion object {
+        private val mockSigner = ByteArray(32).also { it[0] = 0xd4.toByte(); it[1] = 0x35 }
+        private val mockSigner2 = ByteArray(32).also { it[0] = 0x8e.toByte(); it[1] = 0xaf.toByte() }
+        private val mockTopicA = ByteArray(32).also { it[0] = 0x01 }
+        private val mockTopicB = ByteArray(32).also { it[0] = 0x02 }
+        private fun mockSignature(len: Int) = ByteArray(len) { i -> ((i * 7 + 0xab) and 0xff).toByte() }
+        private val submitCounter = AtomicInteger(0)
+
+        /** Check if a statement matches the positional topic filter. */
+        private fun matchesFilter(statement: SignedStatement, filter: TopicFilter): Boolean {
+            for ((i, entry) in filter.topics.withIndex()) {
+                if (entry.topic.isEmpty()) continue // wildcard
+                val sTopic = statement.topics.getOrNull(i) ?: return false
+                if (!sTopic.contentEquals(entry.topic)) return false
+            }
+            return true
+        }
+
+        private fun makeSignedStatements(filter: TopicFilter): List<SignedStatement> {
+            val now = System.currentTimeMillis() / 1000
+
+            val stmt1 = SignedStatement(
+                proof = StatementProof(proof = StatementProofProof.Sr25519(
+                    Sr25519Proof(signature = mockSignature(64), signer = mockSigner)
+                )),
+                expiry = (now + 3600).toULong(),
+                topics = listOf(mockTopicA),
+                data = """{"type":"profile","name":"Alice"}""".toByteArray()
+            )
+
+            val stmt2 = SignedStatement(
+                proof = StatementProof(proof = StatementProofProof.Ed25519(
+                    Ed25519Proof(signature = mockSignature(64), signer = mockSigner2)
+                )),
+                decryptionKey = ByteArray(32),
+                expiry = (now + 7200).toULong(),
+                topics = listOf(mockTopicA, mockTopicB),
+                data = """{"type":"attestation","score":42}""".toByteArray()
+            )
+
+            val statements = listOf(stmt1, stmt2)
+            if (filter.topics.isEmpty()) return statements
+            return statements.filter { matchesFilter(it, filter) }
+        }
+    }
+
     override fun subscribe(request: TopicFilter): Flow<StatementList> = flow {
         Log.d(TAG, "statement subscribe")
-        emit(StatementList())
+        emit(StatementList(statements = makeSignedStatements(request)))
+
+        // Simulate a delayed update
+        kotlinx.coroutines.delay(1500)
+        val nowUpdated = System.currentTimeMillis() / 1000
+        val stmt3 = SignedStatement(
+            proof = StatementProof(proof = StatementProofProof.Sr25519(
+                Sr25519Proof(signature = mockSignature(64), signer = mockSigner)
+            )),
+            expiry = (nowUpdated + 1800).toULong(),
+            topics = listOf(mockTopicB),
+            data = """{"type":"update","seq":1}""".toByteArray()
+        )
+        val filtered = if (request.topics.isEmpty()) listOf(stmt3)
+            else listOf(stmt3).filter { matchesFilter(it, request) }
+        if (filtered.isNotEmpty()) {
+            emit(StatementList(statements = filtered))
+        }
     }
 
     override suspend fun createProof(request: StatementCreateProofRequest): StatementCreateProofResponse {
         Log.d(TAG, "statement createProof")
         return StatementCreateProofResponse(
-            result = StatementCreateProofResponseResult.Error(
-                StatementProofError(reason = "Not implemented")
+            result = StatementCreateProofResponseResult.Proof(
+                StatementProof(proof = StatementProofProof.Sr25519(
+                    Sr25519Proof(signature = mockSignature(64), signer = mockSigner)
+                ))
             )
         )
     }
 
     override suspend fun submit(request: StatementSubmitRequest): StatementSubmitResponse {
         Log.d(TAG, "statement submit")
-        return StatementSubmitResponse(result = StatementSubmitResponseResult.Hash("0xmockhash"))
+        val count = submitCounter.incrementAndGet()
+        val hash = "0x" + mockSignature(32).joinToString("") { "%02x".format(it) }
+        return StatementSubmitResponse(
+            result = StatementSubmitResponseResult.Hash("$hash-$count")
+        )
     }
 }

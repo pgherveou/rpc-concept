@@ -1,5 +1,8 @@
 import type { ISigningServiceHandler } from '../../../proto/generated/server.js';
 <<<<<<< HEAD
+<<<<<<< HEAD
+=======
+>>>>>>> origin/pg/issue-14-statement-store-service
 import type { SignPayloadResponse, SignRawResponse, CreateTransactionResponse } from '../../../proto/generated/messages.js';
 
 export const signingHandler: ISigningServiceHandler = {
@@ -14,6 +17,7 @@ export const signingHandler: ISigningServiceHandler = {
   },
   async createTransactionNonProduct(): Promise<CreateTransactionResponse> {
     return { result: { case: 'transaction', value: new Uint8Array(128) } };
+<<<<<<< HEAD
 =======
 import type {
   SigningPayload,
@@ -76,5 +80,7 @@ export const signingHandler: ISigningServiceHandler = {
     console.log('[host] createTransactionNonProduct');
     return { result: { case: 'transaction', value: MOCK_TRANSACTION } };
 >>>>>>> origin/pg/impl-signing-service
+=======
+>>>>>>> origin/pg/issue-14-statement-store-service
   },
 };

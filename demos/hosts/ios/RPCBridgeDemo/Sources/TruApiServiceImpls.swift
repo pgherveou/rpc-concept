@@ -196,6 +196,7 @@ final class ChainServiceImpl: TruapiV02.ChainServiceProvider, Sendable {
 
     func headBody(_ request: TruapiV02.ChainHeadBlockRequest) async throws -> TruapiV02.OperationStartedResponse {
 <<<<<<< HEAD
+<<<<<<< HEAD
         TruapiV02.OperationStartedResponse(result: .value(TruapiV02.OperationStartedResult(result: .operationId(opCounter.next()))))
     }
 
@@ -216,6 +217,17 @@ final class ChainServiceImpl: TruapiV02.ChainServiceProvider, Sendable {
     func headCall(_ request: TruapiV02.ChainHeadCallRequest) async throws -> TruapiV02.OperationStartedResponse {
         TruapiV02.OperationStartedResponse(result: .value(TruapiV02.OperationStartedResult(result: .operationId("op-3"))))
 >>>>>>> origin/pg/impl-payment-service
+=======
+        TruapiV02.OperationStartedResponse(result: .value(TruapiV02.OperationStartedResult()))
+    }
+
+    func headStorage(_ request: TruapiV02.ChainHeadStorageRequest) async throws -> TruapiV02.OperationStartedResponse {
+        TruapiV02.OperationStartedResponse(result: .value(TruapiV02.OperationStartedResult()))
+    }
+
+    func headCall(_ request: TruapiV02.ChainHeadCallRequest) async throws -> TruapiV02.OperationStartedResponse {
+        TruapiV02.OperationStartedResponse(result: .value(TruapiV02.OperationStartedResult()))
+>>>>>>> origin/pg/issue-14-statement-store-service
     }
 
     func headUnpin(_ request: TruapiV02.ChainHeadUnpinRequest) async throws -> TruapiV02.ChainVoidResponse {
@@ -489,7 +501,11 @@ final class PaymentServiceImpl: TruapiV02.PaymentServiceProvider, @unchecked Sen
     func statusSubscribe(_ request: TruapiV02.PaymentStatusRequest) -> AsyncThrowingStream<TruapiV02.PaymentStatusEvent, Error> {
         AsyncThrowingStream { continuation in
 <<<<<<< HEAD
+<<<<<<< HEAD
             continuation.yield(TruapiV02.PaymentStatusEvent(result: .status(TruapiV02.PaymentStatus(status: .completed))))
+=======
+            continuation.yield(TruapiV02.PaymentStatusEvent(result: .status(TruapiV02.PaymentStatus())))
+>>>>>>> origin/pg/issue-14-statement-store-service
             continuation.finish()
 =======
             let task = Task {
@@ -681,14 +697,94 @@ final class SigningServiceImpl: TruapiV02.SigningServiceProvider, Sendable {
 
 final class StatementStoreServiceImpl: TruapiV02.StatementStoreServiceProvider, Sendable {
 
+    private static let mockSigner: AnyCodable = AnyCodable("1FRMM8PEiWXYax7rpS6X4XZX1aAAxSWx1CrKTyrVYhV24fg=")
+    private static let mockSigner2: AnyCodable = AnyCodable("jq8AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=")
+    private static let mockSignature: AnyCodable = AnyCodable("q7K50OfF3NrB+dTs6f30IQcS/xn0D+kP3BLqIv0kOSpB")
+    private static let mockTopicA: AnyCodable = AnyCodable("AQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=")
+    private static let mockTopicB: AnyCodable = AnyCodable("AgAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=")
+
+    private let submitLock = NSLock()
+    private var submitCounter = 0
+
+    /// Check if a statement matches the positional topic filter.
+    /// Each filter entry is either a wildcard (absent/empty topic) or must
+    /// match the statement's topic at the same position.
+    private static func matchesFilter(_ statement: TruapiV02.SignedStatement, _ filter: TruapiV02.TopicFilter) -> Bool {
+        for (i, entry) in filter.topics.enumerated() {
+            guard let filterTopic = entry.topic, let filterStr = filterTopic.value as? String, !filterStr.isEmpty else {
+                continue // wildcard
+            }
+            guard i < statement.topics.count, let stmtStr = statement.topics[i].value as? String else {
+                return false
+            }
+            if stmtStr != filterStr { return false }
+        }
+        return true
+    }
+
+    private static func makeSignedStatements(filter: TruapiV02.TopicFilter) -> [TruapiV02.SignedStatement] {
+        let expiry = UInt64(Date().timeIntervalSince1970) + 3600
+
+        var stmt1 = TruapiV02.SignedStatement()
+        var sr25519Proof1 = TruapiV02.Sr25519Proof()
+        sr25519Proof1.signature = mockSignature
+        sr25519Proof1.signer = mockSigner
+        stmt1.proof = TruapiV02.StatementProof(proof: .sr25519(sr25519Proof1))
+        stmt1.expiry = expiry
+        stmt1.topics = [mockTopicA]
+        stmt1.data = AnyCodable("eyJ0eXBlIjoicHJvZmlsZSIsIm5hbWUiOiJBbGljZSJ9")
+
+        var stmt2 = TruapiV02.SignedStatement()
+        var ed25519Proof = TruapiV02.Ed25519Proof()
+        ed25519Proof.signature = mockSignature
+        ed25519Proof.signer = mockSigner2
+        stmt2.proof = TruapiV02.StatementProof(proof: .ed25519(ed25519Proof))
+        stmt2.decryptionKey = AnyCodable("AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=")
+        stmt2.expiry = expiry + 3600
+        stmt2.topics = [mockTopicA, mockTopicB]
+        stmt2.data = AnyCodable("eyJ0eXBlIjoiYXR0ZXN0YXRpb24iLCJzY29yZSI6NDJ9")
+
+        let statements = [stmt1, stmt2]
+        if filter.topics.isEmpty { return statements }
+        return statements.filter { matchesFilter($0, filter) }
+    }
+
     func subscribe(_ request: TruapiV02.TopicFilter) -> AsyncThrowingStream<TruapiV02.StatementList, Error> {
         AsyncThrowingStream { continuation in
-            continuation.yield(TruapiV02.StatementList())
-            continuation.finish()
+            var list = TruapiV02.StatementList()
+            list.statements = Self.makeSignedStatements(filter: request)
+            continuation.yield(list)
+
+            // Simulate a delayed update
+            let task = Task {
+                do {
+                    try await Task.sleep(nanoseconds: 1_500_000_000)
+                    var stmt3 = TruapiV02.SignedStatement()
+                    var sr25519Proof3 = TruapiV02.Sr25519Proof()
+                    sr25519Proof3.signature = Self.mockSignature
+                    sr25519Proof3.signer = Self.mockSigner
+                    stmt3.proof = TruapiV02.StatementProof(proof: .sr25519(sr25519Proof3))
+                    stmt3.expiry = UInt64(Date().timeIntervalSince1970) + 1800
+                    stmt3.topics = [Self.mockTopicB]
+                    stmt3.data = AnyCodable("eyJ0eXBlIjoidXBkYXRlIiwic2VxIjoxfQ==")
+
+                    let filtered = [stmt3].filter { Self.matchesFilter($0, request) }
+                    if !filtered.isEmpty {
+                        var list2 = TruapiV02.StatementList()
+                        list2.statements = filtered
+                        continuation.yield(list2)
+                    }
+                    continuation.finish()
+                } catch {
+                    continuation.finish(throwing: error)
+                }
+            }
+            continuation.onTermination = { _ in task.cancel() }
         }
     }
 
     func createProof(_ request: TruapiV02.StatementCreateProofRequest) async throws -> TruapiV02.StatementCreateProofResponse {
+<<<<<<< HEAD
 <<<<<<< HEAD
         TruapiV02.StatementCreateProofResponse(result: .proof(TruapiV02.StatementProof()))
 =======
@@ -696,9 +792,27 @@ final class StatementStoreServiceImpl: TruapiV02.StatementStoreServiceProvider, 
         err.reason = "Not implemented"
         return TruapiV02.StatementCreateProofResponse(result: .error(err))
 >>>>>>> origin/pg/impl-payment-service
+=======
+        var sr25519Proof = TruapiV02.Sr25519Proof()
+        sr25519Proof.signature = Self.mockSignature
+        sr25519Proof.signer = Self.mockSigner
+        return TruapiV02.StatementCreateProofResponse(result: .proof(
+            TruapiV02.StatementProof(proof: .sr25519(sr25519Proof))
+        ))
+    }
+
+    private static func mockSignatureBytes(_ len: Int) -> [UInt8] {
+        (0..<len).map { i in UInt8((i * 7 + 0xab) & 0xff) }
+>>>>>>> origin/pg/issue-14-statement-store-service
     }
 
     func submit(_ request: TruapiV02.StatementSubmitRequest) async throws -> TruapiV02.StatementSubmitResponse {
-        TruapiV02.StatementSubmitResponse(result: .hash("0xmockhash"))
+        submitLock.lock()
+        submitCounter += 1
+        let count = submitCounter
+        submitLock.unlock()
+
+        let hash = "0x" + Self.mockSignatureBytes(32).map { String(format: "%02x", $0) }.joined()
+        return TruapiV02.StatementSubmitResponse(result: .hash("\(hash)-\(count)"))
     }
 }
