@@ -34,7 +34,7 @@ export function createGeneralHandler(opts?: GeneralHandlerOptions): IGeneralServ
 
     async pushNotification(request) {
       console.log('[host] Push notification:', request.text, request.deeplink ?? '');
-      opts?.onNotification?.(request.text, request.deeplink);
+      (opts?.onNotification ?? defaultNotification)(request.text, request.deeplink);
       return { result: { case: 'ok' } };
     },
   };
@@ -44,4 +44,8 @@ function defaultNavigate(url: string): void {
   if (typeof window !== 'undefined') {
     window.open(url, '_blank');
   }
+}
+
+function defaultNotification(text: string, deeplink?: string): void {
+  console.log('[host] Notification:', text, deeplink ?? '');
 }

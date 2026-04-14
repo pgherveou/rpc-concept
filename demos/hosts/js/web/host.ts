@@ -29,6 +29,25 @@ function setupBridge(): void {
 
   const generalHandler = createGeneralHandler({
     onNavigate: (url) => window.open(url, '_blank'),
+    onNotification: (text, deeplink) => {
+      if ('Notification' in window && Notification.permission === 'granted') {
+        const n = new Notification('TruAPI Playground', { body: text });
+        if (deeplink) {
+          n.onclick = () => window.open(deeplink, '_blank');
+        }
+      } else if ('Notification' in window && Notification.permission !== 'denied') {
+        Notification.requestPermission().then(perm => {
+          if (perm === 'granted') {
+            const n = new Notification('TruAPI Playground', { body: text });
+            if (deeplink) {
+              n.onclick = () => window.open(deeplink, '_blank');
+            }
+          }
+        });
+      } else {
+        console.log('[host] Notification:', text, deeplink ?? '');
+      }
+    },
   });
 
   registerAllServices(server, { generalHandler });
